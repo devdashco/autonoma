@@ -1,5 +1,6 @@
 import { type Logger, logger } from "@autonoma/logger";
 import { Resend } from "resend";
+import { LOGO_LARGE_BASE64 } from "./assets/logo-large-base64";
 import type { ChannelResult } from "./signup-hooks";
 
 const FONT_FAMILY = "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
@@ -15,7 +16,7 @@ const BRAND = {
     accent: "#C2E812",
     accentForeground: "#050505",
 } as const;
-const LOGO_LARGE_URL = "https://www.getautonoma.com/logo-large.svg";
+const LOGO_CID = "autonoma-logo";
 
 function escapeHtml(value: string): string {
     return value
@@ -64,6 +65,13 @@ export class ResendOnboardingService {
             to: params.email,
             subject: "Welcome to Autonoma - Book your free onboarding session",
             html: this.buildWelcomeEmailHtml(params.userName, params.channelResult),
+            attachments: [
+                {
+                    content: LOGO_LARGE_BASE64,
+                    filename: "logo-large.png",
+                    contentId: LOGO_CID,
+                },
+            ],
         });
 
         this.logger.info("Welcome email sent", { email: params.email });
@@ -101,7 +109,7 @@ export class ResendOnboardingService {
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                         <td valign="middle">
-                            <img src="${LOGO_LARGE_URL}" alt="Autonoma logo" width="180" style="display: block; width: 180px; max-width: 100%; height: auto;">
+                            <img src="cid:${LOGO_CID}" alt="Autonoma logo" width="180" style="display: block; width: 180px; max-width: 100%; height: auto;">
                         </td>
                         <td align="right" valign="middle">
                             <a href="${WEBSITE_URL}" style="color: ${BRAND.text}; text-decoration: none; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; font-family: ${FONT_FAMILY}; text-transform: uppercase; white-space: nowrap;">Visit website</a>
