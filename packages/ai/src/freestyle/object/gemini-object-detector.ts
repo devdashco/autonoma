@@ -2,8 +2,8 @@ import { external } from "@autonoma/errors";
 import { type ScreenResolution, Screenshot } from "@autonoma/image";
 import { Output, generateText } from "ai";
 import z from "zod";
+import { buildMessages } from "../../object/build-messages";
 import { ObjectGenerationFailedError } from "../../object/object-generator";
-import { buildUserMessages } from "../../object/user-messages";
 import type { LanguageModel } from "../../registry/model-registry";
 import { type DetectedObject, ObjectDetector } from "./object-detector";
 
@@ -71,7 +71,7 @@ export class GeminiObjectDetector extends ObjectDetector {
                 generateText({
                     model: this.model,
                     system: GEMINI_OBJECT_DETECTOR_SYSTEM_PROMPT,
-                    messages: buildUserMessages({
+                    messages: buildMessages({
                         userPrompt: prompt,
                         images: [Screenshot.fromBuffer(buffer)],
                     }),

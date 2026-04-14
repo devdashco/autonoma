@@ -12,6 +12,7 @@ export type { ModelUsage } from "./registry/usage";
 export { CostCollector, type CostRecord } from "./registry/cost-collector";
 
 export { ObjectGenerator, ObjectGenerationFailedError } from "./object/object-generator";
+export { extractMessages, buildMessages } from "./object/build-messages";
 export {
     type UploadedVideo,
     VideoProcessor,

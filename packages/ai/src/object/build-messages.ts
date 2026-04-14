@@ -1,5 +1,5 @@
 import type { Screenshot } from "@autonoma/image";
-import type { ModelMessage } from "ai";
+import type { GenerateTextResult, ModelMessage, ToolSet } from "ai";
 import type { UploadedVideo } from "./video/video-processor";
 
 type NonEmptyArray<T> = [T, ...T[]];
@@ -26,7 +26,7 @@ type RequiredObjectGenerationParams =
 
 export type ObjectGenerationParams = RequiredObjectGenerationParams & { video?: UploadedVideo };
 
-export function buildUserMessages({ userPrompt, images, rawMessages, video }: ObjectGenerationParams): ModelMessage[] {
+export function buildMessages({ userPrompt, images, rawMessages, video }: ObjectGenerationParams): ModelMessage[] {
     return [
         ...(rawMessages ?? []),
         ...(userPrompt != null
@@ -48,4 +48,8 @@ export function buildUserMessages({ userPrompt, images, rawMessages, video }: Ob
               ]
             : []),
     ];
+}
+
+export function extractMessages<TOOLS extends ToolSet>(generateResult: GenerateTextResult<TOOLS, any>): ModelMessage[] {
+    return generateResult.response.messages;
 }

@@ -2,8 +2,8 @@ import { external } from "@autonoma/errors";
 import { Output, type ToolSet, generateText, stepCountIs } from "ai";
 import type z from "zod";
 import type { LanguageModel } from "../registry/model-registry";
+import { type ObjectGenerationParams, buildMessages } from "./build-messages";
 import { type RetryConfig, buildRetry } from "./retry";
-import { type ObjectGenerationParams, buildUserMessages } from "./user-messages";
 import { InvalidVideoInputError, modelSupportsVideo } from "./video/video-input";
 
 export interface ObjectGeneratorConfig<TResult> {
@@ -39,7 +39,7 @@ export class ObjectGenerator<TResult> {
                 model,
                 system: systemPrompt,
                 output: Output.object({ schema }),
-                messages: buildUserMessages(params),
+                messages: buildMessages(params),
                 maxRetries: 0,
                 experimental_telemetry: { isEnabled: true },
                 ...(tools && { tools, stopWhen: stepCountIs(5) }),
