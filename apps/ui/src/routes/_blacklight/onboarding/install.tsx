@@ -268,7 +268,7 @@ function RunPluginSection({ activeStep, onStepCopied }: RunPluginSectionProps) {
             /autonoma-test-planner:generate-tests
           </CodeBlock>
           <p className="mt-2 flex items-center gap-2.5 font-mono text-2xs text-text-secondary">
-            <Claude /> Works best with Opus 4.6
+            <Claude /> Works best with Opus 4.6 or later
           </p>
         </div>
       </div>
