@@ -1,20 +1,10 @@
 import { Progress, ProgressLabel, ProgressValue, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
 import { FlagPennantIcon } from "@phosphor-icons/react/FlagPennant";
-import { useParams, useRouteContext } from "@tanstack/react-router";
+import { Suspense } from "react";
 import { useMilestones } from "../app.$appSlug/-home/milestones";
 
-function SidebarMilestonesContent({
-  applicationId,
-  appSlug,
-  collapsed,
-}: {
-  applicationId: string;
-  appSlug: string;
-  collapsed: boolean;
-}) {
-  const milestones = useMilestones(applicationId, appSlug);
-
-  if (milestones == null) return null;
+function SidebarMilestonesContent({ collapsed }: { collapsed: boolean }) {
+  const milestones = useMilestones();
 
   const completed = milestones.filter((m) => m.status === "completed").length;
   const total = milestones.length;
@@ -52,13 +42,9 @@ function SidebarMilestonesContent({
 }
 
 export function SidebarMilestones({ collapsed }: { collapsed: boolean }) {
-  const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
-  const params = useParams({ strict: false }) as { appSlug?: string };
-
-  if (params.appSlug == null) return null;
-
-  const app = applications.find((a) => a.slug === params.appSlug);
-  if (app == null) return null;
-
-  return <SidebarMilestonesContent applicationId={app.id} appSlug={params.appSlug} collapsed={collapsed} />;
+  return (
+    <Suspense>
+      <SidebarMilestonesContent collapsed={collapsed} />
+    </Suspense>
+  );
 }

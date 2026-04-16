@@ -1,9 +1,11 @@
 import { Tooltip, TooltipContent, TooltipTrigger, cn } from "@autonoma/blacklight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { trpc } from "lib/trpc";
+import { useBugs } from "lib/query/bugs.queries";
+import { useGithubInstallation } from "lib/query/github.queries";
+import { useRuns } from "lib/query/runs.queries";
 import { Fragment } from "react";
+import { useCurrentApplication } from "../../-use-current-application";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -48,14 +50,14 @@ const DEFINITIONS = [
   },
 ] as const;
 
-export function useMilestones(applicationId: string, appSlug: string): Milestone[] | undefined {
+export function useMilestones(): Milestone[] {
+  const { slug: appSlug } = useCurrentApplication();
+
   const base = `/app/${appSlug}`;
 
-  const { data: runs } = useQuery(trpc.runs.list.queryOptions({ applicationId }));
-  const { data: bugs } = useQuery(trpc.bugs.list.queryOptions({ applicationId }));
-  const { data: installation } = useQuery(trpc.github.getInstallation.queryOptions());
-
-  if (runs == null || bugs == null) return undefined;
+  const { data: runs } = useRuns();
+  const { data: bugs } = useBugs();
+  const { data: installation } = useGithubInstallation();
 
   const completionMap: Record<string, boolean> = {
     install_agent: true,
@@ -202,10 +204,8 @@ function MilestoneStep({ milestone }: { milestone: Milestone }) {
 
 // ─── Full component ──────────────────────────────────────────────────────────
 
-export function Milestones({ applicationId, appSlug }: { applicationId: string; appSlug: string }) {
-  const milestones = useMilestones(applicationId, appSlug);
-
-  if (milestones == null) return <MilestonesSkeleton />;
+export function Milestones() {
+  const milestones = useMilestones();
 
   const allComplete = milestones.every((m) => m.status === "completed");
   if (allComplete) return null;
