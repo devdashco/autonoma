@@ -18,13 +18,13 @@ import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { LinkBreakIcon } from "@phosphor-icons/react/LinkBreak";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { createFileRoute, useRouteContext } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   useDisconnectGithub,
   useGithubConfig,
   useGithubInstallation,
   useGithubRepositories,
-  useUpdateRepoConfig,
+  useLinkRepository,
 } from "lib/query/github.queries";
 import { Suspense, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
@@ -185,34 +185,19 @@ function InstallationPanel({
 
 function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
   const app = useCurrentApplication();
-  const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const { data: repos } = useGithubRepositories();
-  const updateRepoConfig = useUpdateRepoConfig();
+  const linkRepository = useLinkRepository();
 
-  const linkedRepo = repos.find((r) => r.applicationId === app.id);
-  const appNameById = new Map(applications.map((a) => [a.id, a.name]));
-  const [selectedRepoId, setSelectedRepoId] = useState<string | undefined>();
-  const [watchBranch, setWatchBranch] = useState("main");
+  const linkedRepo = repos.find((r) => r.id === app.githubRepositoryId);
+  const [selectedRepoId, setSelectedRepoId] = useState<number | undefined>();
 
   function handleSave() {
     if (selectedRepoId == null) return;
 
-    const repo = repos.find((r) => r.id === selectedRepoId);
-    updateRepoConfig.mutate({
-      repoId: selectedRepoId,
-      watchBranch,
-      deploymentTrigger: (repo?.deploymentTrigger as "push" | "github_action") ?? "push",
+    linkRepository.mutate({
       applicationId: app.id,
+      githubRepoId: selectedRepoId,
     });
-  }
-
-  function handleRepoChange(value: string | null) {
-    if (value == null) return;
-    setSelectedRepoId(value);
-    const repo = repos.find((r) => r.id === value);
-    if (repo?.defaultBranch != null) {
-      setWatchBranch(repo.defaultBranch);
-    }
   }
 
   if (linkedRepo != null) {
@@ -227,7 +212,7 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
             <div>
               <p className="text-sm font-medium text-text-primary">{linkedRepo.fullName}</p>
               <p className="font-mono text-2xs text-text-tertiary">
-                watching <span className="text-text-secondary">{linkedRepo.watchBranch ?? "main"}</span>
+                default branch: <span className="text-text-secondary">{linkedRepo.defaultBranch}</span>
               </p>
             </div>
           </div>
@@ -252,7 +237,12 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
 
         <div className="flex flex-col gap-1.5">
           <label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">Repository</label>
-          <Select value={selectedRepoId ?? ""} onValueChange={handleRepoChange}>
+          <Select
+            value={selectedRepoId != null ? String(selectedRepoId) : ""}
+            onValueChange={(v) => {
+              if (v != null) handleRepoChange(v);
+            }}
+          >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Select a repository">
                 {repos.find((r) => r.id === selectedRepoId)?.fullName}
@@ -260,13 +250,11 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
             </SelectTrigger>
             <SelectContent>
               {repos.map((repo) => {
-                const { applicationId: repoAppId } = repo;
-                const isLinkedToOtherApp = repoAppId != null && repoAppId !== app.id;
-                const otherAppName = isLinkedToOtherApp ? appNameById.get(repoAppId) : undefined;
+                const isLinkedToOtherApp = repo.applicationId != null && repo.applicationId !== app.id;
                 return (
-                  <SelectItem key={repo.id} value={repo.id} disabled={isLinkedToOtherApp}>
+                  <SelectItem key={repo.id} value={String(repo.id)} disabled={isLinkedToOtherApp}>
                     {isLinkedToOtherApp
-                      ? `${repo.fullName} (linked to ${otherAppName ?? "another app"})`
+                      ? `${repo.fullName} (linked to ${repo.applicationName ?? "another app"})`
                       : repo.fullName}
                   </SelectItem>
                 );
@@ -286,30 +274,22 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
           </p>
         </div>
 
-        {selectedRepoId != null && (
-          <div className="flex flex-col gap-1.5">
-            <label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">Branch to watch</label>
-            <input
-              type="text"
-              value={watchBranch}
-              onChange={(e) => setWatchBranch(e.target.value)}
-              className="w-full border border-border-dim bg-surface-base px-4 py-2.5 font-mono text-xs text-text-primary placeholder-text-tertiary/50 outline-none focus:border-primary-ink/50"
-            />
-            <p className="font-mono text-2xs text-text-tertiary">
-              Autonoma will analyze changes pushed to this branch.
-            </p>
-          </div>
-        )}
-
         <Button
           variant="accent"
           size="sm"
           onClick={handleSave}
-          disabled={selectedRepoId == null || watchBranch.length === 0 || updateRepoConfig.isPending}
+          disabled={selectedRepoId == null || linkRepository.isPending}
         >
-          {updateRepoConfig.isPending ? "Saving..." : "Link Repository"}
+          {linkRepository.isPending ? "Saving..." : "Link Repository"}
         </Button>
       </PanelBody>
     </Panel>
   );
+
+  function handleRepoChange(value: string) {
+    const numValue = Number(value);
+    if (!Number.isNaN(numValue)) {
+      setSelectedRepoId(numValue);
+    }
+  }
 }

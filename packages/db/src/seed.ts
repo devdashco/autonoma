@@ -72,21 +72,20 @@ async function ensureMainWebBranch(params: {
     deploymentId?: string;
     snapshotId?: string;
 }) {
-    const branch = await db.branch.upsert({
-        where: {
-            applicationId_name: {
-                applicationId: params.applicationId,
-                name: "main",
-            },
-        },
-        update: {},
-        create: {
-            ...(params.branchId != null ? { id: params.branchId } : {}),
-            name: "main",
-            applicationId: params.applicationId,
-            organizationId: params.organizationId,
-        },
+    const existing = await db.branch.findFirst({
+        where: { applicationId: params.applicationId, name: "main" },
     });
+
+    const branch =
+        existing ??
+        (await db.branch.create({
+            data: {
+                ...(params.branchId != null ? { id: params.branchId } : {}),
+                name: "main",
+                applicationId: params.applicationId,
+                organizationId: params.organizationId,
+            },
+        }));
 
     const deploymentId =
         branch.deploymentId ??

@@ -1,4 +1,3 @@
-import { GitHubDeploymentTriggerSchema } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../trpc";
 import { createInstallState } from "./github-state";
@@ -35,34 +34,20 @@ export const githubRouter = router({
         services.github.listRepositories(organizationId),
     ),
 
-    updateRepoConfig: protectedProcedure
+    linkRepository: protectedProcedure
         .input(
             z.object({
-                repoId: z.string(),
-                watchBranch: z.string().min(1),
-                deploymentTrigger: GitHubDeploymentTriggerSchema,
-                applicationId: z.string().optional(),
+                applicationId: z.string(),
+                githubRepoId: z.number(),
             }),
         )
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.github.updateRepoConfig(
-                organizationId,
-                input.repoId,
-                input.watchBranch,
-                input.deploymentTrigger,
-                input.applicationId,
-            ),
+            services.github.linkRepository(organizationId, input.applicationId, input.githubRepoId),
         ),
 
     disconnect: protectedProcedure.mutation(({ ctx: { services, organizationId } }) =>
         services.github.disconnect(organizationId),
     ),
-
-    getTestCases: protectedProcedure
-        .input(z.object({ applicationId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.github.getTestCases(organizationId, input.applicationId),
-        ),
 
     deploymentsDebug: protectedProcedure
         .input(z.object({ applicationId: z.string() }))

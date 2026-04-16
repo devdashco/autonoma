@@ -1,5 +1,5 @@
-import type { GitHubInstallationClient } from "@autonoma/github";
-import { describe, expect, it, vi } from "vitest";
+import { FakeGitHubInstallationClient } from "@autonoma/github";
+import { describe, expect, it } from "vitest";
 import type { BugReport } from "../../src/tools/bug-found-tool";
 
 const bugReport: BugReport = {
@@ -15,25 +15,20 @@ describe("reportBug", () => {
     it("creates a GitHub issue with the bug report", async () => {
         const { reportBug } = await import("../../src/callbacks/report-bug");
 
-        const mockGithubClient = {
-            createIssue: vi.fn().mockResolvedValue({
-                number: 42,
-                url: "https://github.com/org/repo/issues/42",
-            }),
-        } as unknown as GitHubInstallationClient;
+        const fakeClient = new FakeGitHubInstallationClient();
+        fakeClient.addRepository({ id: 1001, name: "repo", fullName: "org/repo" });
 
         await reportBug(bugReport, {
-            repoFullName: "org/repo",
+            repoId: 1001,
             headSha: "abc12345def",
-            githubClient: mockGithubClient,
+            githubClient: fakeClient,
         });
 
-        expect(mockGithubClient.createIssue).toHaveBeenCalledWith(
-            "org",
-            "repo",
-            "[Autonoma] Bug detected: Payment button is unresponsive",
-            expect.stringContaining("Payment button is unresponsive"),
-            ["autonoma", "bug"],
-        );
+        expect(fakeClient.createdIssues).toHaveLength(1);
+        const issue = fakeClient.createdIssues[0]!;
+        expect(issue.repoId).toBe(1001);
+        expect(issue.title).toBe("[Autonoma] Bug detected: Payment button is unresponsive");
+        expect(issue.body).toContain("Payment button is unresponsive");
+        expect(issue.labels).toEqual(["autonoma", "bug"]);
     });
 });

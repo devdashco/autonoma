@@ -1,5 +1,6 @@
 import { App } from "@octokit/app";
-import { GitHubInstallationClient } from "./github-installation-client";
+import type { GitHubInstallationClient } from "./github-installation-client";
+import { OctokitGitHubInstallationClient } from "./github-installation-client";
 
 export interface GitHubAppCredentials {
     appId: string;
@@ -8,8 +9,15 @@ export interface GitHubAppCredentials {
     appSlug: string;
 }
 
+export interface GitHubApp {
+    readonly slug: string;
+    getInstallationClient(installationId: number): Promise<GitHubInstallationClient>;
+    deleteInstallation(installationId: number): Promise<void>;
+    verifyWebhook(body: string, signature: string): Promise<boolean>;
+}
+
 /** Creates installation-scoped GitHub clients from a GitHub App. */
-export class GitHubApp {
+export class OctokitGitHubApp implements GitHubApp {
     private readonly app: App;
     public readonly slug: string;
 
@@ -24,7 +32,7 @@ export class GitHubApp {
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {
         const octokit = await this.app.getInstallationOctokit(installationId);
-        return new GitHubInstallationClient(octokit);
+        return new OctokitGitHubInstallationClient(octokit);
     }
 
     async deleteInstallation(installationId: number): Promise<void> {

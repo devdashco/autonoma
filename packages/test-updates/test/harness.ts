@@ -69,7 +69,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
     async createBranch(
         organizationId: string,
         applicationId: string,
-        options?: { githubRef?: string; lastHandledSha?: string },
+        options?: { githubRef?: string; lastHandledSha?: string; prNumber?: number },
     ): Promise<string> {
         const date = Date.now();
         const branch = await this.db.branch.create({
@@ -79,6 +79,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 applicationId,
                 githubRef: options?.githubRef,
                 lastHandledSha: options?.lastHandledSha,
+                prNumber: options?.prNumber,
             },
         });
         return branch.id;
@@ -107,20 +108,11 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return installation.id;
     }
 
-    async createGitHubRepository(installationId: string, applicationId: string, fullName: string): Promise<string> {
-        this.counter++;
-        const repo = await this.db.gitHubRepository.create({
-            data: {
-                installationId,
-                githubRepoId: this.counter,
-                name: fullName.split("/")[1] ?? fullName,
-                fullName,
-                defaultBranch: "main",
-                private: false,
-                applicationId,
-            },
+    async linkApplicationToRepo(applicationId: string, githubRepositoryId: number): Promise<void> {
+        await this.db.application.update({
+            where: { id: applicationId },
+            data: { githubRepositoryId },
         });
-        return repo.id;
     }
 
     /** Creates a fresh branch and starts a new SnapshotDraft on it. */

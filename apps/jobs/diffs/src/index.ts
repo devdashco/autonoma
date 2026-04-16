@@ -2,18 +2,18 @@ import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { createCallbacks, DiffsAgent } from "@autonoma/diffs";
-import { GitHubApp } from "@autonoma/github";
+import { OctokitGitHubApp } from "@autonoma/github";
 import { logger, runWithSentry } from "@autonoma/logger";
-import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
+import { TestSuiteUpdater } from "@autonoma/test-updates";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import type { Architecture } from "@autonoma/types";
-import { triggerDiffsJob, triggerRunWorkflow } from "@autonoma/workflow";
+import { triggerRunWorkflow } from "@autonoma/workflow";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
 import { jobEnv } from "./job-env";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 
-const githubApp = new GitHubApp({
+const githubApp = new OctokitGitHubApp({
     appId: env.GITHUB_APP_ID,
     privateKey: env.GITHUB_APP_PRIVATE_KEY,
     webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
@@ -28,8 +28,7 @@ async function main(): Promise<void> {
     logger.info("Starting diffs analysis job", { branchId: BRANCH_ID });
 
     const jobProvider = new TemporalGenerationProvider();
-    const commitDiffHandler = new CommitDiffHandler(db, githubApp, triggerDiffsJob);
-    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId: BRANCH_ID, jobProvider, commitDiffHandler });
+    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId: BRANCH_ID, jobProvider });
 
     const headSha = updater.headSha;
     const baseSha = updater.baseSha;
@@ -44,7 +43,7 @@ async function main(): Promise<void> {
 
     logger.info("Loaded pending snapshot", { headSha, baseSha });
 
-    const branchData = await loadBranchData(BRANCH_ID);
+    const branchData = await loadBranchData(BRANCH_ID, githubApp);
     logger.info("Loaded branch data", {
         applicationId: branchData.applicationId,
         fullName: branchData.fullName,
@@ -79,7 +78,7 @@ async function main(): Promise<void> {
         updater,
         applicationId: branchData.applicationId,
         organizationId: branchData.organizationId,
-        repoFullName: branchData.fullName,
+        repoId: branchData.repoId,
         headSha,
         testDirectory,
         githubClient,

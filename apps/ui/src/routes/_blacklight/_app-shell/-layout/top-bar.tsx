@@ -140,7 +140,7 @@ function AppSelector({ currentApp }: { currentApp: { slug: string; name: string 
             <>
               <DropdownMenuSeparator />
               {completedApps.map((app) => {
-                const hasNoRepo = app.githubRepositories.length === 0;
+                const hasNoRepo = app.githubRepositoryId == null;
                 return (
                   <DropdownMenuItem
                     key={app.id}

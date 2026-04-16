@@ -1,6 +1,5 @@
 import {
   Button,
-  Input,
   Label,
   Select,
   SelectContent,
@@ -18,7 +17,7 @@ import {
   useGithubConfig,
   useGithubInstallation,
   useGithubRepositories,
-  useUpdateRepoConfig,
+  useLinkRepository,
 } from "lib/query/github.queries";
 import { useCompleteGithub } from "lib/query/onboarding.queries";
 import { Suspense, useState } from "react";
@@ -141,24 +140,23 @@ function ConnectStep({ appId }: { appId: string }) {
 function RepoSelectionStep({ appId }: { appId: string }) {
   const { data: repos } = useGithubRepositories();
   const { data: installation } = useGithubInstallation();
-  const updateRepoConfig = useUpdateRepoConfig();
+  const linkRepository = useLinkRepository();
   const completeGithub = useCompleteGithub();
 
   const navigate = useNavigate();
-  const [selectedRepoId, setSelectedRepoId] = useState<string | undefined>();
-  const [watchBranch, setWatchBranch] = useState("main");
+  const [selectedRepoId, setSelectedRepoId] = useState<number | undefined>();
   const [configured, setConfigured] = useState(false);
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId);
-  const isLinking = updateRepoConfig.isPending;
+  const isLinking = linkRepository.isPending;
   const isCompleting = completeGithub.isPending;
   const settingsUrl = installation?.settingsUrl;
 
   function handleLinkRepo() {
     if (selectedRepoId == null) return;
 
-    updateRepoConfig.mutate(
-      { repoId: selectedRepoId, watchBranch, deploymentTrigger: "push", applicationId: appId },
+    linkRepository.mutate(
+      { applicationId: appId, githubRepoId: selectedRepoId },
       {
         onSuccess: () => {
           setConfigured(true);
@@ -186,7 +184,7 @@ function RepoSelectionStep({ appId }: { appId: string }) {
           <div>
             <p className="text-sm font-medium text-text-primary">{selectedRepo?.fullName ?? "Repository"} connected</p>
             <p className="font-mono text-2xs text-text-secondary">
-              Watching branch <span className="text-text-primary">{watchBranch}</span>
+              Default branch: <span className="text-text-primary">{selectedRepo?.defaultBranch ?? "main"}</span>
             </p>
           </div>
         </div>
@@ -210,14 +208,10 @@ function RepoSelectionStep({ appId }: { appId: string }) {
       <div className="flex flex-col gap-1.5">
         <Label>Repository</Label>
         <Select
-          value={selectedRepoId ?? ""}
+          value={selectedRepoId != null ? String(selectedRepoId) : ""}
           onValueChange={(value) => {
-            const id = value as string;
-            setSelectedRepoId(id || undefined);
-            const repo = repos.find((r) => r.id === id);
-            if (repo?.defaultBranch != null) {
-              setWatchBranch(repo.defaultBranch);
-            }
+            const numValue = Number(value);
+            setSelectedRepoId(!Number.isNaN(numValue) ? numValue : undefined);
           }}
         >
           <SelectTrigger className="max-w-lg">
@@ -225,7 +219,7 @@ function RepoSelectionStep({ appId }: { appId: string }) {
           </SelectTrigger>
           <SelectContent>
             {repos.map((repo) => (
-              <SelectItem key={repo.id} value={repo.id}>
+              <SelectItem key={repo.id} value={String(repo.id)}>
                 {repo.fullName}
               </SelectItem>
             ))}
@@ -246,25 +240,11 @@ function RepoSelectionStep({ appId }: { appId: string }) {
         )}
       </div>
 
-      {selectedRepoId != null && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="branch-input">Branch to watch</Label>
-          <Input
-            id="branch-input"
-            type="text"
-            value={watchBranch}
-            onChange={(e) => setWatchBranch(e.target.value)}
-            className="max-w-lg"
-          />
-          <p className="font-mono text-2xs text-text-tertiary">Autonoma will analyze changes pushed to this branch.</p>
-        </div>
-      )}
-
       <Button
         variant="accent"
         className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
         onClick={handleLinkRepo}
-        disabled={selectedRepoId == null || watchBranch.length === 0 || isLinking}
+        disabled={selectedRepoId == null || isLinking}
         aria-label="onboarding-github-link"
       >
         {isLinking ? "linking..." : "Link Repository"}

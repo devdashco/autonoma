@@ -1,12 +1,11 @@
 import { db } from "@autonoma/db";
-import { GitHubApp } from "@autonoma/github";
-import { CommitDiffHandler, TestSuiteUpdater } from "@autonoma/test-updates";
+import { OctokitGitHubApp } from "@autonoma/github";
+import { TestSuiteUpdater } from "@autonoma/test-updates";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
-import { triggerDiffsJob } from "@autonoma/workflow";
 import { env } from "./env";
 
 export async function createDiffsServices(branchId: string) {
-    const githubApp = new GitHubApp({
+    const githubApp = new OctokitGitHubApp({
         appId: env.GITHUB_APP_ID,
         privateKey: env.GITHUB_APP_PRIVATE_KEY,
         webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
@@ -14,8 +13,7 @@ export async function createDiffsServices(branchId: string) {
     });
 
     const jobProvider = new TemporalGenerationProvider();
-    const commitDiffHandler = new CommitDiffHandler(db, githubApp, triggerDiffsJob);
-    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId, jobProvider, commitDiffHandler });
+    const updater = await TestSuiteUpdater.continueUpdate({ db, branchId, jobProvider });
 
     return { githubApp, updater };
 }

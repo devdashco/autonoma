@@ -71,7 +71,7 @@ function AppSelector() {
               )}
 
               {completedApps.map((app) => {
-                const hasNoRepo = app.githubRepositories.length === 0;
+                const hasNoRepo = app.githubRepositoryId == null;
                 return (
                   <Link
                     key={app.id}

@@ -3,26 +3,17 @@ import { logger } from "@autonoma/logger";
 import type { BugReport } from "../tools/bug-found-tool";
 
 interface ReportBugDeps {
-    repoFullName: string;
+    repoId: number;
     headSha: string;
     githubClient: GitHubInstallationClient;
 }
 
-export async function reportBug(
-    report: BugReport,
-    { repoFullName, headSha, githubClient }: ReportBugDeps,
-): Promise<void> {
-    logger.info("Reporting bug", { summary: report.summary, repo: repoFullName });
-
-    const [owner, repo] = repoFullName.split("/");
-    if (owner == null || repo == null) {
-        logger.error("Invalid repo full name", { repoFullName });
-        return;
-    }
+export async function reportBug(report: BugReport, { repoId, headSha, githubClient }: ReportBugDeps): Promise<void> {
+    logger.info("Reporting bug", { summary: report.summary, repoId });
 
     const body = formatBugIssueBody(report, headSha);
     const title = `[Autonoma] Bug detected: ${report.summary}`;
-    const issue = await githubClient.createIssue(owner, repo, title, body, ["autonoma", "bug"]);
+    const issue = await githubClient.createIssue(repoId, title, body, ["autonoma", "bug"]);
 
     logger.info("GitHub issue created", { issueNumber: issue.number, issueUrl: issue.url });
 }

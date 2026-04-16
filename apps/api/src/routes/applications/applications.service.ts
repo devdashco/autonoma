@@ -86,9 +86,6 @@ export class ApplicationsService extends Service {
                         },
                     },
                 },
-                githubRepositories: {
-                    select: { id: true, fullName: true, watchBranch: true },
-                },
             },
         });
 

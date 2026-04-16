@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { type Organization, type PrismaClient, type Session, type User, createClient } from "@autonoma/db";
-import type { GitHubApp } from "@autonoma/github";
+import { FakeGitHubApp } from "@autonoma/github";
 import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
-import { CommitDiffHandler, FakeGenerationProvider } from "@autonoma/test-updates";
+import { FakeGenerationProvider } from "@autonoma/test-updates";
 import Redis from "ioredis";
 import { vi } from "vitest";
 import { buildAuth } from "../src/auth";
@@ -16,6 +16,7 @@ export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
     public readonly generationProvider: FakeGenerationProvider;
     public readonly services: Services;
+    public readonly githubApp: FakeGitHubApp;
     public organization?: Organization;
     public user?: User;
     public session?: Session;
@@ -27,10 +28,12 @@ export class APITestHarness implements IntegrationHarness {
         services: Services,
         generationProvider: FakeGenerationProvider,
         redisClient: Redis,
+        githubApp: FakeGitHubApp,
     ) {
         this.redisClient = redisClient;
         this.services = services;
         this.generationProvider = generationProvider;
+        this.githubApp = githubApp;
     }
 
     static async create(): Promise<APITestHarness> {
@@ -58,8 +61,6 @@ export class APITestHarness implements IntegrationHarness {
         const triggerWorkflow = vi.fn().mockResolvedValue(undefined);
         const generationProvider = new FakeGenerationProvider();
 
-        vi.spyOn(CommitDiffHandler.prototype, "checkForChanges").mockResolvedValue(undefined);
-
         const storageDir = process.env.TEST_STORAGE_DIR;
         const storage: StorageProvider =
             storageDir != null
@@ -72,6 +73,8 @@ export class APITestHarness implements IntegrationHarness {
                       endpoint: s3Endpoint!,
                   });
 
+        const githubApp = new FakeGitHubApp();
+
         const services = buildServices({
             conn: db,
             auth,
@@ -79,14 +82,15 @@ export class APITestHarness implements IntegrationHarness {
             triggerRunWorkflow: triggerWorkflow,
             triggerGenerationReview: triggerWorkflow,
             triggerRunReview: triggerWorkflow,
-            triggerDiffPlanner: triggerWorkflow,
             scenarioManager,
             encryptionHelper,
             generationProvider,
-            githubApp: {} as unknown as GitHubApp,
+            githubApp,
+            triggerDiffsJob: triggerWorkflow,
+            cancelDiffsJob: triggerWorkflow,
         });
 
-        const harness = new APITestHarness(db, services, generationProvider, redisClient);
+        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         return harness;
     }

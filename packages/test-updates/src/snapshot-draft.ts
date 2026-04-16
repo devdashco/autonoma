@@ -80,6 +80,7 @@ interface StartSnapshotDraftParams extends LoadSnapshotDraftParams {
     source?: TriggerSource;
     headSha?: string;
     baseSha?: string;
+    deploymentId?: string;
 }
 
 /**
@@ -174,6 +175,7 @@ export class SnapshotDraft {
         source,
         headSha,
         baseSha,
+        deploymentId: explicitDeploymentId,
     }: StartSnapshotDraftParams): Promise<SnapshotDraft> {
         const logger = rootLogger.child({ name: "SnapshotDraft", branchId });
 
@@ -212,8 +214,7 @@ export class SnapshotDraft {
                     source: source ?? TriggerSource.MANUAL,
                     headSha,
                     baseSha,
-                    // TODO: Support different deployments per-snapshot.
-                    deploymentId: branch.activeSnapshot?.deploymentId ?? undefined,
+                    deploymentId: explicitDeploymentId ?? branch.activeSnapshot?.deploymentId ?? undefined,
                     prevSnapshotId: branch.activeSnapshotId ?? undefined,
                 },
                 select: { id: true },
@@ -790,16 +791,23 @@ export class SnapshotDraft {
                 });
             }
 
+            const branchUpdate: { activeSnapshotId: string; pendingSnapshotId: null; lastHandledSha?: string } = {
+                activeSnapshotId: this.snapshotId,
+                pendingSnapshotId: null,
+            };
+
+            if (this.headSha != null) {
+                branchUpdate.lastHandledSha = this.headSha;
+            }
+
             this.logger.info("Updating branch to point to new active snapshot and clear pending snapshot", {
                 branchId: snapshot.branchId,
                 newActiveSnapshotId: this.snapshotId,
+                lastHandledSha: this.headSha,
             });
             await tx.branch.update({
                 where: { id: snapshot.branchId },
-                data: {
-                    activeSnapshotId: this.snapshotId,
-                    pendingSnapshotId: null,
-                },
+                data: branchUpdate,
             });
             this.logger.info("Snapshot activation complete");
         });

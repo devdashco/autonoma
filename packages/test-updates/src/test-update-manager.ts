@@ -1,7 +1,6 @@
 import type { PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { TestSuiteChange } from "./changes";
-import type { CommitDiffHandler } from "./commit-diff-handler";
 import type { GenerationJobOptions, GenerationProvider } from "./generation/generation-job-provider";
 import type { GenerationManager } from "./generation/generation-manager";
 import { SnapshotDraft } from "./snapshot-draft";
@@ -18,13 +17,11 @@ export class IncompleteGenerationsError extends Error {
 interface TestSuiteUpdaterParams {
     snapshotDraft: SnapshotDraft;
     generationManager: GenerationManager;
-    commitDiffHandler?: CommitDiffHandler;
 }
 
 interface StartUpdateArgs {
     db: PrismaClient;
     branchId: string;
-    commitDiffHandler?: CommitDiffHandler;
     jobProvider?: GenerationProvider;
     organizationId?: string;
     source?: TriggerSource;
@@ -32,12 +29,12 @@ interface StartUpdateArgs {
     headSha?: string;
     /** The SHA of the base (previous) commit to update the test suite for. */
     baseSha?: string;
+    deploymentId?: string;
 }
 
 interface ContinueUpdateArgs {
     db: PrismaClient;
     branchId: string;
-    commitDiffHandler?: CommitDiffHandler;
     jobProvider?: GenerationProvider;
     organizationId?: string;
 }
@@ -51,7 +48,6 @@ export class TestSuiteUpdater {
 
     private readonly snapshotDraft: SnapshotDraft;
     private readonly generationManager: GenerationManager;
-    private readonly commitDiffHandler?: CommitDiffHandler;
 
     public get snapshotId() {
         return this.snapshotDraft.snapshotId;
@@ -61,11 +57,10 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.branchId;
     }
 
-    private constructor({ snapshotDraft, generationManager, commitDiffHandler }: TestSuiteUpdaterParams) {
+    private constructor({ snapshotDraft, generationManager }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;
         this.generationManager = generationManager;
-        this.commitDiffHandler = commitDiffHandler;
     }
 
     public get headSha(): string | undefined {
@@ -85,20 +80,27 @@ export class TestSuiteUpdater {
     public static async startUpdate({
         db,
         branchId,
-        commitDiffHandler,
         jobProvider,
         organizationId,
         source,
         headSha,
         baseSha,
+        deploymentId,
     }: StartUpdateArgs) {
-        const snapshotDraft = await SnapshotDraft.start({ db, branchId, organizationId, source, headSha, baseSha });
+        const snapshotDraft = await SnapshotDraft.start({
+            db,
+            branchId,
+            organizationId,
+            source,
+            headSha,
+            baseSha,
+            deploymentId,
+        });
         const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
             generationManager,
-            commitDiffHandler,
         });
     }
 
@@ -108,20 +110,13 @@ export class TestSuiteUpdater {
      * @param params.commitDiffHandler - Optional. When provided, enables commit recheck on finalize.
      * @param params.organizationId - Optional. When provided, verifies the branch belongs to this organization.
      */
-    public static async continueUpdate({
-        db,
-        branchId,
-        commitDiffHandler,
-        jobProvider,
-        organizationId,
-    }: ContinueUpdateArgs) {
+    public static async continueUpdate({ db, branchId, jobProvider, organizationId }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
         const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
             generationManager,
-            commitDiffHandler,
         });
     }
 
@@ -226,8 +221,7 @@ export class TestSuiteUpdater {
      * Finalizes the snapshot by activating it.
      *
      * Validates that there are no incomplete (pending, queued, or running)
-     * generations before activation. After activation, re-checks for new
-     * commits that arrived during processing if a commit diff handler was provided.
+     * generations before activation.
      *
      * @throws {IncompleteGenerationsError} If there are still incomplete generations on this snapshot.
      */
@@ -242,19 +236,5 @@ export class TestSuiteUpdater {
 
         await this.snapshotDraft.activate();
         this.logger.info("Snapshot finalized and activated");
-
-        await this.recheckForNewCommits();
-    }
-
-    private async recheckForNewCommits(): Promise<void> {
-        if (this.commitDiffHandler == null) {
-            this.logger.warn("No commit diff handler configured, skipping commit recheck");
-            return;
-        }
-
-        const newSnapshotId = await this.commitDiffHandler.checkForChanges(this.branchId);
-
-        if (newSnapshotId != null) this.logger.info("New snapshot created after recheck", { newSnapshotId });
-        else this.logger.info("No new snapshot created after recheck");
     }
 }

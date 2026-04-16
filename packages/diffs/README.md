@@ -59,7 +59,7 @@ const callbacks = createCallbacks({
   updater,          // TestSuiteUpdater from @autonoma/test-updates
   applicationId,
   workingDirectory, // repo checkout path
-  repoFullName,     // e.g. "org/repo"
+  repoId,           // GitHub repository ID
   headSha,
   octokit,          // GitHub installation client
 });

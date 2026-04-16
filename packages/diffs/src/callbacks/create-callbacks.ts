@@ -16,7 +16,7 @@ export interface CreateCallbacksParams {
     applicationId: string;
     organizationId: string;
     testDirectory: TestDirectory;
-    repoFullName: string;
+    repoId: number;
     headSha: string;
     githubClient: GitHubInstallationClient;
     agentVersion: string;
@@ -38,7 +38,7 @@ export function createCallbacks({
     applicationId,
     organizationId,
     testDirectory,
-    repoFullName,
+    repoId,
     headSha,
     githubClient,
     agentVersion,
@@ -67,6 +67,6 @@ export function createCallbacks({
 
         updateSkill: (skillId, newContent) => updateSkill({ skillId, newContent }, sharedDeps),
 
-        reportBug: (report) => reportBug(report, { repoFullName, headSha, githubClient }),
+        reportBug: (report) => reportBug(report, { repoId, headSha, githubClient }),
     };
 }

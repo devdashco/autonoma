@@ -1,30 +1,12 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { expect, vi } from "vitest";
+import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
-
-const mockInstallationClient = {
-    listInstallationRepos: vi.fn(),
-    compareCommits: vi.fn(),
-};
 
 apiTestSuite({
     name: "GitHubInstallationService",
     seed: async ({ harness }) => {
-        // Mock the githubApp on the service to return our mock client
-        const service = harness.services.github;
-        const githubApp = (
-            service as unknown as {
-                githubApp: {
-                    getInstallationClient: ReturnType<typeof vi.fn>;
-                    deleteInstallation: ReturnType<typeof vi.fn>;
-                    slug: string;
-                };
-            }
-        ).githubApp;
-        githubApp.getInstallationClient = vi.fn().mockResolvedValue(mockInstallationClient);
-        githubApp.deleteInstallation = vi.fn().mockResolvedValue(undefined);
-        githubApp.slug = "test-app";
+        const fakeClient = harness.githubApp.defaultClient;
 
         const app = await harness.services.applications.createApplication({
             name: "Test App",
@@ -34,15 +16,10 @@ apiTestSuite({
             file: "s3://bucket/file.png",
         });
 
-        return { app };
+        return { app, fakeClient };
     },
     cases: (test) => {
-        test("handleInstallation upserts installation and repos", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 1001, name: "repo-a", fullName: "org/repo-a", defaultBranch: "main", private: false },
-                { id: 1002, name: "repo-b", fullName: "org/repo-b", defaultBranch: "develop", private: true },
-            ]);
-
+        test("handleInstallation upserts installation", async ({ harness }) => {
             await harness.services.github.handleInstallation(
                 12345,
                 harness.organizationId,
@@ -53,25 +30,15 @@ apiTestSuite({
 
             const installation = await harness.db.gitHubInstallation.findUnique({
                 where: { organizationId: harness.organizationId },
-                include: { repositories: true },
             });
 
             expect(installation).not.toBeNull();
             expect(installation!.installationId).toBe(12345);
             expect(installation!.accountLogin).toBe("test-org");
             expect(installation!.status).toBe("active");
-            expect(installation!.repositories).toHaveLength(2);
-
-            const repoNames = installation!.repositories.map((r) => r.name);
-            expect(repoNames).toContain("repo-a");
-            expect(repoNames).toContain("repo-b");
         });
 
         test("handleInstallation updates existing installation on re-install", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 1001, name: "repo-a", fullName: "org/repo-a", defaultBranch: "main", private: false },
-            ]);
-
             await harness.services.github.handleInstallation(
                 12345,
                 harness.organizationId,
@@ -79,18 +46,6 @@ apiTestSuite({
                 999,
                 "Organization",
             );
-
-            // Re-install with updated account login and different repos
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                {
-                    id: 1001,
-                    name: "repo-a-renamed",
-                    fullName: "org/repo-a-renamed",
-                    defaultBranch: "main",
-                    private: false,
-                },
-                { id: 1003, name: "repo-c", fullName: "org/repo-c", defaultBranch: "main", private: false },
-            ]);
 
             await harness.services.github.handleInstallation(
                 12345,
@@ -102,16 +57,12 @@ apiTestSuite({
 
             const installation = await harness.db.gitHubInstallation.findUnique({
                 where: { organizationId: harness.organizationId },
-                include: { repositories: true },
             });
 
             expect(installation!.accountLogin).toBe("new-org-name");
-            expect(installation!.repositories).toHaveLength(3);
         });
 
         test("handleUninstall marks installation as deleted", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([]);
-
             await harness.services.github.handleInstallation(
                 55555,
                 harness.organizationId,
@@ -130,8 +81,6 @@ apiTestSuite({
         });
 
         test("handleSuspend marks installation as suspended", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([]);
-
             await harness.services.github.handleInstallation(
                 66666,
                 harness.organizationId,
@@ -149,10 +98,24 @@ apiTestSuite({
             expect(installation!.status).toBe("suspended");
         });
 
-        test("listRepositories returns repos for the org", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 2001, name: "my-repo", fullName: "org/my-repo", defaultBranch: "main", private: false },
-            ]);
+        test("listRepositories returns repos from GitHub API with linked app info", async ({
+            harness,
+            seedResult: { app, fakeClient },
+        }) => {
+            fakeClient.addRepository({
+                id: 2001,
+                name: "my-repo",
+                fullName: "org/my-repo",
+                defaultBranch: "main",
+                private: false,
+            });
+            fakeClient.addRepository({
+                id: 2002,
+                name: "other-repo",
+                fullName: "org/other-repo",
+                defaultBranch: "main",
+                private: false,
+            });
 
             await harness.services.github.handleInstallation(
                 77777,
@@ -162,23 +125,37 @@ apiTestSuite({
                 "Organization",
             );
 
+            // Link app to first repo
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { githubRepositoryId: 2001 },
+            });
+
             const repos = await harness.services.github.listRepositories(harness.organizationId);
-            const myRepo = repos.find((r) => r.name === "my-repo");
-            expect(myRepo).toBeDefined();
+            expect(repos).toHaveLength(2);
+
+            const linkedRepo = repos.find((r) => r.id === 2001);
+            expect(linkedRepo?.applicationId).toBe(app.id);
+
+            const unlinkedRepo = repos.find((r) => r.id === 2002);
+            expect(unlinkedRepo?.applicationId).toBeUndefined();
         });
 
         test("listRepositories throws NotFoundError when no installation", async ({ harness }) => {
-            // Use a random org ID that has no installation
             await expect(harness.services.github.listRepositories("nonexistent-org-id")).rejects.toThrow(NotFoundError);
         });
 
-        test("updateRepoConfig updates watch branch and deployment trigger", async ({
+        test("linkRepository sets githubRepositoryId on application", async ({
             harness,
-            seedResult: { app },
+            seedResult: { app, fakeClient },
         }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 3001, name: "config-repo", fullName: "org/config-repo", defaultBranch: "main", private: false },
-            ]);
+            fakeClient.addRepository({
+                id: 3001,
+                name: "config-repo",
+                fullName: "org/config-repo",
+                defaultBranch: "main",
+                private: false,
+            });
 
             await harness.services.github.handleInstallation(
                 88888,
@@ -188,24 +165,13 @@ apiTestSuite({
                 "Organization",
             );
 
-            const installation = await harness.db.gitHubInstallation.findUnique({
-                where: { organizationId: harness.organizationId },
-                include: { repositories: true },
-            });
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3001);
 
-            const repo = installation!.repositories[0]!;
-
-            await harness.services.github.updateRepoConfig(harness.organizationId, repo.id, "main", "push", app.id);
-
-            const updated = await harness.db.gitHubRepository.findUnique({ where: { id: repo.id } });
-            expect(updated!.watchBranch).toBe("main");
-            expect(updated!.deploymentTrigger).toBe("push");
-            expect(updated!.applicationId).toBe(app.id);
+            const updated = await harness.db.application.findUnique({ where: { id: app.id } });
+            expect(updated!.githubRepositoryId).toBe(3001);
         });
 
-        test("updateRepoConfig throws NotFoundError for nonexistent repo", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([]);
-
+        test("linkRepository throws NotFoundError for nonexistent app", async ({ harness }) => {
             await harness.services.github.handleInstallation(
                 99999,
                 harness.organizationId,
@@ -215,19 +181,14 @@ apiTestSuite({
             );
 
             await expect(
-                harness.services.github.updateRepoConfig(
-                    harness.organizationId,
-                    "nonexistent-repo-id",
-                    "main",
-                    "push",
-                    undefined,
-                ),
+                harness.services.github.linkRepository(harness.organizationId, "nonexistent-app-id", 1234),
             ).rejects.toThrow(NotFoundError);
         });
 
-        test("disconnect removes installation from database", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([]);
-
+        test("disconnect removes installation and clears githubRepositoryId", async ({
+            harness,
+            seedResult: { app },
+        }) => {
             await harness.services.github.handleInstallation(
                 11111,
                 harness.organizationId,
@@ -236,93 +197,27 @@ apiTestSuite({
                 "Organization",
             );
 
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { githubRepositoryId: 5001 },
+            });
+
             await harness.services.github.disconnect(harness.organizationId);
 
             const installation = await harness.db.gitHubInstallation.findUnique({
                 where: { organizationId: harness.organizationId },
             });
-
             expect(installation).toBeNull();
+
+            const updatedApp = await harness.db.application.findUnique({ where: { id: app.id } });
+            expect(updatedApp!.githubRepositoryId).toBeNull();
         });
 
         test("disconnect throws NotFoundError when no installation", async ({ harness }) => {
             await expect(harness.services.github.disconnect("nonexistent-org-id")).rejects.toThrow(NotFoundError);
         });
 
-        test("handleDeploymentNotification creates deployment and fetches diff", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 4001, name: "deploy-repo", fullName: "org/deploy-repo", defaultBranch: "main", private: false },
-            ]);
-
-            await harness.services.github.handleInstallation(
-                22222,
-                harness.organizationId,
-                "test-org",
-                999,
-                "Organization",
-            );
-
-            mockInstallationClient.compareCommits.mockResolvedValue({
-                aheadBy: 1,
-                behindBy: 0,
-                status: "ahead",
-                files: [{ filename: "src/index.ts", patch: "@@ -1 +1 @@\n-old\n+new" }],
-            });
-
-            await harness.services.github.handleDeploymentNotification(
-                harness.organizationId,
-                "org/deploy-repo",
-                "abc123",
-                "def456",
-                "production",
-                "https://example.com",
-            );
-
-            // The deployment is created synchronously, diff is fetched async
-            const installation = await harness.db.gitHubInstallation.findUnique({
-                where: { organizationId: harness.organizationId },
-                include: { repositories: true },
-            });
-            const repo = installation!.repositories[0]!;
-
-            const deployment = await harness.db.gitHubDeployment.findFirst({
-                where: { repositoryId: repo.id },
-            });
-
-            expect(deployment).not.toBeNull();
-            expect(deployment!.sha).toBe("abc123");
-            expect(deployment!.baseSha).toBe("def456");
-            expect(deployment!.environment).toBe("production");
-        });
-
-        test("handleDeploymentNotification throws for unknown repo", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([]);
-
-            await harness.services.github.handleInstallation(
-                33333,
-                harness.organizationId,
-                "test-org",
-                999,
-                "Organization",
-            );
-
-            await expect(
-                harness.services.github.handleDeploymentNotification(
-                    harness.organizationId,
-                    "org/unknown-repo",
-                    "abc",
-                    undefined,
-                    "staging",
-                    undefined,
-                ),
-            ).rejects.toThrow(NotFoundError);
-        });
-
         test("handleBranchDeployment creates branch and deployment", async ({ harness, seedResult: { app } }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 5001, name: "branch-repo", fullName: "org/branch-repo", defaultBranch: "main", private: false },
-            ]);
-
             await harness.services.github.handleInstallation(
                 44444,
                 harness.organizationId,
@@ -331,22 +226,20 @@ apiTestSuite({
                 "Organization",
             );
 
-            // Link the repo to the app
-            const repo = await harness.db.gitHubRepository.findFirst({
-                where: { fullName: "org/branch-repo" },
-            });
-            await harness.db.gitHubRepository.update({
-                where: { id: repo!.id },
-                data: { applicationId: app.id },
+            // Link the app to a repo
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { githubRepositoryId: 5001 },
             });
 
             const result = await harness.services.github.handleBranchDeployment(
                 harness.organizationId,
-                "org/branch-repo",
+                5001,
                 "refs/heads/feature/my-branch",
                 "sha123",
                 "https://preview.example.com",
                 "preview",
+                42,
             );
 
             expect(result.branchId).toBeDefined();
@@ -359,10 +252,6 @@ apiTestSuite({
         });
 
         test("handleBranchDeployment reuses existing branch", async ({ harness, seedResult: { app } }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                { id: 6001, name: "reuse-repo", fullName: "org/reuse-repo", defaultBranch: "main", private: false },
-            ]);
-
             await harness.services.github.handleInstallation(
                 55556,
                 harness.organizationId,
@@ -371,49 +260,36 @@ apiTestSuite({
                 "Organization",
             );
 
-            const repo = await harness.db.gitHubRepository.findFirst({
-                where: { fullName: "org/reuse-repo" },
-            });
-            await harness.db.gitHubRepository.update({
-                where: { id: repo!.id },
-                data: { applicationId: app.id },
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { githubRepositoryId: 6001 },
             });
 
-            // Create first deployment
             const first = await harness.services.github.handleBranchDeployment(
                 harness.organizationId,
-                "org/reuse-repo",
+                6001,
                 "my-branch",
                 "sha1",
                 "https://v1.example.com",
                 undefined,
+                99,
             );
 
-            // Create second deployment on same branch
             const second = await harness.services.github.handleBranchDeployment(
                 harness.organizationId,
-                "org/reuse-repo",
+                6001,
                 "my-branch",
                 "sha2",
                 "https://v2.example.com",
                 undefined,
+                99,
             );
 
             expect(first.branchId).toBe(second.branchId);
             expect(first.deploymentId).not.toBe(second.deploymentId);
         });
 
-        test("handleBranchDeployment throws when repo not linked to app", async ({ harness }) => {
-            mockInstallationClient.listInstallationRepos.mockResolvedValue([
-                {
-                    id: 7001,
-                    name: "unlinked-repo",
-                    fullName: "org/unlinked-repo",
-                    defaultBranch: "main",
-                    private: false,
-                },
-            ]);
-
+        test("handleBranchDeployment throws when no app linked to repo", async ({ harness }) => {
             await harness.services.github.handleInstallation(
                 66667,
                 harness.organizationId,
@@ -425,13 +301,14 @@ apiTestSuite({
             await expect(
                 harness.services.github.handleBranchDeployment(
                     harness.organizationId,
-                    "org/unlinked-repo",
+                    7001,
                     "main",
                     "sha123",
                     "https://example.com",
                     undefined,
+                    1,
                 ),
-            ).rejects.toThrow("not linked to an application");
+            ).rejects.toThrow("No application linked to GitHub repository");
         });
     },
 });

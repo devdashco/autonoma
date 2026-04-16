@@ -16,7 +16,7 @@ interface RunDiffsAgentParams {
     applicationId: string;
     organizationId: string;
     agentVersion: string;
-    repoFullName: string;
+    repoId: number;
     headSha: string;
     repoDir: string;
     testDirectory: TestDirectory;
@@ -30,7 +30,7 @@ export async function runDiffsAgent(params: RunDiffsAgentParams): Promise<void> 
         applicationId,
         organizationId,
         agentVersion,
-        repoFullName,
+        repoId,
         headSha,
         repoDir,
         testDirectory,
@@ -48,7 +48,7 @@ export async function runDiffsAgent(params: RunDiffsAgentParams): Promise<void> 
         updater,
         applicationId,
         organizationId,
-        repoFullName,
+        repoId,
         headSha,
         testDirectory,
         githubClient,

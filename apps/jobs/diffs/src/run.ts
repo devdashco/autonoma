@@ -23,7 +23,7 @@ export async function runDiffsAnalysis(branchId: string): Promise<void> {
     Sentry.setTag("headSha", headSha);
     logger.info("Loaded pending snapshot", { headSha, baseSha });
 
-    const branchData = await loadBranchData(branchId);
+    const branchData = await loadBranchData(branchId, githubApp);
     logger.info("Loaded branch data", { applicationId: branchData.applicationId, fullName: branchData.fullName });
 
     const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
@@ -49,7 +49,7 @@ export async function runDiffsAnalysis(branchId: string): Promise<void> {
         applicationId: branchData.applicationId,
         organizationId: branchData.organizationId,
         agentVersion: env.AGENT_VERSION,
-        repoFullName: branchData.fullName,
+        repoId: branchData.repoId,
         headSha,
         repoDir,
         testDirectory,

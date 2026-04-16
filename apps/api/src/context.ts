@@ -1,9 +1,10 @@
 import { db } from "@autonoma/db";
-import { GitHubApp } from "@autonoma/github";
+import { OctokitGitHubApp } from "@autonoma/github";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
 import {
+    cancelDiffsJob,
     triggerDiffsJob,
     triggerGenerationReviewWorkflow,
     triggerReplayReviewWorkflow,
@@ -27,7 +28,7 @@ export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
 export const generationProvider = new TemporalGenerationProvider();
 
-const githubApp = new GitHubApp({
+const githubApp = new OctokitGitHubApp({
     appSlug: env.GITHUB_APP_SLUG,
     appId: env.GITHUB_APP_ID,
     privateKey: env.GITHUB_APP_PRIVATE_KEY,
@@ -50,11 +51,12 @@ export async function createContext(c: HonoContext) {
             triggerRunWorkflow,
             triggerGenerationReview: triggerGenerationReviewWorkflow,
             triggerRunReview: triggerReplayReviewWorkflow,
-            triggerDiffPlanner: triggerDiffsJob,
             scenarioManager,
             encryptionHelper,
             generationProvider,
             githubApp,
+            triggerDiffsJob,
+            cancelDiffsJob,
         }),
     };
 }

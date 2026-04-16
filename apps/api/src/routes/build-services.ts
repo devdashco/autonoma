@@ -5,9 +5,10 @@ import type { GitHubApp } from "@autonoma/github";
 import { BugLinker, BugMatcher } from "@autonoma/review";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
-import { CommitDiffHandler, type GenerationProvider, type TriggerDiffPlanner } from "@autonoma/test-updates";
-import type { TriggerRunWorkflowParams } from "@autonoma/workflow";
+import type { GenerationProvider } from "@autonoma/test-updates";
+import type { TriggerDiffsJobParams, TriggerRunWorkflowParams } from "@autonoma/workflow";
 import type { Auth } from "../auth";
+import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -46,6 +47,7 @@ export interface Services {
     snapshotEdit: SnapshotEditService;
     billing: BillingService;
     applicationSetups: ApplicationSetupsService;
+    diffsTrigger: DiffsTriggerService;
 }
 
 export type TriggerGenerationReview = (generationId: string) => void | Promise<void>;
@@ -58,11 +60,12 @@ export interface ServicesParams {
     triggerRunWorkflow: (params: TriggerRunWorkflowParams) => Promise<void>;
     triggerGenerationReview: TriggerGenerationReview;
     triggerRunReview: TriggerRunReview;
-    triggerDiffPlanner: TriggerDiffPlanner;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
     generationProvider: GenerationProvider;
     githubApp: GitHubApp;
+    triggerDiffsJob: (params: TriggerDiffsJobParams) => Promise<void>;
+    cancelDiffsJob: (branchId: string) => Promise<void>;
 }
 
 export function buildServices({
@@ -72,11 +75,12 @@ export function buildServices({
     triggerRunWorkflow,
     triggerGenerationReview,
     triggerRunReview,
-    triggerDiffPlanner,
     scenarioManager,
     encryptionHelper,
     generationProvider,
     githubApp,
+    triggerDiffsJob,
+    cancelDiffsJob,
 }: ServicesParams): Services {
     const registry = new ModelRegistry({
         models: { "smart-text": MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -85,6 +89,7 @@ export function buildServices({
     const bugLinker = new BugLinker(bugMatcher);
     const billingService = createBillingService(conn);
     const onboardingManager = new OnboardingManager(conn, generationProvider, scenarioManager, encryptionHelper);
+    const githubService = new GitHubInstallationService(conn, githubApp);
 
     return {
         admin: new AdminService(conn, auth),
@@ -99,16 +104,12 @@ export function buildServices({
         folders: new FoldersService(conn),
         scenarios: new ScenariosService(conn, scenarioManager),
         skills: new SkillsService(conn),
-        github: new GitHubInstallationService(conn, githubApp),
+        github: githubService,
         issues: new IssuesService(conn, storageProvider, triggerGenerationReview, triggerRunReview),
         onboarding: new OnboardingService(onboardingManager),
-        snapshotEdit: new SnapshotEditService(
-            conn,
-            generationProvider,
-            new CommitDiffHandler(conn, githubApp, triggerDiffPlanner),
-            billingService,
-        ),
+        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn),
+        diffsTrigger: new DiffsTriggerService(conn, githubService, triggerDiffsJob, cancelDiffsJob),
     };
 }

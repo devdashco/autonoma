@@ -11,11 +11,3 @@ export {
 } from "./snapshot-draft";
 export type { TestSuiteInfo, SnapshotChange } from "./snapshot-draft";
 export * from "./changes";
-export {
-    CommitDiffHandler,
-    MissingLastHandledShaError,
-    MissingGithubRefError,
-    MissingGithubRepositoryError,
-    InvalidRepositoryFullNameError,
-} from "./commit-diff-handler";
-export type { TriggerDiffPlanner } from "./commit-diff-handler";

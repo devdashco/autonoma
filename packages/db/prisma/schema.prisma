@@ -305,6 +305,7 @@ model Application {
   mode               ApplicationMode         @default(MAIN_ONLY)
   customInstructions String?                 @map("custom_instructions")
   disabled           Boolean                 @default(false)
+  githubRepositoryId Int?                    @map("github_repository_id")
 
   mainBranchId String? @unique @map("main_branch_id")
   mainBranch   Branch? @relation("MainBranch", fields: [mainBranchId], references: [id])
@@ -334,6 +335,7 @@ model Application {
 
   @@unique([name, organizationId])
   @@unique([slug, organizationId])
+  @@unique([organizationId, githubRepositoryId])
   @@map("application")
 }
 
@@ -499,7 +501,6 @@ model Branch {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([applicationId, name])
   @@unique([applicationId, prNumber])
   @@map("branch")
 }

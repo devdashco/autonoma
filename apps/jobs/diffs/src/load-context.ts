@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { db } from "@autonoma/db";
 import type { DiffsAgentInput, ExistingSkillInfo, ExistingTestInfo } from "@autonoma/diffs";
 import { TestDirectory } from "@autonoma/diffs";
+import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
 
@@ -11,11 +12,12 @@ const execFileAsync = promisify(execFile);
 export interface BranchData {
     applicationId: string;
     organizationId: string;
+    repoId: number;
     fullName: string;
     installationId: string;
 }
 
-export async function loadBranchData(branchId: string): Promise<BranchData> {
+export async function loadBranchData(branchId: string, githubApp: GitHubApp): Promise<BranchData> {
     const branch = await db.branch.findUniqueOrThrow({
         where: { id: branchId },
         select: {
@@ -23,28 +25,33 @@ export async function loadBranchData(branchId: string): Promise<BranchData> {
             application: {
                 select: {
                     organizationId: true,
-                    githubRepositories: {
-                        select: {
-                            fullName: true,
-                            installation: { select: { installationId: true } },
-                        },
-                        take: 1,
-                    },
+                    githubRepositoryId: true,
                 },
             },
         },
     });
 
-    const repo = branch.application.githubRepositories[0];
-    if (repo == null) {
-        throw new Error(`No GitHub repository found for application ${branch.applicationId}`);
+    if (branch.application.githubRepositoryId == null) {
+        throw new Error(`No GitHub repository linked to application ${branch.applicationId}`);
     }
+
+    const installation = await db.gitHubInstallation.findUnique({
+        where: { organizationId: branch.application.organizationId },
+    });
+
+    if (installation == null) {
+        throw new Error(`No GitHub installation found for organization ${branch.application.organizationId}`);
+    }
+
+    const client = await githubApp.getInstallationClient(installation.installationId);
+    const repo = await client.getRepository(branch.application.githubRepositoryId);
 
     return {
         applicationId: branch.applicationId,
         organizationId: branch.application.organizationId,
+        repoId: branch.application.githubRepositoryId,
         fullName: repo.fullName,
-        installationId: String(repo.installation.installationId),
+        installationId: String(installation.installationId),
     };
 }
 

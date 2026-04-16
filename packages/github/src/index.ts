@@ -1,14 +1,10 @@
-export type { GithubHistory } from "./history/github-history";
-export { FakeGithubHistory } from "./history/fake-github-history";
-export { OctokitGithubHistory } from "./history/octokit-github-history";
-export { GitHubApp, type GitHubAppCredentials } from "./github-app";
+export { OctokitGitHubApp, type GitHubApp, type GitHubAppCredentials } from "./github-app";
 export {
-    GitHubInstallationClient,
+    OctokitGitHubInstallationClient,
+    type GitHubInstallationClient,
     type CloneRepositoryParams,
-    type CompareCommitsResult,
-    type Commit,
     type Repository,
-    type TreeEntry,
-    type FileContent,
     type PullRequest,
 } from "./github-installation-client";
+export { FakeGitHubApp } from "./fake/fake-github-app";
+export { FakeGitHubInstallationClient } from "./fake/fake-github-installation-client";

@@ -1,0 +1,98 @@
+name: Autonoma Diff Analysis
+description: Trigger Autonoma diff analysis for a deployed commit. Detects code changes and updates tests automatically.
+
+inputs:
+  sha:
+    description: The commit SHA to analyze.
+    required: true
+  url:
+    description: The deployment URL to test against.
+    required: true
+  github-token:
+    description: GitHub token with read access to pull requests.
+    required: true
+  autonoma-api-key:
+    description: Autonoma API key for authentication.
+    required: true
+  autonoma-api-url:
+    description: Autonoma API base URL (e.g. https://api.agent.autonoma.app).
+    required: true
+  environment:
+    description: Deployment environment name (e.g. staging, production).
+    required: false
+
+outputs:
+  branch-id:
+    description: The Autonoma branch ID created or matched for this analysis.
+    value: ${{ steps.trigger.outputs.branch_id }}
+  snapshot-id:
+    description: The snapshot ID for this analysis run.
+    value: ${{ steps.trigger.outputs.snapshot_id }}
+  deployment-id:
+    description: The deployment ID linked to this analysis.
+    value: ${{ steps.trigger.outputs.deployment_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find pull request for commit
+      id: find-pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        COMMIT_SHA: ${{ inputs.sha }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        PR_NUMBER=$(gh api "repos/${GH_REPO}/commits/${COMMIT_SHA}/pulls" --jq '.[0].number')
+
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+          echo "::error::No pull request found for commit ${COMMIT_SHA}"
+          exit 1
+        fi
+
+        echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+        echo "Found PR #${PR_NUMBER} for commit ${COMMIT_SHA}"
+
+    - name: Trigger diff analysis
+      id: trigger
+      shell: bash
+      env:
+        AUTONOMA_API_KEY: ${{ inputs.autonoma-api-key }}
+        AUTONOMA_API_URL: ${{ inputs.autonoma-api-url }}
+        REPO_ID: ${{ github.repository_id }}
+        PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+        DEPLOY_URL: ${{ inputs.url }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        BODY=$(jq -n \
+          --argjson repo_id "${REPO_ID}" \
+          --argjson pr_number "${PR_NUMBER}" \
+          --arg url "${DEPLOY_URL}" \
+          '{repo_id: $repo_id, pr_number: $pr_number, url: $url}')
+
+        if [ -n "${ENVIRONMENT}" ]; then
+          BODY=$(echo "${BODY}" | jq --arg env "${ENVIRONMENT}" '. + {environment: $env}')
+        fi
+
+        HTTP_RESPONSE=$(mktemp)
+
+        HTTP_CODE=$(curl -s -o "${HTTP_RESPONSE}" -w "%{http_code}" \
+          -X POST "${AUTONOMA_API_URL}/v1/diffs/trigger" \
+          -H "Authorization: Bearer ${AUTONOMA_API_KEY}" \
+          -H "Content-Type: application/json" \
+          -d "${BODY}")
+
+        RESPONSE_BODY=$(cat "${HTTP_RESPONSE}")
+        rm -f "${HTTP_RESPONSE}"
+
+        if [ "${HTTP_CODE}" -ge 200 ] && [ "${HTTP_CODE}" -lt 300 ]; then
+          echo "Diff analysis triggered successfully"
+          echo "${RESPONSE_BODY}" | jq .
+
+          echo "branch_id=$(echo "${RESPONSE_BODY}" | jq -r '.branchId')" >> "$GITHUB_OUTPUT"
+          echo "snapshot_id=$(echo "${RESPONSE_BODY}" | jq -r '.snapshotId')" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$(echo "${RESPONSE_BODY}" | jq -r '.deploymentId')" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::Failed to trigger diff analysis (HTTP ${HTTP_CODE}): ${RESPONSE_BODY}"
+          exit 1
+        fi
