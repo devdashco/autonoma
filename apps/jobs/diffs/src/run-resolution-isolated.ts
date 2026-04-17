@@ -9,6 +9,7 @@
  *     --repo <url-or-local-path> \
  *     --verdicts <path>           path to JSON file with RunReviewVerdict[]
  *     [--step1-result <path>]     path to Step 1 (DiffsAgent) JSON output
+ *     [--scenarios <path>]        path to JSON file with ScenarioInfo[] (enables list_scenarios / read_scenario)
  *     [--tests-dir <path>]        dir containing qa-tests/ and skills/ (defaults to fixtures/)
  *     [--branch <name>]           branch to check out in a local repo or clone from a remote
  *     [--max-steps <n>]           agent step limit (default: 50)
@@ -28,7 +29,7 @@
 
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import type { ResolutionAgentResult, RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
+import type { ResolutionAgentResult, RunReviewVerdict, ScenarioInfo, TestCandidateInput } from "@autonoma/diffs";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { TestDirectory } from "@autonoma/diffs/test-directory";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -39,6 +40,7 @@ import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readSkillFiles, readTe
 interface CliArgs extends BaseCliArgs {
     verdicts: string;
     step1Result?: string;
+    scenarios?: string;
     output?: string;
 }
 
@@ -46,6 +48,7 @@ function parseCliArgs(): CliArgs {
     const { base, extra } = parseBaseCliArgs({
         verdicts: { type: "string" },
         "step1-result": { type: "string" },
+        scenarios: { type: "string" },
         output: { type: "string" },
     });
 
@@ -57,6 +60,7 @@ function parseCliArgs(): CliArgs {
         ...base,
         verdicts: extra.verdicts as string,
         step1Result: extra["step1-result"] as string | undefined,
+        scenarios: extra.scenarios as string | undefined,
         output: extra.output as string | undefined,
     };
 }
@@ -77,6 +81,15 @@ async function loadStep1Result(path: string): Promise<Step1Result> {
     };
 }
 
+async function loadScenarios(path: string): Promise<ScenarioInfo[]> {
+    const raw = await readFile(path, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+        throw new Error(`Scenarios file at ${path} must contain a JSON array of ScenarioInfo`);
+    }
+    return parsed as ScenarioInfo[];
+}
+
 // ---- Entry point -----------------------------------------------------------
 
 async function run(args: CliArgs): Promise<void> {
@@ -87,6 +100,7 @@ async function run(args: CliArgs): Promise<void> {
         testsDir: args.testsDir,
         verdicts: args.verdicts,
         step1Result: args.step1Result,
+        scenarios: args.scenarios,
         branch: args.branch,
         maxSteps: args.maxSteps,
     });
@@ -111,6 +125,8 @@ async function run(args: CliArgs): Promise<void> {
         const { reasoning: step1Reasoning, testCandidates } =
             args.step1Result != null ? await loadStep1Result(args.step1Result) : { reasoning: "", testCandidates: [] };
 
+        const scenarios = args.scenarios != null ? await loadScenarios(args.scenarios) : undefined;
+
         const registry = new ModelRegistry({
             models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
         });
@@ -126,6 +142,7 @@ async function run(args: CliArgs): Promise<void> {
             verdicts,
             step1Reasoning,
             testCandidates,
+            scenarios,
             maxSteps: args.maxSteps,
         });
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

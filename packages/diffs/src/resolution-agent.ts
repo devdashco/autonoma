@@ -1,8 +1,14 @@
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { FlowIndex } from "./flow-index";
+import type { ScenarioIndex } from "./scenario-index";
 import type { TestDirectory } from "./test-directory";
-import { buildCodebaseTools, buildResolutionActionTools, buildTestInteractionTools } from "./tools/codebase-tools";
+import {
+    buildCodebaseTools,
+    buildResolutionActionTools,
+    buildScenarioTools,
+    buildTestInteractionTools,
+} from "./tools/codebase-tools";
 import {
     type ResolutionAgentResult,
     type ResolutionResultCollector,
@@ -47,6 +53,7 @@ export interface ResolutionAgentConfig {
     model: LanguageModel;
     workingDirectory: string;
     flowIndex: FlowIndex;
+    scenarioIndex: ScenarioIndex;
     testDirectory: TestDirectory;
     maxSteps?: number;
 }
@@ -81,7 +88,7 @@ export class ResolutionAgent {
     }
 
     private async runAgent(prompt: string, failedSlugs: Set<string>): Promise<ResolutionAgentResult> {
-        const { model, workingDirectory, flowIndex, testDirectory, maxSteps = 50 } = this.config;
+        const { model, workingDirectory, flowIndex, scenarioIndex, testDirectory, maxSteps = 50 } = this.config;
 
         let result: ResolutionAgentResult | undefined;
         const collector: ResolutionResultCollector = {
@@ -97,7 +104,8 @@ export class ResolutionAgent {
             tools: {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, testDirectory),
-                ...buildResolutionActionTools(collector, failedSlugs, flowIndex),
+                ...buildScenarioTools(scenarioIndex),
+                ...buildResolutionActionTools(collector, failedSlugs, flowIndex, scenarioIndex),
                 finish: buildResolutionFinishTool(
                     (output) => {
                         result = output;
@@ -257,6 +265,10 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 - \`read_test\`: read a test's full instruction by slug
 - \`read_skill\`: read a skill's full content by slug
 
+### Scenarios
+- \`list_scenarios\`: list all scenarios (named test data environments) available for this application
+- \`read_scenario\`: read a scenario's full details, including what data it seeds and sample metadata
+
 ### Actions
 - \`modify_test\`: rewrite a stale test instruction (for agent_error verdicts)
 - \`quarantine_test\`: remove a test whose flow no longer exists
@@ -264,9 +276,18 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 - \`add_test\`: create a new test (from candidates or your own judgment)
 - \`finish\`: call when done resolving ALL failures
 
+## Scenarios
+
+A scenario is a named test data environment (e.g., "authenticated-admin", "empty-workspace"). When a scenario is attached to a test, the platform seeds the customer's app with the scenario's data (a logged-in user, pre-existing records) before the test runs and tears it down afterwards. This is how tests get isolated, deterministic preconditions.
+
+When creating a new test via \`add_test\`:
+- If the test needs preconditions (an authenticated user, existing records, a specific app state), call \`list_scenarios\` to see what's available, then \`read_scenario\` on the promising ones to verify they seed the data the test needs. Pass the chosen \`scenarioId\` to \`add_test\`.
+- If the test starts from a fresh, unauthenticated state (e.g., signup, public landing page), omit \`scenarioId\`.
+- Never invent a \`scenarioId\`. Only pass ids returned by \`list_scenarios\`.
+
 ## Workflow
 1. Review all verdicts to identify patterns and group related failures
 2. For each group, explore the codebase to understand what changed
 3. Apply the appropriate action for each failure (modify_test, quarantine_test, or report_bug)
-4. Review test candidates from Step 1 and create valid ones with add_test
+4. For test candidates from Step 1 you agree with, decide whether they need a scenario (list/read scenarios if so), then call \`add_test\`
 5. Call \`finish\` with your overall reasoning - all failed tests must be handled first`;

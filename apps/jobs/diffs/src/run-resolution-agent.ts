@@ -4,6 +4,8 @@ import {
     ResolutionAgent,
     type ResolutionAgentInput,
     type ResolutionAgentResult,
+    ScenarioIndex,
+    type ScenarioInfo,
     createResolutionCallbacks,
 } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
@@ -42,10 +44,13 @@ export async function runResolutionAgent({
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
 
+    const scenarioIndex = await loadScenarioIndex(db, applicationId);
+
     const agent = new ResolutionAgent({
         model,
         workingDirectory: repoDir,
         flowIndex,
+        scenarioIndex,
         testDirectory,
         maxSteps: 50,
     });
@@ -82,4 +87,47 @@ export async function runResolutionAgent({
     });
 
     return result;
+}
+
+async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
+    logger.info("Loading scenarios for resolution agent", { applicationId });
+
+    const scenarios = await db.scenario.findMany({
+        where: { applicationId, isDisabled: false },
+        select: {
+            id: true,
+            name: true,
+            description: true,
+            activeRecipeVersion: {
+                select: { fingerprint: true, fixtureJson: true, validationStatus: true },
+            },
+            instances: {
+                where: { status: "UP_SUCCESS" },
+                orderBy: { upAt: "desc" },
+                take: 3,
+                select: { metadata: true },
+            },
+        },
+    });
+
+    const infos: ScenarioInfo[] = scenarios.map((s) => {
+        const sample = s.instances.find((i) => i.metadata != null);
+        return {
+            id: s.id,
+            name: s.name,
+            description: s.description ?? undefined,
+            activeRecipe:
+                s.activeRecipeVersion != null
+                    ? {
+                          fingerprint: s.activeRecipeVersion.fingerprint,
+                          fixtureJson: s.activeRecipeVersion.fixtureJson,
+                          validationStatus: s.activeRecipeVersion.validationStatus,
+                      }
+                    : undefined,
+            sampleMetadata: sample?.metadata ?? undefined,
+        };
+    });
+
+    logger.info("Loaded scenarios", { count: infos.length });
+    return new ScenarioIndex(infos);
 }

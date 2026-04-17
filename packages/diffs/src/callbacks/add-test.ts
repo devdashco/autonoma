@@ -16,6 +16,7 @@ export async function addTest(test: AddTestInput, { updater }: AddTestDeps): Pro
             name: test.name,
             plan: test.instruction,
             folderId: test.folderId,
+            scenarioId: test.scenarioId,
         }),
     );
 
