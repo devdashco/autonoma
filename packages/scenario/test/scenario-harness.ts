@@ -277,7 +277,7 @@ export class ScenarioTestHarness implements IntegrationHarness {
                 applicationId,
                 organizationId,
                 userId: user.id,
-                totalSteps: 4,
+                totalSteps: 5,
             },
         });
 

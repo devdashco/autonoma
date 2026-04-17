@@ -1,33 +1,36 @@
 import { randomBytes } from "node:crypto";
 import { ApplicationArchitecture } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
+import { TOTAL_SETUP_STEPS } from "@autonoma/types";
 import { expect } from "vitest";
 import { ApplicationSetupService } from "../../src/application-setup/application-setup.service";
 import { apiTestSuite } from "../api-test";
+import type { APITestHarness } from "../harness";
+
+async function createSetupFixture(harness: APITestHarness, name: string) {
+    const app = await harness.services.applications.createApplication({
+        name,
+        organizationId: harness.organizationId,
+        architecture: ApplicationArchitecture.WEB,
+        url: "https://example.com",
+        file: "s3://bucket/file.png",
+    });
+
+    const encryptionHelper = new EncryptionHelper(randomBytes(32).toString("hex"));
+    const scenarioManager = new ScenarioManager(harness.db, encryptionHelper);
+    const service = new ApplicationSetupService(
+        harness.db,
+        harness.generationProvider,
+        harness.services.onboarding,
+        scenarioManager,
+    );
+    const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
+
+    return { app, setupId, service };
+}
 
 apiTestSuite({
     name: "application-setup-service",
-    seed: async ({ harness }) => {
-        const app = await harness.services.applications.createApplication({
-            name: "Application Setup Test",
-            organizationId: harness.organizationId,
-            architecture: ApplicationArchitecture.WEB,
-            url: "https://example.com",
-            file: "s3://bucket/file.png",
-        });
-
-        const encryptionHelper = new EncryptionHelper(randomBytes(32).toString("hex"));
-        const scenarioManager = new ScenarioManager(harness.db, encryptionHelper);
-        const service = new ApplicationSetupService(
-            harness.db,
-            harness.generationProvider,
-            harness.services.onboarding,
-            scenarioManager,
-        );
-        const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
-
-        return { app, setupId, service };
-    },
     cases: (test) => {
         test("createSetup moves onboarding from install to working", async ({ harness }) => {
             const app = await harness.services.applications.createApplication({
@@ -52,14 +55,103 @@ apiTestSuite({
             const onboarding = await harness.db.onboardingState.findUnique({
                 where: { applicationId: app.id },
             });
+            const setup = await harness.db.applicationSetup.findFirstOrThrow({
+                where: { applicationId: app.id },
+                select: { totalSteps: true },
+            });
             expect(onboarding?.step).toBe("working");
             expect(onboarding?.agentConnectedAt).not.toBeNull();
+            expect(setup.totalSteps).toBe(TOTAL_SETUP_STEPS);
         });
 
-        test("uploadArtifacts persists non-recipe artifacts and emits file events", async ({
-            harness,
-            seedResult: { app, setupId, service },
-        }) => {
+        test("final step completion marks setup complete and advances onboarding", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Final Step");
+
+            await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, {
+                version: 1,
+                source: {
+                    discoverPath: "autonoma/discover.json",
+                    scenariosPath: "autonoma/scenarios.md",
+                },
+                validationMode: "sdk-check",
+                recipes: [
+                    {
+                        name: "standard",
+                        description: "standard",
+                        create: { Organization: [{ _alias: "org1", name: "Acme Corp" }] },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                ],
+            });
+
+            await service.addEvent(setupId, harness.organizationId, {
+                type: "step.started",
+                data: { step: TOTAL_SETUP_STEPS - 1, name: "Scenario Validation" },
+            });
+            await service.addEvent(setupId, harness.organizationId, {
+                type: "step.completed",
+                data: { step: TOTAL_SETUP_STEPS - 1, name: "Scenario Validation" },
+            });
+
+            const setup = await harness.db.applicationSetup.findUniqueOrThrow({
+                where: { id: setupId },
+                select: { status: true, currentStep: true, completedAt: true },
+            });
+            const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
+                where: { applicationId: app.id },
+                select: { step: true },
+            });
+
+            expect(setup.currentStep).toBe(TOTAL_SETUP_STEPS - 1);
+            expect(setup.status).toBe("completed");
+            expect(setup.completedAt).not.toBeNull();
+            expect(onboarding.step).toBe("scenario_dry_run");
+        });
+
+        test("partial_failure update keeps setup on working without completion timestamp", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Partial Failure");
+
+            await service.updateSetup(setupId, harness.organizationId, {
+                status: "partial_failure",
+                errorMessage: "Scenario validation failed during recipe preflight",
+            });
+
+            const setup = await harness.db.applicationSetup.findUniqueOrThrow({
+                where: { id: setupId },
+                select: { status: true, completedAt: true, errorMessage: true },
+            });
+            const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
+                where: { applicationId: app.id },
+                select: { step: true },
+            });
+
+            expect(setup.status).toBe("partial_failure");
+            expect(setup.completedAt).toBeNull();
+            expect(setup.errorMessage).toBe("Scenario validation failed during recipe preflight");
+            expect(onboarding.step).toBe("working");
+        });
+
+        test("error event still marks setup failed", async ({ harness }) => {
+            const { setupId, service } = await createSetupFixture(harness, "Application Setup Error Event");
+
+            await service.addEvent(setupId, harness.organizationId, {
+                type: "error",
+                data: { message: "SDK integration failed" },
+            });
+
+            const setup = await harness.db.applicationSetup.findUniqueOrThrow({
+                where: { id: setupId },
+                select: { status: true, errorMessage: true, completedAt: true },
+            });
+
+            expect(setup.status).toBe("failed");
+            expect(setup.errorMessage).toBe("SDK integration failed");
+            expect(setup.completedAt).toBeNull();
+        });
+
+        test("uploadArtifacts persists non-recipe artifacts and emits file events", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Artifacts");
+
             await service.uploadArtifacts(setupId, harness.organizationId, {
                 artifacts: [
                     {
@@ -94,10 +186,9 @@ apiTestSuite({
             expect(scenarios).toHaveLength(0);
         });
 
-        test("uploadArtifacts rejects scenario recipes in the generic artifact endpoint", async ({
-            harness,
-            seedResult: { setupId, service },
-        }) => {
+        test("uploadArtifacts rejects scenario recipes in the generic artifact endpoint", async ({ harness }) => {
+            const { setupId, service } = await createSetupFixture(harness, "Application Setup Reject Scenario Recipes");
+
             await expect(
                 service.uploadArtifacts(setupId, harness.organizationId, {
                     artifacts: [
@@ -128,8 +219,12 @@ apiTestSuite({
 
         test("uploadScenarioRecipeVersions stores fixture JSON and snapshot-scoped schema data", async ({
             harness,
-            seedResult: { app, setupId, service },
         }) => {
+            const { app, setupId, service } = await createSetupFixture(
+                harness,
+                "Application Setup Scenario Recipe Versions",
+            );
+
             const result = await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, {
                 version: 1,
                 source: {

@@ -11,7 +11,13 @@ export const SetupEventTypeSchema = z.enum([
 ]);
 export type SetupEventType = z.infer<typeof SetupEventTypeSchema>;
 
-export const SetupStepNames = ["Knowledge Base", "Scenarios", "E2E Tests", "Environment Factory"] as const;
+export const SetupStepNames = [
+    "SDK Integration",
+    "Knowledge Base",
+    "Scenarios",
+    "E2E Tests",
+    "Scenario Validation",
+] as const;
 
 export const TOTAL_SETUP_STEPS = SetupStepNames.length;
 
@@ -50,12 +56,12 @@ export type CreateSetupBody = z.infer<typeof CreateSetupBodySchema>;
 
 export const UpdateSetupBodySchema = z.object({
     name: z.string().optional(),
-    status: z.enum(["completed", "failed"]).optional(),
+    status: z.enum(["completed", "partial_failure", "failed"]).optional(),
     errorMessage: z.string().optional(),
 });
 export type UpdateSetupBody = z.infer<typeof UpdateSetupBodySchema>;
 
-export const SetupStatusSchema = z.enum(["running", "completed", "failed"]);
+export const SetupStatusSchema = z.enum(["running", "completed", "partial_failure", "failed"]);
 export type SetupStatus = z.infer<typeof SetupStatusSchema>;
 
 const UploadFileSchema = z.object({

@@ -203,9 +203,15 @@ export class ApplicationSetupService {
                 data.status = "completed";
                 data.completedAt = new Date();
             }
+            if (body.status === "partial_failure") {
+                data.status = "partial_failure";
+                data.errorMessage = body.errorMessage;
+                data.completedAt = null;
+            }
             if (body.status === "failed") {
                 data.status = "failed";
                 data.errorMessage = body.errorMessage;
+                data.completedAt = null;
             }
 
             await tx.applicationSetup.update({

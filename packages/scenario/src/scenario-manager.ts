@@ -108,7 +108,7 @@ export class ScenarioManager {
                   });
         if (recipeResult == null) {
             throw new Error(
-                `Scenario "${scenario.name}" does not have a stored recipe version${snapshotId != null ? ` for snapshot ${snapshotId}` : ""}. Complete the Environment Factory step so the plugin uploads scenario recipes to Autonoma.`,
+                `Scenario "${scenario.name}" does not have a stored recipe version${snapshotId != null ? ` for snapshot ${snapshotId}` : ""}. Complete the Scenario Validation step so the plugin uploads scenario recipes to Autonoma.`,
             );
         }
         const { createPayload, resolvedVariables } = recipeResult;

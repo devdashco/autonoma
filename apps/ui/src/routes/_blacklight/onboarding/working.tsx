@@ -1,4 +1,5 @@
 import { Skeleton, cn } from "@autonoma/blacklight";
+import { SetupStepNames } from "@autonoma/types";
 import { Check } from "@phosphor-icons/react/Check";
 import { CircleNotch } from "@phosphor-icons/react/CircleNotch";
 import { File } from "@phosphor-icons/react/File";
@@ -12,8 +13,6 @@ import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { DocLink } from "./-components/doc-link";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
-
-const SETUP_STEP_NAMES = ["Knowledge Base", "Scenarios", "E2E Tests", "Environment Factory"] as const;
 
 export const Route = createFileRoute("/_blacklight/onboarding/working")({
   component: () => <Navigate to="/onboarding" search={{ step: "working", appId: undefined }} />,
@@ -60,9 +59,11 @@ function getSetupEventMessage(event: SetupEvent) {
 }
 
 function StepIndicator({ step, currentStep, status }: { step: number; currentStep: number; status: string }) {
-  const isCompleted = status === "completed" || (status === "running" && step < currentStep);
+  const isCompleted =
+    status === "completed" || ((status === "running" || status === "partial_failure") && step < currentStep);
   const isActive = status === "running" && step === currentStep;
   const isFailed = status === "failed" && step === currentStep;
+  const isPartialFailure = status === "partial_failure" && step === currentStep;
 
   return (
     <div className="flex items-center gap-3">
@@ -72,7 +73,8 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           isCompleted && "border-primary-ink bg-primary-ink",
           isActive && "border-primary-ink",
           isFailed && "border-status-critical",
-          !isCompleted && !isActive && !isFailed && "border-border-dim",
+          isPartialFailure && "border-status-warn",
+          !isCompleted && !isActive && !isFailed && !isPartialFailure && "border-border-dim",
         )}
       >
         {isCompleted ? (
@@ -81,6 +83,8 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           <CircleNotch size={14} className="animate-spin text-primary-ink" />
         ) : isFailed ? (
           <WarningCircle size={14} className="text-status-critical" />
+        ) : isPartialFailure ? (
+          <WarningCircle size={14} className="text-status-warn" />
         ) : (
           <span className="font-mono text-3xs text-text-tertiary">{step + 1}</span>
         )}
@@ -91,10 +95,11 @@ function StepIndicator({ step, currentStep, status }: { step: number; currentSte
           isCompleted && "text-text-primary",
           isActive && "text-primary-ink",
           isFailed && "text-status-critical",
-          !isCompleted && !isActive && !isFailed && "text-text-tertiary",
+          isPartialFailure && "text-status-warn",
+          !isCompleted && !isActive && !isFailed && !isPartialFailure && "text-text-tertiary",
         )}
       >
-        {SETUP_STEP_NAMES[step]}
+        {SetupStepNames[step]}
       </span>
     </div>
   );
@@ -113,6 +118,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
   const status = setup?.status ?? "running";
   const isCompleted = status === "completed";
   const isFailed = status === "failed";
+  const isPartialFailure = status === "partial_failure";
 
   // Filter to display events (file.read, file.created, log, error)
   const displayEvents = events.filter(
@@ -129,7 +135,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
 
   // Detect when a step completes and the plugin is waiting for user confirmation
   useEffect(() => {
-    if (isCompleted || isFailed) {
+    if (isCompleted || isFailed || isPartialFailure) {
       setWaitingForConfirmation(false);
       return;
     }
@@ -147,19 +153,19 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
       latestStepStarted != null ? ((latestStepStarted.data as { step?: number }).step ?? -1) : -1;
     const isWaiting = completedStepIndex >= startedStepIndex;
 
-    if (isWaiting && completedStepIndex < SETUP_STEP_NAMES.length - 1) {
+    if (isWaiting && completedStepIndex < SetupStepNames.length - 1) {
       lastNotifiedStepRef.current = completedStepIndex;
       setWaitingForConfirmation(true);
       sounds.attention();
       toastManager.add({
-        title: `${SETUP_STEP_NAMES[completedStepIndex]} completed`,
+        title: `${SetupStepNames[completedStepIndex]} completed`,
         description: "Switch to your terminal and confirm to continue to the next step.",
         type: "info",
       });
     } else {
       setWaitingForConfirmation(false);
     }
-  }, [events, isCompleted, isFailed]);
+  }, [events, isCompleted, isFailed, isPartialFailure]);
 
   // Clear waiting state when a new step starts
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear waiting on step change
@@ -188,10 +194,10 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
     <>
       {/* Step indicators */}
       <div className="mb-8 flex items-center gap-6">
-        {SETUP_STEP_NAMES.map((name, index) => (
+        {SetupStepNames.map((name, index) => (
           <div key={name} className="flex items-center gap-6">
             <StepIndicator step={index} currentStep={currentStep} status={status} />
-            {index < SETUP_STEP_NAMES.length - 1 && (
+            {index < SetupStepNames.length - 1 && (
               <div
                 className={cn("h-px w-8 transition-colors", index < currentStep ? "bg-primary-ink" : "bg-border-dim")}
               />
@@ -224,10 +230,16 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
             <span
               className={cn(
                 "font-mono text-3xs",
-                isFailed ? "text-status-critical" : isCompleted ? "text-status-success" : "text-text-tertiary",
+                isFailed
+                  ? "text-status-critical"
+                  : isPartialFailure
+                    ? "text-status-warn"
+                    : isCompleted
+                      ? "text-status-success"
+                      : "text-text-tertiary",
               )}
             >
-              {isFailed ? "failed" : isCompleted ? "done" : "live"}
+              {isFailed ? "failed" : isPartialFailure ? "needs attention" : isCompleted ? "done" : "live"}
             </span>
           </div>
         </div>
@@ -263,7 +275,7 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
                   </span>
                 </div>
               ))}
-              {!isCompleted && !isFailed && (
+              {!isCompleted && !isFailed && !isPartialFailure && (
                 <div className="mt-2 flex items-center gap-3">
                   <span className="w-20 shrink-0 text-3xs text-text-tertiary opacity-50" />
                   <span className="animate-pulse text-text-tertiary">_</span>
@@ -281,6 +293,13 @@ function SetupProgress({ applicationId }: { applicationId: string }) {
         </div>
       )}
 
+      {isPartialFailure && setup?.errorMessage != null && (
+        <div className="mt-4 border border-status-warn/30 bg-status-warn/10 p-4 font-mono text-sm text-status-warn">
+          Scenario Validation produced useful artifacts, but the live integration still needs attention:{" "}
+          {setup.errorMessage}
+        </div>
+      )}
+
       {isCompleted && (
         <div className="mt-6 flex items-center gap-3">
           <span className="animate-pulse font-mono text-sm text-primary-ink">Continuing to next step...</span>
@@ -294,13 +313,13 @@ function WorkingPageSkeleton() {
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-6">
-        {Array.from({ length: 4 }, (_, i) => (
+        {Array.from({ length: SetupStepNames.length }, (_, i) => (
           <div key={`skeleton-${String(i)}`} className="flex items-center gap-6">
             <div className="flex items-center gap-3">
               <Skeleton className="size-7 rounded-full" />
               <Skeleton className="h-4 w-24" />
             </div>
-            {i < 3 && <Skeleton className="h-px w-8" />}
+            {i < SetupStepNames.length - 1 && <Skeleton className="h-px w-8" />}
           </div>
         ))}
       </div>
@@ -326,9 +345,8 @@ export function WorkingPage({ appId }: { appId?: string }) {
         title="Autonoma's Agent is working on your project"
         description={
           <p>
-            The agent is running through all three stages - analyzing your codebase, planning scenarios, and generating
-            tests. You can watch its progress in the log below.{" "}
-            <span className="font-bold text-primary-ink">Please don&apos;t close this tab.</span>
+            The agent is running through all five stages of the test planner pipeline. You can watch its progress in the
+            log below. <span className="font-bold text-primary-ink">Please don&apos;t close this tab.</span>
           </p>
         }
         descriptionClassName="text-sm"
@@ -337,6 +355,11 @@ export function WorkingPage({ appId }: { appId?: string }) {
       <div className="mb-8 space-y-3 border border-border-dim bg-surface-base p-5">
         <h3 className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">What each stage does</h3>
         <div className="grid gap-2 text-sm text-text-secondary">
+          <p>
+            <span className="font-medium text-text-primary">SDK Integration</span> - Detects your stack, installs the
+            SDK packages, wires the endpoint, and starts a dev server for the rest of the pipeline.{" "}
+            <DocLink href="https://docs.agent.autonoma.app/test-planner/step-1-sdk-integration/">Learn more</DocLink>
+          </p>
           <p>
             <span className="font-medium text-text-primary">Knowledge Base</span> - Reads your source code, maps pages,
             routes, forms, and interactive elements into a structured understanding of your app.{" "}
@@ -353,8 +376,8 @@ export function WorkingPage({ appId }: { appId?: string }) {
             <DocLink href="https://docs.agent.autonoma.app/test-planner/step-3-e2e-tests/">Learn more</DocLink>
           </p>
           <p>
-            <span className="font-medium text-text-primary">Environment Factory</span> - Sets up the webhook endpoint in
-            your project that Autonoma calls to prepare test data before each run.{" "}
+            <span className="font-medium text-text-primary">Scenario Validation</span> - Validates the planned scenarios
+            against the live endpoint and uploads executable recipes for later runs.{" "}
             <DocLink href="https://docs.agent.autonoma.app/test-planner/step-4-implement-scenarios/">
               Learn more
             </DocLink>

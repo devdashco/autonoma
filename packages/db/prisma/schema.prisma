@@ -177,7 +177,7 @@ model ApplicationSetup {
     name         String?
     status       String    @default("running")
     currentStep  Int       @default(0) @map("current_step")
-    totalSteps   Int       @default(4) @map("total_steps")
+    totalSteps   Int       @default(5) @map("total_steps")
     errorMessage String?   @map("error_message")
     completedAt  DateTime? @map("completed_at")
 

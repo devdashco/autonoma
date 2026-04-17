@@ -88,16 +88,16 @@ interface EnvSetupSectionProps {
 
 function EnvSetupSection({ apiKey, applicationId, isActive, onCopied }: EnvSetupSectionProps) {
   const apiUrl = window.location.origin;
-  const displayCommand = `export AUTONOMA_API_KEY=${obfuscateKey(apiKey)}\nexport AUTONOMA_PROJECT_ID=${applicationId}\nexport AUTONOMA_API_URL=${apiUrl}\nexport AUTONOMA_SDK_ENDPOINT=https://your-app.com/api/autonoma\nexport AUTONOMA_SHARED_SECRET=your-shared-secret\nclaude --dangerously-skip-permissions`;
-  const rawCommand = `export AUTONOMA_API_KEY=${apiKey} && export AUTONOMA_PROJECT_ID=${applicationId} && export AUTONOMA_API_URL=${apiUrl} && export AUTONOMA_SDK_ENDPOINT=https://your-app.com/api/autonoma && export AUTONOMA_SHARED_SECRET=your-shared-secret && claude --dangerously-skip-permissions`;
+  const displayCommand = `export AUTONOMA_API_KEY=${obfuscateKey(apiKey)}\nexport AUTONOMA_PROJECT_ID=${applicationId}\nexport AUTONOMA_API_URL=${apiUrl}\nclaude --dangerously-skip-permissions`;
+  const rawCommand = `export AUTONOMA_API_KEY=${apiKey} && export AUTONOMA_PROJECT_ID=${applicationId} && export AUTONOMA_API_URL=${apiUrl} && claude --dangerously-skip-permissions`;
 
   return (
     <div className="space-y-2">
       <p className="text-sm text-text-secondary">Set your environment variables and start Claude Code:</p>
 
       <p className="pt-2 text-sm text-text-secondary">
-        If your project does not already have the Autonoma SDK integrated, integrate the Autonoma SDK in your project
-        first. The plugin needs that SDK endpoint.
+        The plugin now handles the SDK setup for you. It creates a branch, installs the Autonoma SDK, starts a local dev
+        server, verifies the endpoint, and opens a PR when possible.
       </p>
       <CodeBlock
         copyValue={rawCommand}
@@ -109,8 +109,11 @@ function EnvSetupSection({ apiKey, applicationId, isActive, onCopied }: EnvSetup
         {displayCommand}
       </CodeBlock>
       <p className="font-mono text-2xs text-text-tertiary">
-        Use the endpoint URL and shared secret from your project&apos;s SDK integration, not from the Autonoma
-        dashboard.
+        If your stack is unsupported, the plugin will stop early and tell you how to contact Autonoma.
+      </p>
+      <p className="font-mono text-2xs text-text-tertiary">
+        By default, the plugin continues automatically when AUTONOMA_AUTO_ADVANCE=true. For older plugin builds,
+        AUTONOMA_REQUIRE_CONFIRMATION=false remains a temporary compatibility alias for the same behavior.
       </p>
     </div>
   );
