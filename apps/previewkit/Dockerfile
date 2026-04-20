@@ -1,31 +1,19 @@
-FROM node:24-slim
+FROM node:24-alpine
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install railpack
-RUN curl -sSfL https://raw.githubusercontent.com/railwayapp/railpack/main/install.sh | bash
-
-# Install buildctl (for Dockerfile-based builds)
-ARG BUILDKIT_VERSION=0.17.2
-RUN curl -sSL "https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-$(dpkg --print-architecture).tar.gz" \
+# Install buildctl (for Dockerfile-based builds submitted to BuildKit)
+ARG BUILDKIT_VERSION=0.29.0
+RUN apk add --no-cache curl tar \
+    && ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') \
+    && curl -sSL "https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" \
     | tar -xz -C /usr/local bin/buildctl
 
-RUN npm install -g tsx pnpm turbo
+# Install railpack (for auto-detecting buildless projects)
+RUN curl -sSfL https://raw.githubusercontent.com/railwayapp/railpack/main/install.sh | sh
 
 WORKDIR /app
-
 COPY . .
 
-ENV CI=true
-
-RUN pnpm install --frozen-lockfile
-RUN pnpm turbo run build --filter=@autonoma/previewkit...
-
 ENV NODE_ENV=production
-
-WORKDIR /app/apps/previewkit
-
+USER node
 EXPOSE 3000
+CMD ["node", "--enable-source-maps", "dist/index.js"]

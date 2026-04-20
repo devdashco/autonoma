@@ -6,7 +6,7 @@
     "type": "module",
     "scripts": {
         "dev": "tsx watch src/index.ts",
-        "build": "tsc -p tsconfig.build.json",
+        "build": "rolldown -c",
         "start": "node dist/index.js",
         "test": "vitest run",
         "test:watch": "vitest",
@@ -19,13 +19,14 @@
         "@kubernetes/client-node": "catalog:",
         "@octokit/app": "catalog:",
         "@t3-oss/env-core": "catalog:",
-        "hono": "^4.12.14",
+        "hono": "catalog:",
         "js-yaml": "^4.1.1",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
         "@types/node": "catalog:",
+        "rolldown": "^1.0.0-rc.16",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
