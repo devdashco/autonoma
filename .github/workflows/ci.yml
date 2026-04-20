@@ -200,11 +200,10 @@ jobs:
           done
           pnpm --filter @autonoma/api test:integration
 
-  check-ui:
-    name: Check UI
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    needs: changes
-    if: needs.changes.outputs.ui == 'true'
+  build-apps:
+    name: Build Apps
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -221,11 +220,28 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm turbo run lint --filter @autonoma/ui
+      - name: Build apps
+        run: pnpm turbo run build --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
 
-      - name: Typecheck
-        run: pnpm turbo run typecheck --filter @autonoma/ui...
+  typecheck-apps:
+    name: Typecheck Apps
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Test
-        run: pnpm turbo run test --filter @autonoma/ui
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck apps
+        run: pnpm turbo run typecheck --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
