@@ -1,5 +1,6 @@
+import { apiKeyClient } from "@better-auth/api-key/client";
 import { useRouteContext } from "@tanstack/react-router";
-import { apiKeyClient, inferAdditionalFields, organizationClient } from "better-auth/client/plugins";
+import { inferAdditionalFields, organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { env } from "env";
 import { useSession } from "lib/query/auth.queries";
