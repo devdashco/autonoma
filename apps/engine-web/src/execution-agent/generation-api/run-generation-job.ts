@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
@@ -81,6 +81,7 @@ export async function runWebGenerationJob(testGenerationId: string) {
         }
 
         try {
+            mkdirSync("/tmp/flag", { recursive: true });
             writeFileSync("/tmp/flag/done", "");
         } catch (error) {
             logger.error("Failed to write flag file", error);

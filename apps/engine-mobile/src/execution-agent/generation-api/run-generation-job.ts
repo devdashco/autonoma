@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { GenerationPersister, createEngineModelRegistry } from "@autonoma/engine";
@@ -84,6 +84,7 @@ export async function runMobileGenerationJob(testGenerationId: string) {
         }
 
         try {
+            mkdirSync("/tmp/flag", { recursive: true });
             writeFileSync("/tmp/flag/done", "");
         } catch (error) {
             logger.error("Failed to write flag file", error);
