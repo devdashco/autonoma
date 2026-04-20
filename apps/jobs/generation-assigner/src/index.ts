@@ -1,4 +1,4 @@
-import { runWithSentry } from "@autonoma/logger";
+import { logger } from "@autonoma/logger";
 import { env } from "./env";
 import { runGenerationAssignment } from "./run";
 
@@ -10,11 +10,10 @@ if (generationIds.length === 0) {
 
 const autoActivate = env.AUTO_ACTIVATE === "true";
 
-await runWithSentry(
-    {
-        name: "generation-assigner",
-        tags: { generationCount: String(generationIds.length) },
-        dsn: env.SENTRY_DSN_GENERATION_ASSIGNER,
-    },
-    () => runGenerationAssignment(generationIds, autoActivate),
-);
+try {
+    await runGenerationAssignment(generationIds, autoActivate);
+    process.exit(0);
+} catch (error) {
+    logger.error("Generation assigner failed", error, { generationCount: generationIds.length });
+    process.exit(1);
+}

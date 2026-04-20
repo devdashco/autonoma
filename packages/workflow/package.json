@@ -19,6 +19,7 @@
     "dependencies": {
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
+        "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/client": "catalog:",
         "@temporalio/worker": "catalog:",

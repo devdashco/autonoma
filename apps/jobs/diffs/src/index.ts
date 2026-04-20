@@ -1,18 +1,18 @@
-import { logger, runWithSentry } from "@autonoma/logger";
-import { env } from "./env";
+import { logger } from "@autonoma/logger";
 import { jobEnv } from "./job-env";
 import { runDiffsAnalysis } from "./run";
 
-async function main(): Promise<void> {
-    logger.info("Starting diffs analysis job", { branchId: jobEnv.BRANCH_ID });
+logger.info("Starting diffs analysis job", { branchId: jobEnv.BRANCH_ID });
 
+try {
     const result = await runDiffsAnalysis(jobEnv.BRANCH_ID);
-
     logger.info("Diffs analysis complete", {
         affectedTests: result.affectedTests.length,
         testCandidates: result.testCandidates.length,
         reasoning: result.reasoning.slice(0, 500),
     });
+    process.exit(0);
+} catch (error) {
+    logger.error("Diffs analysis failed", error, { branchId: jobEnv.BRANCH_ID });
+    process.exit(1);
 }
-
-await runWithSentry({ name: "diffs-job", tags: { branch_id: jobEnv.BRANCH_ID }, dsn: env.SENTRY_DSN_DIFFS }, main);

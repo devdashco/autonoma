@@ -4,6 +4,7 @@ import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker, workflowsPath } from "@autonoma/workflow/worker";
 import * as activities from "./activities/index";
 import { env } from "./env";
+import { sentryServiceInterceptor } from "./sentry-service-interceptor";
 
 runWithSentry({ name: "worker-general", dsn: env.SENTRY_DSN_WORKER_GENERAL }, async () => {
     logger.info("Starting general worker");
@@ -13,6 +14,9 @@ runWithSentry({ name: "worker-general", dsn: env.SENTRY_DSN_WORKER_GENERAL }, as
         activities,
         workflowsPath,
         maxConcurrentActivityTaskExecutions: 10,
+        interceptors: {
+            activity: [sentryServiceInterceptor],
+        },
     });
 
     // Signal to Kubernetes that the worker is connected and ready to poll.

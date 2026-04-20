@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { logger, runWithSentry } from "@autonoma/logger";
+import { logger } from "@autonoma/logger";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { scenarioUp } from "./scenario-up";
 import { upEnv } from "./up-env";
@@ -11,6 +11,10 @@ logger.info("Starting scenario up", { type, entityId });
 const encryption = new EncryptionHelper(upEnv.SCENARIO_ENCRYPTION_KEY);
 const manager = new ScenarioManager(db, encryption);
 
-await runWithSentry({ name: "scenario-manager", tags: { type, entityId }, dsn: upEnv.SENTRY_DSN_SCENARIO }, () =>
-    scenarioUp({ type, entityId }, { db, manager }),
-);
+try {
+    await scenarioUp({ type, entityId }, { db, manager });
+    process.exit(0);
+} catch (error) {
+    logger.error("Scenario up failed", error, { type, entityId });
+    process.exit(1);
+}

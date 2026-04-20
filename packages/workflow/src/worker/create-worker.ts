@@ -1,5 +1,5 @@
 import { logger } from "@autonoma/logger";
-import { NativeConnection, Worker } from "@temporalio/worker";
+import { NativeConnection, Worker, type WorkerInterceptors } from "@temporalio/worker";
 import { env } from "../env";
 import type { TaskQueue } from "../task-queues";
 
@@ -9,6 +9,7 @@ export interface CreateWorkerOptions {
     // biome-ignore lint: Activity functions have varied signatures
     activities?: object;
     maxConcurrentActivityTaskExecutions?: number;
+    interceptors?: WorkerInterceptors;
 }
 
 export async function createTemporalWorker(options: CreateWorkerOptions): Promise<Worker> {
@@ -36,6 +37,7 @@ export async function createTemporalWorker(options: CreateWorkerOptions): Promis
         },
         activities: options.activities,
         maxConcurrentActivityTaskExecutions: options.maxConcurrentActivityTaskExecutions ?? 5,
+        interceptors: options.interceptors,
     });
 
     log.info("Temporal worker created", { taskQueue: options.taskQueue });
