@@ -1,6 +1,7 @@
 import { executeChild, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities } from "../activities";
 import { TaskQueue } from "../task-queues";
+import type { WorkflowArchitecture } from "../types";
 import { runReplayWorkflow } from "./run-replay.workflow";
 import { singleGenerationWorkflow } from "./single-generation.workflow";
 
@@ -29,6 +30,48 @@ export interface DiffsAnalysisInput {
     branchId: string;
 }
 
+interface RunReplayArgs {
+    runId: string;
+    architecture: WorkflowArchitecture;
+    scenarioId?: string;
+}
+
+function dispatchReplay({ runId, architecture, scenarioId }: RunReplayArgs): Promise<void> {
+    return executeChild(runReplayWorkflow, {
+        workflowId: `run-replay-${runId}`,
+        taskQueue: architecture === "WEB" ? TaskQueue.WEB : TaskQueue.MOBILE,
+        args: [
+            {
+                runId,
+                architecture,
+                scenarioId,
+                skipIssueBugCreation: true,
+            },
+        ],
+    });
+}
+
+interface GenerationArgs {
+    testGenerationId: string;
+    scenarioId?: string;
+    architecture: WorkflowArchitecture;
+}
+
+function dispatchGeneration({ testGenerationId, scenarioId, architecture }: GenerationArgs): Promise<void> {
+    return executeChild(singleGenerationWorkflow, {
+        workflowId: `generation-${testGenerationId}`,
+        taskQueue: architecture === "WEB" ? TaskQueue.WEB : TaskQueue.MOBILE,
+        args: [
+            {
+                testGenerationId,
+                scenarioId,
+                architecture,
+                skipIssueBugCreation: true,
+            },
+        ],
+    });
+}
+
 export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<void> {
     const { branchId } = input;
 
@@ -39,21 +82,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
     // The replay-reviewer fires automatically in each replay workflow's finally block,
     // populating RunReview records (but skipping Issue/Bug creation for diffs replays).
     if (step1.preparedRuns.length > 0) {
-        await Promise.allSettled(
-            step1.preparedRuns.map((run) =>
-                executeChild(runReplayWorkflow, {
-                    workflowId: `run-replay-${run.runId}`,
-                    args: [
-                        {
-                            runId: run.runId,
-                            architecture: run.architecture,
-                            scenarioId: run.scenarioId,
-                            skipIssueBugCreation: true,
-                        },
-                    ],
-                }),
-            ),
-        );
+        await Promise.allSettled(step1.preparedRuns.map((run) => dispatchReplay(run)));
     }
 
     // Step 3: Resolve - reads reviewer verdicts, modifies stale tests, gathers pending generations
@@ -70,21 +99,7 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
     // The generation-reviewer fires automatically in each generation workflow's finally block
     // (skipping Issue/Bug creation for diffs-triggered generations).
     if (step2.generations.length > 0) {
-        await Promise.allSettled(
-            step2.generations.map((gen) =>
-                executeChild(singleGenerationWorkflow, {
-                    workflowId: `generation-${gen.testGenerationId}`,
-                    args: [
-                        {
-                            testGenerationId: gen.testGenerationId,
-                            scenarioId: gen.scenarioId,
-                            architecture: gen.architecture,
-                            skipIssueBugCreation: true,
-                        },
-                    ],
-                }),
-            ),
-        );
+        await Promise.allSettled(step2.generations.map((gen) => dispatchGeneration(gen)));
     }
 
     // Step 5: Finalize - assigns generation results, activates snapshot
