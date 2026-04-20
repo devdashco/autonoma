@@ -149,7 +149,7 @@ apiTestSuite({
             expect(setup.completedAt).toBeNull();
         });
 
-        test("uploadArtifacts persists non-recipe artifacts and emits file events", async ({ harness }) => {
+        test("uploadArtifacts emits file events for non-recipe artifacts", async ({ harness }) => {
             const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Artifacts");
 
             await service.uploadArtifacts(setupId, harness.organizationId, {
@@ -163,14 +163,6 @@ apiTestSuite({
                     },
                 ],
             });
-
-            const artifacts = await harness.db.applicationSetupArtifact.findMany({
-                where: { setupId },
-                orderBy: { path: "asc" },
-            });
-            expect(artifacts).toHaveLength(1);
-            expect(artifacts[0]?.applicationId).toBe(app.id);
-            expect(artifacts[0]?.path).toBe("autonoma/discover.json");
 
             const events = await harness.db.applicationSetupEvent.findMany({
                 where: { setupId, type: "file.created" },

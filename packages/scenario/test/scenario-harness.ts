@@ -257,44 +257,6 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return snapshotId;
     }
 
-    async createSetupWithArtifacts(
-        organizationId: string,
-        applicationId: string,
-        artifacts: Array<{ path: string; content: string }>,
-    ): Promise<string> {
-        const date = Date.now();
-        const user = await this.db.user.create({
-            data: {
-                name: `Scenario Harness User ${date}`,
-                email: `scenario-harness-${date}-${randomBytes(4).toString("hex")}@example.com`,
-                emailVerified: true,
-            },
-        });
-
-        const setup = await this.db.applicationSetup.create({
-            data: {
-                applicationId,
-                organizationId,
-                userId: user.id,
-                totalSteps: 5,
-            },
-        });
-
-        if (artifacts.length > 0) {
-            await this.db.applicationSetupArtifact.createMany({
-                data: artifacts.map((artifact) => ({
-                    setupId: setup.id,
-                    applicationId,
-                    organizationId,
-                    path: artifact.path,
-                    content: artifact.content,
-                })),
-            });
-        }
-
-        return setup.id;
-    }
-
     async createGeneration(
         organizationId: string,
         applicationId: string,

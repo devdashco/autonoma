@@ -232,7 +232,6 @@ export class ApplicationSetupService {
         const updater = await this.getUpdater(branchId, organizationId);
         await this.applySkills(updater, body.skills ?? []);
         await this.applyTests(updater, body.testCases ?? [], setup.applicationId, organizationId);
-        await this.persistArtifacts(setup, organizationId, body.artifacts ?? []);
         await this.createFileEvents(setupId, body);
 
         log.info("Uploaded artifacts", {
@@ -401,39 +400,6 @@ export class ApplicationSetupService {
 
         cache.set(folderName, folderId);
         return folderId;
-    }
-
-    private async persistArtifacts(
-        setup: SetupWithBranch,
-        organizationId: string,
-        artifacts: NonNullable<UploadArtifactsBody["artifacts"]>,
-    ): Promise<void> {
-        for (const artifact of artifacts) {
-            const path = buildArtifactPath(artifact);
-            if (path === SCENARIO_RECIPES_ARTIFACT_PATH) {
-                throw new BadRequestError(
-                    "SCENARIO_RECIPES_MUST_USE_VERSIONED_ENDPOINT: upload scenario recipes through /scenario-recipe-versions instead of /artifacts",
-                );
-            }
-            await this.db.applicationSetupArtifact.upsert({
-                where: {
-                    setupId_path: {
-                        setupId: setup.id,
-                        path,
-                    },
-                },
-                create: {
-                    setupId: setup.id,
-                    applicationId: setup.applicationId,
-                    organizationId,
-                    path,
-                    content: artifact.content,
-                },
-                update: {
-                    content: artifact.content,
-                },
-            });
-        }
     }
 
     private async createFileEvents(setupId: string, body: UploadArtifactsBody): Promise<void> {
