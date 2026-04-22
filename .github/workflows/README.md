@@ -39,6 +39,13 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Manual workflow to sync to public repository
 - Only runs when manually triggered
 
+### 7. **PR Title Suggest** (`pr-title-suggest.yml`)
+- Triggers on `pull_request` events against `main` and on `issue_comment` edits
+- Calls Amazon Bedrock (Claude Haiku 4.5) with the PR title, body, commits, and diff stat
+- If the title is vague or not a valid conventional commit, posts a comment with a suggested rewrite and a checkbox
+- When a collaborator ticks the checkbox, the workflow applies the new title via `gh pr edit`
+- The existing CI check (`validate-pr-title`) still enforces the conventional commit format; this workflow helps authors get to a good title quickly
+
 ## How to Deploy
 
 ### Standard Release Flow
