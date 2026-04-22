@@ -15,6 +15,12 @@ export interface Repository {
     private: boolean;
 }
 
+export interface Commit {
+    sha: string;
+    message: string;
+    authorLogin?: string;
+}
+
 export interface PullRequest {
     number: number;
     title: string;
@@ -22,6 +28,7 @@ export interface PullRequest {
     headSha: string;
     baseSha: string;
     url: string;
+    authorLogin?: string;
     createdAt: string;
     updatedAt: string;
 }
@@ -42,6 +49,7 @@ export interface GitHubInstallationClient {
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
     listPullRequests(repoId: number): Promise<PullRequest[]>;
+    getCommit(repoId: number, sha: string): Promise<Commit>;
 }
 
 /** Typed wrapper around an installation-scoped Octokit. */
@@ -172,6 +180,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             headSha: pr.head.sha,
             baseSha: pr.base.sha,
             url: pr.html_url,
+            authorLogin: pr.user?.login,
             createdAt: pr.created_at,
             updatedAt: pr.updated_at,
         };
@@ -199,6 +208,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             headSha: pr.head.sha,
             baseSha: pr.base.sha,
             url: pr.html_url,
+            authorLogin: pr.user?.login,
             createdAt: pr.created_at,
             updatedAt: pr.updated_at,
         }));
@@ -206,6 +216,27 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger.info("Listed pull requests", { repoId, count: pullRequests.length });
 
         return pullRequests;
+    }
+
+    async getCommit(repoId: number, sha: string): Promise<Commit> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Fetching commit", { repoId, sha });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/commits/{ref}", {
+            owner,
+            repo,
+            ref: sha,
+        });
+
+        const commit: Commit = {
+            sha: data.sha,
+            message: data.commit.message,
+            authorLogin: data.author?.login,
+        };
+
+        this.logger.info("Fetched commit", { repoId, sha: commit.sha });
+
+        return commit;
     }
 
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {

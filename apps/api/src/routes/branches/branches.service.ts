@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
+import { summarizeSnapshotChanges, type SnapshotChangeSummary } from "@autonoma/test-updates";
 import { Service } from "../service";
 
 export class BranchesService extends Service {
@@ -11,10 +12,11 @@ export class BranchesService extends Service {
         this.logger.info("Listing branches", { applicationId });
 
         return this.db.branch.findMany({
-            where: { applicationId, application: { organizationId } },
+            where: { applicationId, prNumber: { not: null }, application: { organizationId } },
             select: {
                 id: true,
                 name: true,
+                prNumber: true,
                 githubRef: true,
                 createdAt: true,
                 activeSnapshot: {
@@ -103,17 +105,53 @@ export class BranchesService extends Service {
     async listSnapshots(branchId: string, organizationId: string) {
         this.logger.info("Listing snapshots", { branchId });
 
-        return this.db.branchSnapshot.findMany({
+        const snapshots = await this.db.branchSnapshot.findMany({
             where: { branchId, branch: { application: { organizationId } } },
             select: {
                 id: true,
                 status: true,
                 source: true,
+                headSha: true,
+                baseSha: true,
                 createdAt: true,
                 _count: { select: { testCaseAssignments: true } },
             },
             orderBy: { createdAt: "desc" },
         });
+
+        const changeSummaries = await Promise.all(
+            snapshots.map((s) => summarizeSnapshotChanges(this.db, s.id, this.logger)),
+        );
+
+        return snapshots.map((snapshot, index) => ({
+            ...snapshot,
+            changeSummary: changeSummaries[index] as SnapshotChangeSummary,
+        }));
+    }
+
+    async getBranchByPr(applicationId: string, prNumber: number, organizationId: string) {
+        this.logger.info("Getting branch by PR", { applicationId, prNumber });
+
+        const branch = await this.db.branch.findFirst({
+            where: {
+                applicationId,
+                prNumber,
+                application: { organizationId },
+            },
+            select: {
+                id: true,
+                name: true,
+                prNumber: true,
+                githubRef: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        if (branch == null) throw new NotFoundError("Pull request not found");
+        if (branch.prNumber == null) throw new InternalError("Branch has no PR number");
+
+        return { ...branch, prNumber: branch.prNumber };
     }
 
     async deleteBranch(branchId: string, organizationId: string) {

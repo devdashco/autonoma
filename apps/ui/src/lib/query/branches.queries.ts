@@ -12,6 +12,14 @@ export function useBranchDetail(applicationId: string, branchName: string) {
     return useSuspenseQuery(trpc.branches.detailByName.queryOptions({ applicationId, branchName }));
 }
 
+export function useBranchByPr(applicationId: string, prNumber: number) {
+    return useSuspenseQuery(trpc.branches.detailByPr.queryOptions({ applicationId, prNumber }));
+}
+
+export async function ensureBranchByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
+    return await ensureAPIQueryData(queryClient, trpc.branches.detailByPr.queryOptions({ applicationId, prNumber }));
+}
+
 export async function ensureBranchData(queryClient: QueryClient, applicationId: string, branchName: string) {
     return await ensureAPIQueryData(
         queryClient,

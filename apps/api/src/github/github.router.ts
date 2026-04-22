@@ -54,4 +54,16 @@ export const githubRouter = router({
         .query(({ ctx: { services, organizationId }, input }) =>
             services.github.listDeploymentsDebug(organizationId, input.applicationId),
         ),
+
+    getPullRequest: protectedProcedure
+        .input(z.object({ applicationId: z.string(), prNumber: z.number().int().positive() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.github.getApplicationPullRequest(organizationId, input.applicationId, input.prNumber),
+        ),
+
+    getCommit: protectedProcedure
+        .input(z.object({ applicationId: z.string(), sha: z.string().trim().min(1) }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.github.getApplicationCommit(organizationId, input.applicationId, input.sha),
+        ),
 });

@@ -1,9 +1,15 @@
 import type {
     CloneRepositoryParams,
+    Commit,
     GitHubInstallationClient,
     PullRequest,
     Repository,
 } from "../github-installation-client";
+
+export interface CommitDetails {
+    message: string;
+    authorLogin?: string;
+}
 
 export interface RepositorySetup {
     id: number;
@@ -43,6 +49,7 @@ interface InternalRepo {
     defaultBranchCommits: string[];
     branches: Map<string, InternalBranch>;
     pullRequests: Map<number, InternalPullRequest>;
+    commitDetails: Map<string, CommitDetails>;
 }
 
 export class FakeGitHubInstallationClient implements GitHubInstallationClient {
@@ -69,6 +76,7 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             defaultBranchCommits: setup.commits ?? [],
             branches: new Map(),
             pullRequests: new Map(),
+            commitDetails: new Map(),
         };
         this.repositories.set(setup.fullName, repo);
         this.repoById.set(setup.id, repo);
@@ -94,6 +102,15 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             title: setup.title,
             headRef: setup.headRef,
         });
+    }
+
+    /** Registers metadata (commit message, author) for a SHA. The SHA must already exist on some branch. */
+    setCommitDetails(fullName: string, sha: string, details: CommitDetails): void {
+        const repo = this.requireRepo(fullName);
+        if (!this.shaExistsInRepo(repo, sha)) {
+            throw new Error(`Commit "${sha}" not found on any branch of ${fullName}`);
+        }
+        repo.commitDetails.set(sha, details);
     }
 
     /** Appends a commit to a branch. For the default branch, pass its name (e.g. "main"). */
@@ -150,6 +167,19 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         );
     }
 
+    async getCommit(repoId: number, sha: string): Promise<Commit> {
+        const repo = this.requireRepoById(repoId);
+        if (!this.shaExistsInRepo(repo, sha)) {
+            throw new Error(`Commit "${sha}" not found in ${repo.metadata.fullName}`);
+        }
+        const details = repo.commitDetails.get(sha);
+        return {
+            sha,
+            message: details?.message ?? "",
+            authorLogin: details?.authorLogin,
+        };
+    }
+
     async getInstallation(_installationId: number): Promise<{ account: unknown }> {
         throw new Error("FakeGitHubInstallationClient.getInstallation is not implemented");
     }
@@ -176,5 +206,13 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
 
     private latestCommitOnBranch(repo: InternalRepo, branch: InternalBranch): string | undefined {
         return branch.commits.at(-1) ?? repo.defaultBranchCommits[branch.forkIndex];
+    }
+
+    private shaExistsInRepo(repo: InternalRepo, sha: string): boolean {
+        if (repo.defaultBranchCommits.includes(sha)) return true;
+        for (const branch of repo.branches.values()) {
+            if (branch.commits.includes(sha)) return true;
+        }
+        return false;
     }
 }

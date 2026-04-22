@@ -1,6 +1,6 @@
 import type { PrismaClient, SnapshotStatus, TriggerSource } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { GitHubApp, PullRequest, Repository } from "@autonoma/github";
+import type { Commit, GitHubApp, PullRequest, Repository } from "@autonoma/github";
 import { Service } from "../routes/service";
 
 export interface DeploymentsDebugResult {
@@ -123,6 +123,52 @@ export class GitHubInstallationService extends Service {
 
         const client = await this.getOrgInstallationClient(orgId);
         return client.getPullRequest(repoId, prNumber);
+    }
+
+    async getApplicationPullRequest(
+        organizationId: string,
+        applicationId: string,
+        prNumber: number,
+    ): Promise<PullRequest> {
+        this.logger.info("Fetching application pull request", { organizationId, applicationId, prNumber });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const pullRequest = await client.getPullRequest(app.githubRepositoryId, prNumber);
+
+        this.logger.info("Fetched application pull request", { applicationId, prNumber });
+
+        return pullRequest;
+    }
+
+    async getApplicationCommit(organizationId: string, applicationId: string, sha: string): Promise<Commit> {
+        this.logger.info("Fetching application commit", { organizationId, applicationId, sha });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const commit = await client.getCommit(app.githubRepositoryId, sha);
+
+        this.logger.info("Fetched application commit", { applicationId, sha: commit.sha });
+
+        return commit;
     }
 
     async listRepositories(orgId: string): Promise<ListedRepository[]> {

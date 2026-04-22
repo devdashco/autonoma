@@ -10,5 +10,10 @@ export {
     StepsPlanMismatchError,
 } from "./snapshot-draft";
 export type { TestSuiteInfo, SnapshotChange } from "./snapshot-draft";
+export {
+    computeSnapshotChanges,
+    summarizeSnapshotChanges,
+    type SnapshotChangeSummary,
+} from "./queries/snapshot-changes";
 export * from "./changes";
-export { fetchTestSuiteInfo } from "./queries/snapshot-queries";
+export { fetchTestSuiteInfo } from "./queries/fetch-info";

@@ -3,10 +3,13 @@ import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams } from "./changes";
-import { createBranchSnapshot } from "./create-branch-snapshot";
 import type { GenerationProvider } from "./generation/generation-job-provider";
 import { GenerationManager } from "./generation/generation-manager";
-import { fetchTestSuiteInfo } from "./queries/snapshot-queries";
+import { createBranchSnapshot } from "./queries/create-branch-snapshot";
+import { computeSnapshotChanges, type SnapshotChange } from "./queries/snapshot-changes";
+
+export type { SnapshotChange } from "./queries/snapshot-changes";
+import { fetchTestSuiteInfo } from "./queries/fetch-info";
 
 export class SnapshotNotPendingError extends Error {
     constructor(snapshotId: string, status: string) {
@@ -37,30 +40,6 @@ export class StepsPlanMismatchError extends Error {
 }
 
 export type TestSuiteInfo = Awaited<ReturnType<SnapshotDraft["currentTestSuiteInfo"]>>;
-
-interface BaseChange {
-    testCaseId: string;
-    testCaseName: string;
-    testCaseSlug: string;
-}
-
-interface AddedChange extends BaseChange {
-    type: "added";
-    plan: string;
-}
-
-interface RemovedChange extends BaseChange {
-    type: "removed";
-    previousPlan: string;
-}
-
-interface UpdatedChange extends BaseChange {
-    type: "updated";
-    plan: string;
-    previousPlan: string;
-}
-
-export type SnapshotChange = AddedChange | RemovedChange | UpdatedChange;
 
 interface SnapshotDraftParams {
     db: PrismaClient;
@@ -309,86 +288,7 @@ export class SnapshotDraft {
      * - Same `planId` in both -> unchanged (omitted)
      */
     public async getChanges(): Promise<SnapshotChange[]> {
-        this.logger.info("Computing changes from previous snapshot");
-
-        const snapshot = await this.db.branchSnapshot.findUniqueOrThrow({
-            where: { id: this.snapshotId },
-            select: { prevSnapshotId: true },
-        });
-
-        const assignmentSelect = {
-            testCaseId: true,
-            planId: true,
-            testCase: { select: { id: true, name: true, slug: true } },
-            plan: { select: { prompt: true } },
-        } as const;
-
-        const pendingAssignments = await this.db.testCaseAssignment.findMany({
-            where: { snapshotId: this.snapshotId },
-            select: assignmentSelect,
-        });
-
-        if (snapshot.prevSnapshotId == null) {
-            this.logger.info("No previous snapshot, all assignments are additions", {
-                count: pendingAssignments.length,
-            });
-            return pendingAssignments.map((a) => ({
-                type: "added" as const,
-                testCaseId: a.testCase.id,
-                testCaseName: a.testCase.name,
-                testCaseSlug: a.testCase.slug,
-                plan: a.plan?.prompt ?? "",
-            }));
-        }
-
-        const previousAssignments = await this.db.testCaseAssignment.findMany({
-            where: { snapshotId: snapshot.prevSnapshotId },
-            select: assignmentSelect,
-        });
-
-        const previousByTestCaseId = new Map(previousAssignments.map((a) => [a.testCaseId, a]));
-        const pendingByTestCaseId = new Map(pendingAssignments.map((a) => [a.testCaseId, a]));
-
-        const changes: SnapshotChange[] = [];
-
-        for (const [testCaseId, pending] of pendingByTestCaseId) {
-            const previous = previousByTestCaseId.get(testCaseId);
-
-            if (previous == null) {
-                changes.push({
-                    type: "added",
-                    testCaseId: pending.testCase.id,
-                    testCaseName: pending.testCase.name,
-                    testCaseSlug: pending.testCase.slug,
-                    plan: pending.plan?.prompt ?? "",
-                });
-            } else if (pending.planId !== previous.planId) {
-                changes.push({
-                    type: "updated",
-                    testCaseId: pending.testCase.id,
-                    testCaseName: pending.testCase.name,
-                    testCaseSlug: pending.testCase.slug,
-                    plan: pending.plan?.prompt ?? "",
-                    previousPlan: previous.plan?.prompt ?? "",
-                });
-            }
-        }
-
-        for (const [testCaseId, previous] of previousByTestCaseId) {
-            if (!pendingByTestCaseId.has(testCaseId)) {
-                changes.push({
-                    type: "removed",
-                    testCaseId: previous.testCase.id,
-                    testCaseName: previous.testCase.name,
-                    testCaseSlug: previous.testCase.slug,
-                    previousPlan: previous.plan?.prompt ?? "",
-                });
-            }
-        }
-
-        this.logger.info("Changes computed", { count: changes.length });
-
-        return changes;
+        return computeSnapshotChanges(this.db, this.snapshotId, this.logger);
     }
 
     /** Clears the steps for a test case, keeping the current plan. Returns the current planId. */
