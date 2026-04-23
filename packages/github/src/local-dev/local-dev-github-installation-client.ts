@@ -73,17 +73,24 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             title,
             headRef,
             headSha: `head-${repoId}-${prNumber}`,
+            baseRef: repo.defaultBranch,
             baseSha: `base-${repoId}-${prNumber}`,
             url: `https://github.com/${repo.fullName}/pull/${prNumber}`,
             authorLogin,
             createdAt: FIXED_TIMESTAMP,
             updatedAt: FIXED_TIMESTAMP,
+            merged: false,
         };
     }
 
     async listPullRequests(repoId: number): Promise<PullRequest[]> {
         this.logger.info("Returning local-dev pull request list", { repoId });
         return Promise.all(PRS_PER_REPO.map((pr) => this.getPullRequest(repoId, pr.number)));
+    }
+
+    async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
+        this.logger.info("Returning local-dev associated pull requests", { owner, repo, sha });
+        return [];
     }
 
     async getCommit(repoId: number, sha: string): Promise<Commit> {

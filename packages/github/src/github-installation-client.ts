@@ -26,11 +26,16 @@ export interface PullRequest {
     title: string;
     headRef: string;
     headSha: string;
+    baseRef: string;
     baseSha: string;
     url: string;
     authorLogin?: string;
     createdAt: string;
     updatedAt: string;
+    merged: boolean;
+    mergedAt?: string;
+    mergeMethod?: "merge" | "squash" | "rebase";
+    mergeCommitSha?: string;
 }
 
 export interface CloneRepositoryParams {
@@ -49,7 +54,41 @@ export interface GitHubInstallationClient {
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
     listPullRequests(repoId: number): Promise<PullRequest[]>;
+    getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
+}
+
+interface RawPullRequestLike {
+    number: number;
+    title: string;
+    head: { ref: string; sha: string };
+    base: { ref: string; sha: string };
+    html_url: string;
+    user: { login: string } | null;
+    created_at: string;
+    updated_at: string;
+    merged?: boolean;
+    merged_at: string | null;
+    merge_commit_sha: string | null;
+}
+
+function mapPullRequest(pr: RawPullRequestLike): PullRequest {
+    const merged = pr.merged ?? pr.merged_at != null;
+    return {
+        number: pr.number,
+        title: pr.title,
+        headRef: pr.head.ref,
+        headSha: pr.head.sha,
+        baseRef: pr.base.ref,
+        baseSha: pr.base.sha,
+        url: pr.html_url,
+        authorLogin: pr.user?.login,
+        createdAt: pr.created_at,
+        updatedAt: pr.updated_at,
+        merged,
+        mergedAt: pr.merged_at ?? undefined,
+        mergeCommitSha: pr.merge_commit_sha ?? undefined,
+    };
 }
 
 /** Typed wrapper around an installation-scoped Octokit. */
@@ -173,17 +212,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             pull_number: prNumber,
         });
 
-        const pullRequest = {
-            number: pr.number,
-            title: pr.title,
-            headRef: pr.head.ref,
-            headSha: pr.head.sha,
-            baseSha: pr.base.sha,
-            url: pr.html_url,
-            authorLogin: pr.user?.login,
-            createdAt: pr.created_at,
-            updatedAt: pr.updated_at,
-        };
+        const pullRequest = mapPullRequest(pr);
 
         this.logger.info("Fetched pull request", { repoId, prNumber, headRef: pullRequest.headRef });
 
@@ -201,19 +230,31 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             per_page: 50,
         });
 
-        const pullRequests = data.map((pr) => ({
-            number: pr.number,
-            title: pr.title,
-            headRef: pr.head.ref,
-            headSha: pr.head.sha,
-            baseSha: pr.base.sha,
-            url: pr.html_url,
-            authorLogin: pr.user?.login,
-            createdAt: pr.created_at,
-            updatedAt: pr.updated_at,
-        }));
+        const pullRequests = data.map((pr) => mapPullRequest(pr));
 
         this.logger.info("Listed pull requests", { repoId, count: pullRequests.length });
+
+        return pullRequests;
+    }
+
+    async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
+        this.logger.info("Fetching pull requests associated with commit", { owner, repo, sha });
+
+        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls", {
+            owner,
+            repo,
+            commit_sha: sha,
+            per_page: 100,
+        });
+
+        const pullRequests = data.map((pr) => mapPullRequest(pr));
+
+        this.logger.info("Fetched pull requests associated with commit", {
+            owner,
+            repo,
+            sha,
+            count: pullRequests.length,
+        });
 
         return pullRequests;
     }

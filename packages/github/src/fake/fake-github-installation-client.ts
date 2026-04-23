@@ -153,10 +153,12 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             title: pr.title,
             headRef: pr.headRef,
             headSha,
+            baseRef: repoData.metadata.defaultBranch,
             baseSha,
             url: `https://github.com/${repoData.metadata.fullName}/pull/${pr.number}`,
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z",
+            merged: false,
         };
     }
 
@@ -165,6 +167,20 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         return await Promise.all(
             [...repoData.pullRequests.values()].map((pr) => this.getPullRequest(repoId, pr.number)),
         );
+    }
+
+    async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
+        const fullName = `${owner}/${repo}`;
+        const repoData = this.requireRepo(fullName);
+        const associated: PullRequest[] = [];
+        for (const pr of repoData.pullRequests.values()) {
+            const branch = repoData.branches.get(pr.headRef);
+            if (branch == null) continue;
+            if (branch.commits.includes(sha)) {
+                associated.push(await this.getPullRequest(repoData.metadata.id, pr.number));
+            }
+        }
+        return associated;
     }
 
     async getCommit(repoId: number, sha: string): Promise<Commit> {
