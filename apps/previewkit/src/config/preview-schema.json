@@ -1,0 +1,162 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://previewkit.autonoma.app/v1/schema/preview.yaml.json",
+    "title": "Previewkit .preview.yaml",
+    "description": "Configuration file that defines how a repository should be deployed as an ephemeral preview environment by Previewkit.",
+    "type": "object",
+    "required": ["version", "apps"],
+    "additionalProperties": false,
+    "properties": {
+        "version": {
+            "const": 1,
+            "description": "Schema version. Must be 1."
+        },
+        "domain": {
+            "type": "string",
+            "description": "Override the default base domain for this preview (e.g. preview.example.com). Apps are served at https://{app}.pr-{N}.{owner}.{domain}."
+        },
+        "registry": {
+            "type": "string",
+            "description": "Override the container registry used for built images."
+        },
+        "apps": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Application containers to build and deploy. Each app becomes a Kubernetes Deployment + Service + Ingress.",
+            "items": { "$ref": "#/definitions/app" }
+        },
+        "services": {
+            "type": "array",
+            "description": "Managed backing services provisioned from built-in recipes (postgres, redis, etc.).",
+            "items": { "$ref": "#/definitions/service" }
+        },
+        "hooks": {
+            "type": "object",
+            "description": "Lifecycle hooks that run during the deploy.",
+            "additionalProperties": false,
+            "properties": {
+                "post_deploy": {
+                    "type": "array",
+                    "description": "Commands to run inside an app pod after all apps are healthy (e.g. migrations, seeding).",
+                    "items": { "$ref": "#/definitions/hookStep" }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "k8sName": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+            "description": "Lowercase DNS-1123 name. Letters, digits, and hyphens only; must start and end with alphanumeric."
+        },
+        "resources": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Kubernetes resource requests. Values use standard K8s quantity syntax (e.g. 500m, 512Mi).",
+            "properties": {
+                "cpu": {
+                    "type": "string",
+                    "default": "250m",
+                    "description": "CPU request (e.g. 100m, 1, 2)."
+                },
+                "memory": {
+                    "type": "string",
+                    "default": "256Mi",
+                    "description": "Memory request (e.g. 128Mi, 1Gi)."
+                }
+            }
+        },
+        "app": {
+            "type": "object",
+            "required": ["name", "port"],
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "$ref": "#/definitions/k8sName",
+                    "description": "App name. Used for the Service DNS, Ingress host, and template references ({{name.host}})."
+                },
+                "path": {
+                    "type": "string",
+                    "default": ".",
+                    "description": "Build context path relative to the repo root."
+                },
+                "dockerfile": {
+                    "type": "string",
+                    "description": "Path to a Dockerfile. If omitted, Railpack auto-detects and generates one."
+                },
+                "build_args": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Docker build args (ARG). Baked into the image at build time. Supports template variables."
+                },
+                "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "Container port the app listens on."
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Runtime environment variables. Supports template variables: {{service.host}}, {{service.port}}, {{app.host}}, {{app.port}}, {{pr}}, {{namespace}}, {{owner}}."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Override the container CMD."
+                },
+                "health_check": {
+                    "type": "string",
+                    "description": "HTTP path for readiness/liveness probes (e.g. /health)."
+                },
+                "replicas": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1,
+                    "description": "Number of pod replicas."
+                },
+                "resources": { "$ref": "#/definitions/resources" }
+            }
+        },
+        "service": {
+            "type": "object",
+            "required": ["name", "recipe"],
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "$ref": "#/definitions/k8sName",
+                    "description": "Service name. Referenced from apps via {{name.host}} and {{name.port}}."
+                },
+                "recipe": {
+                    "type": "string",
+                    "enum": ["postgres", "redis"],
+                    "description": "Built-in recipe that provisions the service."
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Recipe image version tag (e.g. '16' for postgres, '8' for redis)."
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Extra environment variables passed to the recipe container."
+                },
+                "resources": { "$ref": "#/definitions/resources" }
+            }
+        },
+        "hookStep": {
+            "type": "object",
+            "required": ["app", "command"],
+            "additionalProperties": false,
+            "properties": {
+                "app": {
+                    "type": "string",
+                    "description": "Name of the app whose pod the command runs inside."
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Shell command to execute via kubectl exec."
+                }
+            }
+        }
+    }
+}
