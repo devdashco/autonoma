@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import { VisualConditionChecker } from "@autonoma/ai";
@@ -121,6 +121,14 @@ export async function runReplayLocally(input: LocalReplayInput): Promise<LocalRe
 
         const replaySteps = toReplaySteps(input.steps);
         const replayResult = await videoRecorder.withRecording(() => engine.replay(replaySteps));
+
+        try {
+            const videoPath = await videoRecorder.getVideoPath();
+            await rename(videoPath, join(artifactDir, "video.webm"));
+            logger.info("Saved replay video", { artifactDir });
+        } catch (error) {
+            logger.error("Failed to save replay video", error);
+        }
 
         const steps = replayResult.state.executionResults.map((stepResult, index) => ({
             order: index,
