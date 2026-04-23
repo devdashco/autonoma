@@ -78,6 +78,8 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         const page = await this.context.newPage();
         const pageManager = new ActivePageManager(page, this.context);
 
+        this.attachAuthDebugListeners(page, url);
+
         if (file != null) {
             this.attachUploadListener(page, file);
             pageManager.onPageChange((newPage) => this.attachUploadListener(newPage, file));
@@ -104,7 +106,26 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
                 url,
                 storedCount: storedAfterNavigation.length,
                 storedNames: storedAfterNavigation.map((c) => c.name),
+                storedDomains: storedAfterNavigation.map((c) => c.domain),
+                storedPaths: storedAfterNavigation.map((c) => c.path),
+                storedSameSite: storedAfterNavigation.map((c) => c.sameSite),
+                storedSecure: storedAfterNavigation.map((c) => c.secure),
+                storedHttpOnly: storedAfterNavigation.map((c) => c.httpOnly),
             });
+
+            try {
+                const currentUrl = page.url();
+                const pageCookieHeader = await page.evaluate(() => document.cookie);
+                this.logger.info("document.cookie after navigation", {
+                    currentUrl,
+                    documentCookieNames: pageCookieHeader
+                        .split(";")
+                        .map((p) => p.trim().split("=")[0])
+                        .filter((n) => n != null && n.length > 0),
+                });
+            } catch (error) {
+                this.logger.warn("Failed to read document.cookie", { error });
+            }
         }
 
         return {
@@ -121,6 +142,83 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         page.on("filechooser", async (fileChooser) => {
             await fileChooser.setFiles(file);
         });
+    }
+
+    /**
+     * Logs request/response cookie headers for the first N document/xhr/fetch requests
+     * to the target origin. Used to debug whether scenario auth cookies are actually
+     * sent on outgoing requests and whether the app rotates/clears them via Set-Cookie.
+     */
+    private attachAuthDebugListeners(page: Page, targetUrl: string) {
+        const targetOrigin = this.safeOrigin(targetUrl);
+        if (targetOrigin == null) return;
+
+        const maxLogs = 10;
+        let requestCount = 0;
+        let responseCount = 0;
+
+        page.on("request", (request) => {
+            if (requestCount >= maxLogs) return;
+            const reqUrl = request.url();
+            if (this.safeOrigin(reqUrl) !== targetOrigin) return;
+            const resourceType = request.resourceType();
+            if (resourceType !== "document" && resourceType !== "xhr" && resourceType !== "fetch") return;
+            requestCount++;
+
+            const headers = request.headers();
+            const cookieHeader = headers.cookie ?? headers.Cookie;
+            this.logger.info("Outgoing request to target origin", {
+                url: reqUrl,
+                method: request.method(),
+                resourceType,
+                hasCookieHeader: cookieHeader != null,
+                cookieNames:
+                    cookieHeader == null
+                        ? []
+                        : cookieHeader
+                              .split(";")
+                              .map((p) => p.trim().split("=")[0])
+                              .filter((n) => n != null && n.length > 0),
+            });
+        });
+
+        page.on("response", async (response) => {
+            if (responseCount >= maxLogs) return;
+            const resUrl = response.url();
+            if (this.safeOrigin(resUrl) !== targetOrigin) return;
+            const resourceType = response.request().resourceType();
+            if (resourceType !== "document" && resourceType !== "xhr" && resourceType !== "fetch") return;
+            responseCount++;
+
+            try {
+                const headers = await response.allHeaders();
+                const setCookie = headers["set-cookie"];
+                const setCookieNames =
+                    setCookie == null
+                        ? []
+                        : setCookie
+                              .split("\n")
+                              .map((line) => line.split(";")[0]?.split("=")[0]?.trim())
+                              .filter((n): n is string => n != null && n.length > 0);
+                this.logger.info("Incoming response from target origin", {
+                    url: resUrl,
+                    status: response.status(),
+                    resourceType,
+                    hasSetCookie: setCookie != null,
+                    setCookieNames,
+                });
+            } catch (error) {
+                this.logger.warn("Failed to read response headers", { url: resUrl, error });
+            }
+        });
+    }
+
+    private safeOrigin(url: string): string | undefined {
+        try {
+            return new URL(url).origin;
+        } catch {
+            return undefined;
+        }
     }
 
     async cleanup(): Promise<void> {
