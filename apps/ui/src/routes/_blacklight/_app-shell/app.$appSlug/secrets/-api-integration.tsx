@@ -10,7 +10,6 @@ import {
 } from "@autonoma/blacklight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
-import { env } from "env";
 import { toastManager } from "lib/toast-manager";
 import { useState } from "react";
 import { Highlight } from "./-highlight";
@@ -21,7 +20,7 @@ interface ApiIntegrationProps {
 
 type Operation = "list" | "set" | "delete";
 
-const BASE_URL = env.VITE_API_URL;
+const BASE_URL = window.location.origin;
 
 const OPERATIONS: {
   value: Operation;
