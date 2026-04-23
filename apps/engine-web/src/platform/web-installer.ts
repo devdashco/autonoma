@@ -48,8 +48,26 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         this.logger.info("Building web context for test case", { url });
 
         if (cookies != null && cookies.length > 0) {
+            this.logger.info("Applying scenario auth cookies", {
+                cookieCount: cookies.length,
+                shapes: cookies.map((c) => ({
+                    name: c.name,
+                    url: c.url,
+                    domain: c.domain,
+                    path: c.path,
+                    sameSite: c.sameSite,
+                    httpOnly: c.httpOnly,
+                    secure: c.secure,
+                })),
+            });
             await this.context.addCookies(cookies);
-            this.logger.info("Scenario auth cookies applied", { cookieCount: cookies.length });
+            const storedBeforeNavigation = await this.context.cookies();
+            this.logger.info("Scenario auth cookies applied", {
+                requestedCount: cookies.length,
+                storedCount: storedBeforeNavigation.length,
+                storedNames: storedBeforeNavigation.map((c) => c.name),
+                storedDomains: storedBeforeNavigation.map((c) => c.domain),
+            });
         }
 
         if (headers != null && Object.keys(headers).length > 0) {
@@ -79,6 +97,15 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
 
         // Navigate to the URL
         await context.navigation.navigate(url);
+
+        if (cookies != null && cookies.length > 0) {
+            const storedAfterNavigation = await this.context.cookies(url);
+            this.logger.info("Cookies visible to target URL after navigation", {
+                url,
+                storedCount: storedAfterNavigation.length,
+                storedNames: storedAfterNavigation.map((c) => c.name),
+            });
+        }
 
         return {
             context,

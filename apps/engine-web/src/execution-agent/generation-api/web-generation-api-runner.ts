@@ -19,6 +19,7 @@ import type { WebCommandSpec } from "../web-agent";
 export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, WebContext, WebApplicationData> {
     private readonly tmpUploadFiles = new Set<string>();
     private readonly uploadLogger = rootLogger.child({ name: "web-generation-upload" });
+    private readonly parseLogger = rootLogger.child({ name: "WebGenerationAPIRunner" });
     private readonly storageProvider: StorageProvider;
 
     constructor(
@@ -45,10 +46,58 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
         const file = await this.resolveUploadFilePath(webDeployment.file);
         const skillsConfig = buildSkillsConfigFromPlanData(planData);
 
+        const rawAuth = scenarioInstance?.auth;
+        this.parseLogger.info("Raw scenarioInstance.auth", {
+            type: typeof rawAuth,
+            isNull: rawAuth === null,
+            isUndefined: rawAuth === undefined,
+            isArray: Array.isArray(rawAuth),
+            keys:
+                rawAuth != null && typeof rawAuth === "object" && !Array.isArray(rawAuth)
+                    ? Object.keys(rawAuth as Record<string, unknown>)
+                    : undefined,
+        });
+
         const authParsed = AuthPayloadSchema.safeParse(scenarioInstance?.auth);
+        this.parseLogger.info("AuthPayloadSchema parse result", {
+            success: authParsed.success,
+            issues: authParsed.success ? undefined : authParsed.error.issues,
+        });
+
         const auth = authParsed.success ? authParsed.data : undefined;
+        this.parseLogger.info("Parsed auth summary", {
+            hasAuth: auth != null,
+            cookieCount: auth?.cookies?.length ?? 0,
+            cookieNames: auth?.cookies?.map((c) => c.name),
+            cookiesHaveUrl: auth?.cookies?.map((c) => c.url != null),
+            cookiesHaveDomain: auth?.cookies?.map((c) => c.domain != null),
+            hasHeaders: auth?.headers != null && Object.keys(auth.headers).length > 0,
+            hasCredentials: auth?.credentials != null,
+        });
+
         const cookies = auth?.cookies != null ? toPlaywrightCookies(auth.cookies, webDeployment.url) : undefined;
+        this.parseLogger.info("Converted Playwright cookies", {
+            fallbackUrl: webDeployment.url,
+            count: cookies?.length ?? 0,
+            shapes: cookies?.map((c) => ({
+                name: c.name,
+                sameSite: c.sameSite,
+                hasUrl: c.url != null,
+                hasDomain: c.domain != null,
+                path: c.path,
+                httpOnly: c.httpOnly,
+                secure: c.secure,
+            })),
+        });
+
         const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
+
+        this.parseLogger.info("Final WebApplicationData auth summary", {
+            hasCookies: cookies != null,
+            cookieCount: cookies?.length ?? 0,
+            hasHeaders: auth?.headers != null && Object.keys(auth.headers).length > 0,
+            hasCredentials: auth?.credentials != null,
+        });
 
         return {
             name: testPlan.testCase.name,
