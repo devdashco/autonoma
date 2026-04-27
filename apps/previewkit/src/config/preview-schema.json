@@ -128,7 +128,7 @@
                 },
                 "recipe": {
                     "type": "string",
-                    "enum": ["postgres", "redis", "valkey", "temporal"],
+                    "enum": ["postgres", "redis", "valkey", "temporal", "api-gateway"],
                     "description": "Built-in recipe that provisions the service."
                 },
                 "version": {
@@ -139,6 +139,45 @@
                     "type": "object",
                     "additionalProperties": { "type": "string" },
                     "description": "Extra environment variables passed to the recipe container."
+                },
+                "options": {
+                    "type": "object",
+                    "description": "Recipe-specific options. For api-gateway: { routes: [{ path, target, strip_prefix?, rewrite? }], client_max_body_size? }.",
+                    "properties": {
+                        "routes": {
+                            "type": "array",
+                            "description": "api-gateway: ordered list of path-prefix routes. Matched longest-prefix first.",
+                            "items": {
+                                "type": "object",
+                                "required": ["path", "target"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "path": {
+                                        "type": "string",
+                                        "description": "Nginx location path prefix (e.g. /auth/, /students/)."
+                                    },
+                                    "target": {
+                                        "type": "string",
+                                        "description": "Upstream URL or host:port. Supports template vars: {{service.host}}:{{service.port}}. If no scheme, http:// is assumed."
+                                    },
+                                    "strip_prefix": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "If true, strip the matched path before proxying (e.g. /auth/login -> /login)."
+                                    },
+                                    "rewrite": {
+                                        "type": "string",
+                                        "description": "Explicit path rewrite replacement. Overrides strip_prefix."
+                                    }
+                                }
+                            }
+                        },
+                        "client_max_body_size": {
+                            "type": "string",
+                            "default": "10m",
+                            "description": "api-gateway: max request body size (nginx syntax)."
+                        }
+                    }
                 },
                 "resources": { "$ref": "#/definitions/resources" }
             }

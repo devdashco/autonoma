@@ -1,3 +1,4 @@
+import { ApiGatewayRecipe } from "./api-gateway-recipe";
 import { PostgresRecipe } from "./postgres-recipe";
 import type { Recipe } from "./recipe";
 import { RedisRecipe } from "./redis-recipe";
@@ -12,6 +13,7 @@ export class RecipeRegistry {
         this.register(new RedisRecipe());
         this.register(new ValkeyRecipe());
         this.register(new TemporalRecipe());
+        this.register(new ApiGatewayRecipe());
     }
 
     register(recipe: Recipe): void {

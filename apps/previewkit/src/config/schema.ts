@@ -27,6 +27,7 @@ const serviceSchema = z.object({
     recipe: z.string(),
     version: z.string().optional(),
     env: z.record(z.string(), z.string()).default({}),
+    options: z.record(z.string(), z.unknown()).default({}),
     resources: resourcesSchema,
 });
 
