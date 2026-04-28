@@ -4,7 +4,7 @@ import { defaultProvider } from "@aws-sdk/credential-provider-node";
 import * as k8s from "@kubernetes/client-node";
 import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
-import { logger as rootLogger } from "../logger";
+import { logger as rootLogger, type Logger } from "../logger";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -19,7 +19,7 @@ export interface EksKubeconfigLoaderOptions {
 }
 
 export class EksKubeconfigLoader {
-    private readonly logger = rootLogger.child({ name: "EksKubeconfigLoader", cluster: this.clusterName });
+    private readonly logger: Logger;
     private readonly eksClient: EKSClient;
     private readonly signer: SignatureV4;
     private clusterInfo?: CachedClusterInfo;
@@ -30,6 +30,7 @@ export class EksKubeconfigLoader {
         private readonly clusterName: string,
         private readonly region: string,
     ) {
+        this.logger = rootLogger.child({ name: "EksKubeconfigLoader", cluster: clusterName });
         this.eksClient = new EKSClient({ region });
         this.signer = new SignatureV4({
             credentials: defaultProvider(),
