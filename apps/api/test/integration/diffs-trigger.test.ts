@@ -254,7 +254,7 @@ apiTestSuite({
             expect(skillAssignments[0]!.skillId).toBe(inheritedSkillId);
         });
 
-        test("triggerDiffs dispatches to PR flow when prNumber is set", async ({
+        test("triggerDiffs dispatches to PR flow when ref is not main and prNumber is set", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -262,7 +262,7 @@ apiTestSuite({
                 organizationId: harness.organizationId,
                 repoId: 1001,
                 prNumber: 50,
-                githubRef: "ignored-when-pr",
+                githubRef: "feature/branch-50",
                 url: "https://preview.example.com",
                 webhookUrl: "https://webhook.example.com/hook",
             });
@@ -334,6 +334,34 @@ apiTestSuite({
             });
             expect(snapshot.headSha).toBe("dispatcher-main-sha");
             expect(snapshot.baseSha).toBe("dispatcher-base-sha");
+        });
+
+        test("triggerDiffs dispatches to main flow when ref matches main even if prNumber is set", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "main-wins-sha");
+            await harness.db.branch.update({
+                where: { id: app.mainBranchId! },
+                data: { lastHandledSha: "main-wins-base-sha" },
+            });
+
+            const result = await service.triggerDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 60,
+                githubRef: "main",
+                url: "https://preview.example.com",
+                webhookUrl: "https://webhook.example.com/hook",
+            });
+
+            expect(result.branchId).toBe(app.mainBranchId);
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: result.branchId },
+                include: { mainInfo: true, prInfo: true },
+            });
+            expect(branch.mainInfo).not.toBeNull();
+            expect(branch.prInfo).toBeNull();
         });
 
         test("triggerDiffs throws BadRequestError for unknown ref", async ({ harness, seedResult: { service } }) => {

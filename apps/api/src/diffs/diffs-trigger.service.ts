@@ -19,9 +19,7 @@ interface TriggerPrDiffsParams extends BaseTriggerDiffsParams {
     prNumber: number;
 }
 
-interface TriggerMainDiffsParams extends BaseTriggerDiffsParams {
-    expectedGithubRef?: string;
-}
+type TriggerMainDiffsParams = BaseTriggerDiffsParams;
 
 interface TriggerDiffsParams extends BaseTriggerDiffsParams {
     prNumber?: number;
@@ -69,11 +67,23 @@ export class DiffsTriggerService extends Service {
     }
 
     async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
+        const mainBranchInfo = await this.db.mainBranchInfo.findFirst({
+            where: {
+                application: {
+                    organizationId: params.organizationId,
+                    githubRepositoryId: params.repoId,
+                },
+            },
+            select: { githubRef: true },
+        });
+
+        if (mainBranchInfo?.githubRef === params.githubRef) {
+            return this.triggerMainDiffs(params);
+        }
         if (params.prNumber != null) {
             return this.triggerPrDiffs({ ...params, prNumber: params.prNumber });
-        } else {
-            return this.triggerMainDiffs({ ...params, expectedGithubRef: params.githubRef });
         }
+        throw new UnsupportedGitHubRefError(params.githubRef);
     }
 
     async triggerPrDiffs({
@@ -134,7 +144,6 @@ export class DiffsTriggerService extends Service {
         url,
         webhookUrl,
         webhookHeaders,
-        expectedGithubRef,
     }: TriggerMainDiffsParams): Promise<TriggerDiffsResult> {
         this.logger.info("Triggering main branch diffs analysis", { organizationId, repoId });
 
@@ -152,9 +161,6 @@ export class DiffsTriggerService extends Service {
         if (app == null) throw new NoApplicationLinkedError(repoId);
 
         if (app.mainBranch == null || app.mainBranchInfo == null) throw new NoMainBranchError(app.id);
-
-        if (expectedGithubRef != null && app.mainBranchInfo.githubRef !== expectedGithubRef)
-            throw new UnsupportedGitHubRefError(expectedGithubRef);
 
         if (app.mainBranch.lastHandledSha == null) throw new NoLastHandledShaError(app.mainBranch.id);
 
