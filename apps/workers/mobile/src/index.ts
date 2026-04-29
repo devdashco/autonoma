@@ -12,7 +12,7 @@ runWithSentry({ name: "worker-mobile", dsn: env.SENTRY_DSN_WORKER_MOBILE }, asyn
     const worker = await createTemporalWorker({
         taskQueue: TaskQueue.MOBILE,
         activities,
-        maxConcurrentActivityTaskExecutions: 2,
+        maxConcurrentActivityTaskExecutions: 1,
         interceptors: {
             activity: [sentryServiceInterceptor],
         },

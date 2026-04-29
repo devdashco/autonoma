@@ -12,7 +12,7 @@ runWithSentry({ name: "worker-web", dsn: env.SENTRY_DSN_WORKER_WEB }, async () =
     const worker = await createTemporalWorker({
         taskQueue: TaskQueue.WEB,
         activities,
-        maxConcurrentActivityTaskExecutions: 2,
+        maxConcurrentActivityTaskExecutions: 1,
         interceptors: {
             activity: [sentryServiceInterceptor],
         },
