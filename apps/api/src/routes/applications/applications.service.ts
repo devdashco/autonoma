@@ -152,7 +152,7 @@ export class ApplicationsService extends Service {
         });
 
         try {
-            return await this.db.$transaction(async (tx) => {
+            const result = await this.db.$transaction(async (tx) => {
                 const app = await tx.application.create({
                     data: {
                         name: data.name,
@@ -221,7 +221,7 @@ export class ApplicationsService extends Service {
                     },
                 });
 
-                const result = await tx.application.update({
+                const application = await tx.application.update({
                     where: { id: app.id },
                     data: { mainBranchId: branch.id },
                     include: deploymentInclude,
@@ -229,8 +229,10 @@ export class ApplicationsService extends Service {
 
                 this.logger.info("Application created", { applicationId: app.id, branchId: branch.id });
 
-                return result;
+                return { application };
             });
+
+            return result.application;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
                 throw new ConflictError();

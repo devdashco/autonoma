@@ -17,6 +17,7 @@ import { ApplicationsService } from "./applications/applications.service";
 import { AuthService } from "./auth/auth.service";
 import { BranchesService } from "./branches/branches.service";
 import { BugsService } from "./bugs/bugs.service";
+import { DeploymentsService } from "./deployments/deployments.service";
 import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
@@ -36,6 +37,7 @@ export interface Services {
     applications: ApplicationsService;
     branches: BranchesService;
     bugs: BugsService;
+    deployments: DeploymentsService;
     runs: RunsService;
     testGenerations: TestGenerationsService;
     tests: TestsService;
@@ -99,6 +101,7 @@ export function buildServices({
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn),
         bugs: new BugsService(conn, storageProvider, bugLinker),
+        deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
         testGenerations: new TestGenerationsService(conn, storageProvider, generationProvider, billingService),

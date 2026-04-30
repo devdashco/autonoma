@@ -2,6 +2,7 @@ import { Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/b
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { ensureBranchByPrData, useBranchByPr, useSnapshotHistory } from "lib/query/branches.queries";
+import { ensureDeploymentsByPrData } from "lib/query/deployments.queries";
 import { usePullRequestFromGitHub } from "lib/query/github.queries";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
     await ensureBranchByPrData(context.queryClient, app.id, prNumber);
+    void ensureDeploymentsByPrData(context.queryClient, app.id, prNumber);
   },
   component: PullRequestDetailPage,
 });

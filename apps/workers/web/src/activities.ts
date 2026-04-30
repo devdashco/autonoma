@@ -35,5 +35,4 @@ export async function runWebReplay(input: RunWebReplayInput): Promise<void> {
     }
 }
 
-// Compile-time check: ensure exported activities match the WebActivities contract.
 ({ runWebGeneration, runWebReplay }) satisfies WebActivities;

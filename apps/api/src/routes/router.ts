@@ -8,6 +8,7 @@ import { authRouter } from "./auth/auth.router";
 import { billingRouter } from "./billing/billing.router";
 import { branchesRouter } from "./branches/branches.router";
 import { bugsRouter } from "./bugs/bugs.router";
+import { deploymentsRouter } from "./deployments/deployments.router";
 import { foldersRouter } from "./folders/folders.router";
 import { issuesRouter } from "./issues/issues.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
@@ -28,6 +29,7 @@ const appRouterImpl = router({
     applications: applicationsRouter,
     branches: branchesRouter,
     bugs: bugsRouter,
+    deployments: deploymentsRouter,
     folders: foldersRouter,
     runs: runsRouter,
     generations: generationsRouter,
