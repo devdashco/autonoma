@@ -2,6 +2,7 @@ import type {
     AssertCommandSpec,
     ClickCommandSpec,
     HoverCommandSpec,
+    RefreshCommandSpec,
     ScrollCommandSpec,
     TypeCommandSpec,
 } from "@autonoma/engine";
@@ -12,4 +13,5 @@ export type ReplayWebCommandSpec =
     | HoverCommandSpec
     | TypeCommandSpec
     | AssertCommandSpec
-    | ScrollCommandSpec;
+    | ScrollCommandSpec
+    | RefreshCommandSpec;

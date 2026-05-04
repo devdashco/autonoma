@@ -6,7 +6,14 @@ import {
     VisualConditionChecker,
 } from "@autonoma/ai";
 import type { Command } from "@autonoma/engine";
-import { AssertCommand, ScrollCommand, TypeCommand, WebClickCommand, WebHoverCommand } from "@autonoma/engine";
+import {
+    AssertCommand,
+    RefreshCommand,
+    ScrollCommand,
+    TypeCommand,
+    WebClickCommand,
+    WebHoverCommand,
+} from "@autonoma/engine";
 import type { EngineModelRegistry } from "@autonoma/engine";
 import type { WebContext } from "../platform";
 import type { ReplayWebCommandSpec } from "./web-command-spec";
@@ -33,5 +40,6 @@ export function createWebCommands(models: EngineModelRegistry): Command<ReplayWe
         new TypeCommand(pointDetector),
         new AssertCommand(assertChecker, assertionSplitter),
         new ScrollCommand(pointDetector, visualConditionChecker),
+        new RefreshCommand(),
     ] as unknown as Command<ReplayWebCommandSpec, WebContext>[];
 }
