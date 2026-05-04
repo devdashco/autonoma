@@ -355,7 +355,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
         const lastStepData = this.generatedSteps[this.generatedSteps.length - 1];
         const waitConditionPromise: Promise<string | null> =
             lastStepData == null
-                ? Promise.resolve(null)
+                ? Promise.resolve(this.params.waitPlanner.planFirstWait(output.stepData))
                 : this.params.waitPlanner.planWait({
                       prevStep: lastStepData.executionOutput.stepData,
                       prevScreenshot: lastStepData.afterMetadata.screenshot,

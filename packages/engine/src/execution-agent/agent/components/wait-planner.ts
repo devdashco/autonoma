@@ -120,4 +120,35 @@ export class WaitPlanner<TSpec extends CommandSpec> {
 
         return this.generateCondition({ prevStep, prevScreenshot, newStep, newScreenshot });
     }
+
+    /**
+     * Derives a wait condition for the very first step of a test, where there is no previous step
+     * to compare against. Synchronous and deterministic - no LLM call. Returns null when no useful
+     * pre-wait can be derived (e.g. assertions, unknown commands).
+     */
+    public planFirstWait(step: StepData<TSpec>): string | null {
+        const params = step.params as Record<string, unknown>;
+        const description = typeof params.description === "string" ? params.description : undefined;
+
+        const condition = (() => {
+            switch (step.interaction) {
+                case "click":
+                case "hover":
+                    return description != null
+                        ? `the element described as "${description}" is visible and interactable`
+                        : null;
+                case "type":
+                    return description != null
+                        ? `the input field described as "${description}" is visible and editable`
+                        : null;
+                case "scroll":
+                    return "the page is loaded and scrollable";
+                default:
+                    return null;
+            }
+        })();
+
+        this.logger.info("First-step wait condition derived", { interaction: step.interaction, condition });
+        return condition;
+    }
 }
