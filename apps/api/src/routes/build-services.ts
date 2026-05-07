@@ -2,7 +2,7 @@ import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
-import { BugLinker, BugMatcher } from "@autonoma/review";
+import { IssueReporter } from "@autonoma/issue-reporter";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
 import type { GenerationProvider } from "@autonoma/test-updates";
@@ -89,8 +89,7 @@ export function buildServices({
     const registry = new ModelRegistry({
         models: { "smart-text": MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
-    const bugMatcher = new BugMatcher(registry.getModel({ model: "smart-text", tag: "bug-matching" }));
-    const bugLinker = new BugLinker(bugMatcher);
+    const issueReporter = IssueReporter.fromModel(registry.getModel({ model: "smart-text", tag: "bug-matching" }));
     const billingService = createBillingService(conn);
     const onboardingManager = new OnboardingManager(conn, generationProvider, scenarioManager, encryptionHelper);
     const githubService = new GitHubInstallationService(conn, githubApp);
@@ -100,7 +99,7 @@ export function buildServices({
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn),
-        bugs: new BugsService(conn, storageProvider, bugLinker),
+        bugs: new BugsService(conn, storageProvider, issueReporter),
         deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),

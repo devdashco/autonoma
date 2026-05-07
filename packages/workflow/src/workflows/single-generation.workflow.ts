@@ -60,12 +60,9 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
         await general.markGenerationFailed({ testGenerationId, reason });
         throw error;
     } finally {
-        const postSteps: Promise<void>[] = [
+        const postSteps: Promise<unknown>[] = [
             general.notifyGenerationExit({ testGenerationId }),
-            general.reviewGeneration({
-                generationId: testGenerationId,
-                skipIssueBugCreation: input.skipIssueBugCreation,
-            }),
+            reviewAndCreateIssue(testGenerationId, input.skipIssueBugCreation),
         ];
 
         if (scenarioInstanceId != null) {
@@ -74,6 +71,22 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
 
         await Promise.allSettled(postSteps);
     }
+}
+
+/**
+ * Run the reviewer (always - success or failure), then chain the transitional
+ * issue creator if the verdict warrants one. Sequential because the issue
+ * creator consumes the verdict produced by the review.
+ */
+async function reviewAndCreateIssue(generationId: string, skipBugCreation?: boolean): Promise<void> {
+    const reviewOutput = await general.reviewGeneration({ generationId });
+    if (reviewOutput.status !== "completed" || reviewOutput.verdict == null) return;
+    if (reviewOutput.verdict.verdict === "success") return;
+    await general.createIssueFromGenerationReview({
+        generationId,
+        verdict: reviewOutput.verdict,
+        skipBugCreation,
+    });
 }
 
 async function runExecution(architecture: WorkflowArchitecture, testGenerationId: string): Promise<void> {

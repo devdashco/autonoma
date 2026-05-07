@@ -1,5 +1,5 @@
 import type { AffectedReason, RunReviewVerdict } from "@autonoma/diffs";
-import type { ReviewVerdict } from "@autonoma/types";
+import type { ReplayVerdict } from "@autonoma/types";
 
 export interface VerdictMappingInput {
     testSlug: string;
@@ -9,7 +9,7 @@ export interface VerdictMappingInput {
     affectedReason?: AffectedReason;
 }
 
-export function mapVerdictToResolutionInput(test: VerdictMappingInput, verdict: ReviewVerdict): RunReviewVerdict {
+export function mapVerdictToResolutionInput(test: VerdictMappingInput, verdict: ReplayVerdict): RunReviewVerdict {
     return {
         runId: test.testSlug,
         testSlug: test.testSlug,

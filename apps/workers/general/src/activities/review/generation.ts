@@ -1,20 +1,23 @@
 import { db } from "@autonoma/db";
-import { runGenerationReview } from "@autonoma/generation-reviewer/run";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { ReviewGenerationInput } from "@autonoma/workflow/activities";
+import { runGenerationReview } from "@autonoma/review";
+import type { ReviewGenerationInput, ReviewGenerationOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
+import { withCodebaseForGeneration } from "../../codebase/resolve";
 
-export async function reviewGeneration(input: ReviewGenerationInput): Promise<void> {
+export async function reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput> {
     const logger = rootLogger.child({ name: "reviewGeneration", generationId: input.generationId });
     logger.info("Starting generation review");
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runGenerationReview(input.generationId, {
-            skipIssueBugCreation: input.skipIssueBugCreation,
+        const result = await withCodebaseForGeneration(input.generationId, {
+            targetDirSeed: `gen-review-${input.generationId}`,
+            body: (codebase) => runGenerationReview(input.generationId, { codebase }),
         });
-        logger.info("Generation review completed");
+        logger.info("Generation review completed", { status: result.status, verdict: result.verdict?.verdict });
+        return { status: result.status, verdict: result.verdict };
     } catch (error) {
         logger.error("Generation review failed", error);
 

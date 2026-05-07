@@ -207,8 +207,6 @@ Background job services, each deployed as a separate Docker image:
 
 | Job | Purpose |
 | --- | --- |
-| **generation-reviewer** | AI review of generated test cases |
-| **replay-reviewer** | Post-test AI validation using video recordings |
 | **run-completion-notification** | Slack/email notifications when test runs complete |
 | **generation-assigner** | Assigns generated tests to appropriate scenarios |
 | **scenario** | Environment Factory scenario execution |

@@ -799,18 +799,27 @@ model TestGeneration {
 // ─── Generation Review ───────────────────────────────────────────────────────
 
 enum GenerationReviewVerdict {
-  agent_error
+  success
+  agent_limitation
   application_bug
+  plan_mismatch
 
   @@map("generation_review_verdict")
 }
 
-enum GenerationReviewStatus {
+enum RunReviewVerdict {
+  engine_error
+  application_bug
+
+  @@map("run_review_verdict")
+}
+
+enum ReviewStatus {
   pending
   completed
   failed
 
-  @@map("generation_review_status")
+  @@map("review_status")
 }
 
 model GenerationReview {
@@ -818,7 +827,7 @@ model GenerationReview {
   generationId String         @unique @map("generation_id")
   generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
-  status    GenerationReviewStatus   @default(pending)
+  status    ReviewStatus             @default(pending)
   verdict   GenerationReviewVerdict?
   reasoning String?                  @db.Text
   analysis  Json                     @default("{}")
@@ -837,10 +846,10 @@ model RunReview {
   runId String @unique @map("run_id")
   run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  status    GenerationReviewStatus   @default(pending)
-  verdict   GenerationReviewVerdict?
-  reasoning String?                  @db.Text
-  analysis  Json                     @default("{}")
+  status    ReviewStatus      @default(pending)
+  verdict   RunReviewVerdict?
+  reasoning String?           @db.Text
+  analysis  Json              @default("{}")
   issue     Issue?
 
   createdAt      DateTime     @default(now()) @map("created_at")

@@ -1,20 +1,23 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { runReplayReview } from "@autonoma/replay-reviewer/run";
-import type { ReviewReplayInput } from "@autonoma/workflow/activities";
+import { runReplayReview } from "@autonoma/review";
+import type { ReviewReplayInput, ReviewReplayOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
+import { withCodebaseForRun } from "../../codebase/resolve";
 
-export async function reviewReplay(input: ReviewReplayInput): Promise<void> {
+export async function reviewReplay(input: ReviewReplayInput): Promise<ReviewReplayOutput> {
     const logger = rootLogger.child({ name: "reviewReplay", runId: input.runId });
     logger.info("Starting replay review");
 
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runReplayReview(input.runId, {
-            skipIssueBugCreation: input.skipIssueBugCreation,
+        const result = await withCodebaseForRun(input.runId, {
+            targetDirSeed: `run-review-${input.runId}`,
+            body: (codebase) => runReplayReview(input.runId, { codebase }),
         });
-        logger.info("Replay review completed");
+        logger.info("Replay review completed", { status: result.status, verdict: result.verdict?.verdict });
+        return { status: result.status, verdict: result.verdict };
     } catch (error) {
         logger.error("Replay review failed", error);
 

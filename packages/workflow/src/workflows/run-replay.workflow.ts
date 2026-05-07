@@ -57,9 +57,7 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
         // Step 3: After replay completes (or fails), run cleanup in parallel.
         // Use allSettled so that a failure in one step does not prevent the others
         // from executing - e.g. a scenarioDown failure must not skip reviewReplay.
-        const postSteps: Promise<void>[] = [
-            general.reviewReplay({ runId, skipIssueBugCreation: input.skipIssueBugCreation }),
-        ];
+        const postSteps: Promise<unknown>[] = [reviewAndCreateIssue(runId, input.skipIssueBugCreation)];
 
         if (scenarioInstanceId != null) {
             postSteps.push(scenario.scenarioDown({ scenarioInstanceId }));
@@ -67,6 +65,17 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
 
         await Promise.allSettled(postSteps);
     }
+}
+
+/** Run the replay reviewer (failure-only), then create an issue if the verdict warrants it. */
+async function reviewAndCreateIssue(runId: string, skipBugCreation?: boolean): Promise<void> {
+    const reviewOutput = await general.reviewReplay({ runId });
+    if (reviewOutput.status !== "completed" || reviewOutput.verdict == null) return;
+    await general.createIssueFromRunReview({
+        runId,
+        verdict: reviewOutput.verdict,
+        skipBugCreation,
+    });
 }
 
 async function runReplayExecution(architecture: WorkflowArchitecture, runId: string): Promise<void> {

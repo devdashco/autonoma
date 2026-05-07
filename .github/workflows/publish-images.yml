@@ -68,26 +68,6 @@ jobs:
             prepare: mkdir -p pruned && cp -r apps/jobs/generation-assigner/dist pruned/dist
             context: ./pruned
 
-          - name: Generation Reviewer
-            image: generation-reviewer
-            dockerfile: apps/jobs/generation-reviewer/Dockerfile
-            turbo-filter: "@autonoma/generation-reviewer..."
-            prepare: |
-              mkdir -p pruned/dist
-              cp -r apps/jobs/generation-reviewer/dist/* pruned/dist/
-              cp apps/jobs/generation-reviewer/src/review-prompt.md pruned/dist/
-            context: ./pruned
-
-          - name: Replay Reviewer
-            image: replay-reviewer
-            dockerfile: apps/jobs/replay-reviewer/Dockerfile
-            turbo-filter: "@autonoma/replay-reviewer..."
-            prepare: |
-              mkdir -p pruned/dist
-              cp -r apps/jobs/replay-reviewer/dist/* pruned/dist/
-              cp apps/jobs/replay-reviewer/src/review-prompt.md pruned/dist/
-            context: ./pruned
-
           - name: Diffs
             image: diffs
             dockerfile: apps/jobs/diffs/Dockerfile

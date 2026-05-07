@@ -7,6 +7,10 @@ export const env = createEnv({
     server: {
         SENTRY_DSN_WORKER_GENERAL: z.string().optional(),
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
+        GITHUB_APP_ID: z.string().min(1),
+        GITHUB_APP_PRIVATE_KEY: z.string().min(1),
+        GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
+        GITHUB_APP_SLUG: z.string().min(1),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

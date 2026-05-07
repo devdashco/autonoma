@@ -10,8 +10,8 @@ import {
 } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
 import type { TestDirectory } from "@autonoma/diffs";
+import { IssueReporter } from "@autonoma/issue-reporter";
 import { logger } from "@autonoma/logger";
-import { BugLinker, BugMatcher } from "@autonoma/review";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 
 export interface RunResolutionAgentParams {
@@ -39,7 +39,7 @@ export async function runResolutionAgent({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
-    const bugLinker = new BugLinker(new BugMatcher(model));
+    const issueReporter = IssueReporter.fromModel(model);
 
     const scenarioIndex = await loadScenarioIndex(db, applicationId);
 
@@ -62,7 +62,7 @@ export async function runResolutionAgent({
         applicationId,
         organizationId,
         testDirectory,
-        bugLinker,
+        issueReporter,
     });
 
     await Promise.all([

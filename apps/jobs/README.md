@@ -8,10 +8,8 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 |-----|-------------|---------|
 | **diffs** | `@autonoma/job-diffs` | Analyzes code diffs on a branch, runs an AI agent to determine test impacts (new tests, updates, bug reports, skill updates), and queues pending generations. |
 | **generation-assigner** | `@autonoma/generation-assigner` | Assigns completed generation results back to a test suite snapshot. Optionally finalizes (activates) the snapshot. |
-| **generation-reviewer** | `@autonoma/generation-reviewer` | Reviews a single test generation using AI video analysis. Produces a verdict (pass/fail category, severity, confidence) and persists an issue record. |
-| **replay-reviewer** | `@autonoma/replay-reviewer` | Reviews a failed test run using AI video analysis. Same review pattern as generation-reviewer but operates on run recordings. |
 | **scenario** | `@autonoma/job-scenario` | Manages test scenario lifecycle - "up" provisions a scenario instance before a run/generation, "down" tears it down afterward. |
-| **reviewer** | (legacy) | Build artifact only - no source files. Superseded by generation-reviewer and replay-reviewer. |
+| **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/review`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |
 
 ## Tech Stack
@@ -44,14 +42,6 @@ pnpm build
 Jobs that support local execution have a dedicated script:
 
 ```bash
-# generation-reviewer
-cd apps/jobs/generation-reviewer
-pnpm review    # runs: tsx --env-file=../../../.env src/index.ts
-
-# replay-reviewer
-cd apps/jobs/replay-reviewer
-pnpm review    # runs: tsx --env-file=../../../.env src/index.ts
-
 # scenario (test mode)
 cd apps/jobs/scenario
 pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
@@ -62,11 +52,9 @@ Most jobs accept arguments via CLI args or environment variables:
 ```bash
 # generation-assigner takes generation IDs as positional args
 node dist/index.js <generationId1> <generationId2> ...
-
-# generation-reviewer / replay-reviewer take a single ID
-node dist/index.js <generationId>
-node dist/index.js <runId>
 ```
+
+For local generation/replay reviewer inspection, see `@autonoma/review` (`pnpm --filter @autonoma/review review:generation <generationId>` / `review:replay <runId>`).
 
 ## Environment Variables
 
@@ -81,7 +69,7 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 | `SENTRY_ENV` | No | Sentry environment tag (default: `production`) |
 | `SENTRY_RELEASE` | No | Sentry release identifier (default: `unknown`) |
 
-### Shared (AI) - used by reviewer jobs and diffs
+### Shared (AI) - used by diffs
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -89,7 +77,7 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 | `GEMINI_API_KEY` | Yes | Google Gemini API key |
 | `OPENROUTER_API_KEY` | Yes | OpenRouter API key |
 
-### Shared (Storage) - used by reviewer jobs
+### Shared (Storage) - used by diffs
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -128,5 +116,4 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 - **Each job is a separate Docker image.** Jobs never share images. They share logic through workspace packages (`@autonoma/ai`, `@autonoma/db`, `@autonoma/review`, etc.).
 - **Run-once semantics.** Jobs execute a `main()` function wrapped in `runWithSentry()` and exit. They are not long-running services.
 - **Error handling follows the `fx` pattern** from `@autonoma/try` - Go-style error tuples with `fx.runAsync` / `fx.run`.
-- **Reviewer jobs share a common pattern:** load data from DB + S3, process video through Gemini, produce a verdict, persist results in a transaction with cost records.
 - **Scenario job has two entry points:** `up.ts` (provision before test) and `down.ts` (teardown after test), each with their own env validation.

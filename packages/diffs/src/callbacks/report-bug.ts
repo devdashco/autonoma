@@ -1,11 +1,11 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { IssueReporter } from "@autonoma/issue-reporter";
 import { logger } from "@autonoma/logger";
-import type { BugLinker } from "@autonoma/review";
 import type { ReportedBug } from "../tools/report-bug-tool";
 
 interface ReportBugDeps {
     db: PrismaClient;
-    bugLinker: BugLinker;
+    issueReporter: IssueReporter;
     branchId: string;
     applicationId: string;
     organizationId: string;
@@ -13,7 +13,7 @@ interface ReportBugDeps {
 
 export async function reportBug(
     bug: ReportedBug,
-    { db, bugLinker, branchId, applicationId, organizationId }: ReportBugDeps,
+    { db, issueReporter, branchId, applicationId, organizationId }: ReportBugDeps,
 ): Promise<void> {
     logger.info("Reporting bug found in diff resolution", {
         runId: bug.runId,
@@ -42,7 +42,7 @@ export async function reportBug(
     }
 
     await db.$transaction(async (tx) => {
-        await bugLinker.recordBugFromRunReview(tx, {
+        await issueReporter.recordBugFromRunReview(tx, {
             runReviewId: runReview.id,
             title: bug.summary,
             description: buildBugDescription(bug),

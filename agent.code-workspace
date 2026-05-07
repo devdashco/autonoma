@@ -33,14 +33,6 @@
             "path": "apps/engine-mobile",
         },
         {
-            "name": "generation-reviewer",
-            "path": "apps/jobs/generation-reviewer",
-        },
-        {
-            "name": "replay-reviewer",
-            "path": "apps/jobs/replay-reviewer",
-        },
-        {
             "name": "diffs",
             "path": "apps/jobs/diffs",
         },

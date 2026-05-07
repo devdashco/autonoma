@@ -1,8 +1,7 @@
 import type { LanguageModel } from "@autonoma/ai";
-import type { RunReviewData, RunStepData } from "@autonoma/replay-reviewer/data-loader";
-import { ReplayReviewer } from "@autonoma/replay-reviewer/reviewer";
+import { ReplayReviewer, type RunContext, type RunStepData } from "@autonoma/review";
 import { LocalStorageProvider } from "@autonoma/storage/local";
-import type { ReviewVerdict } from "@autonoma/types";
+import type { ReplayVerdict } from "@autonoma/types";
 
 export interface LocalReviewInput {
     /** Slug of the test that was reviewed */
@@ -19,22 +18,22 @@ export interface LocalReviewInput {
 
 export interface LocalReviewResult {
     testSlug: string;
-    verdict?: ReviewVerdict;
+    verdict?: ReplayVerdict;
 }
 
 export async function runReviewLocally(model: LanguageModel, input: LocalReviewInput): Promise<LocalReviewResult> {
     const storage = new LocalStorageProvider(input.artifactDir);
-    const dataLoader = {
+    const evidenceLoader = {
         loadScreenshot: (key: string) => storage.download(key),
         downloadVideo: (key: string) => storage.download(key),
     };
 
-    const reviewer = new ReplayReviewer(model, dataLoader);
+    const reviewer = new ReplayReviewer({ model, evidenceLoader });
 
     const lastStep = input.steps[input.steps.length - 1];
     const finalScreenshotKey = lastStep?.screenshotAfterKey ?? lastStep?.screenshotBeforeKey;
 
-    const data: RunReviewData = {
+    const context: RunContext = {
         runId: input.testSlug,
         organizationId: "local",
         testPlanPrompt: input.testInstruction,
@@ -43,7 +42,7 @@ export async function runReviewLocally(model: LanguageModel, input: LocalReviewI
         finalScreenshotKey,
     };
 
-    const result = await reviewer.review(data);
+    const result = await reviewer.review(context);
 
     return { testSlug: input.testSlug, verdict: result.verdict };
 }

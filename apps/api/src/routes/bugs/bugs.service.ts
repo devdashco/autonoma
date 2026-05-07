@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { BUG_CONFIDENCE_THRESHOLD, type BugLinker } from "@autonoma/review";
+import { BUG_CONFIDENCE_THRESHOLD, type IssueReporter } from "@autonoma/issue-reporter";
 import type { StorageProvider } from "@autonoma/storage";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
@@ -11,7 +11,7 @@ export class BugsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
-        private readonly bugLinker: BugLinker,
+        private readonly issueReporter: IssueReporter,
     ) {
         super();
     }
@@ -253,7 +253,7 @@ export class BugsService extends Service {
         }
 
         await this.db.$transaction(async (tx) => {
-            await this.bugLinker.linkIssueToBug(tx, {
+            await this.issueReporter.promoteIssueToBug(tx, {
                 issueId: issue.id,
                 issueTitle: issue.title,
                 issueDescription: issue.description,

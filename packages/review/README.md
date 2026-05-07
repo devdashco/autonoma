@@ -1,102 +1,103 @@
 # @autonoma/review
 
-AI-powered review agent for analyzing failed test executions. Given a test run's video recording, step screenshots, and conversation history, it classifies the failure as either an `agent_error` (the test agent misbehaved) or an `application_bug` (a real defect in the application under test).
+The reviewer system: generation review (4-outcome classifier) and replay review (binary classifier), built on a shared agent-loop kernel.
 
-## How It Works
+## Layout
 
-The review agent is built on the Vercel AI SDK's `ToolLoopAgent`. It receives the execution context (system prompt, messages with video/screenshots) and iteratively inspects evidence using tools until it calls `submit_verdict` or hits the 15-step limit.
+```
+src/
+├── kernel/        Generic agent-loop primitives shared by every reviewer.
+├── generation/    GenerationReviewer: 4-outcome verdict, runs on every generation.
+├── replay/        ReplayReviewer: binary verdict, failure-only.
+└── index.ts       Public re-exports.
+```
 
-**Agent loop:**
+This mirrors `@autonoma/engine`'s layout (execution-agent + replay-engine in one package). Internal subdirectories instead of separate packages keeps refactoring across the boundary cheap and avoids workspace ceremony for a kernel that has no third consumer.
 
-1. Model receives execution context (conversation log, video, step metadata)
-2. Model calls `view_step_screenshot` or `view_final_screenshot` to inspect specific moments
-3. Model calls `submit_verdict` with a structured `ReviewVerdict` to end the loop
+## kernel/
 
-## Exports
+Domain-agnostic primitives. Knows nothing about generations, replays, plans, issues, or bugs.
 
-### `@autonoma/review`
+| Export | Description |
+|--------|-------------|
+| `runReviewAgent<TVerdict>` | Runs a `ToolLoopAgent` until the verdict tool fires or `maxSteps` is hit. Generic over the verdict shape. |
+| `buildScreenshotTools` | Returns `view_step_screenshot` + `view_final_screenshot`. |
+| `buildVerdictTool(schema)` | Builds the terminal `submit_verdict` tool against any Zod schema. |
+| `extractVerdict<T>(steps, name?)` | Walks the tool-loop trace looking for the verdict call. |
+| `tryUploadVideo` | Best-effort upload to the GenAI Files API; returns `undefined` on failure. |
+| `MessageBuilder` | Fluent builder for `ModelMessage[]` (sections, video, appended messages, closing prompt). |
+| `sanitizeConversation` | Strips images and `providerOptions` from a foreign agent's conversation. |
+| `ScreenshotLoader`, `VideoDownloader`, `ReviewStepScreenshots` | Interfaces. |
 
-| Export | Type | Description |
-|--------|------|-------------|
-| `runReviewAgent` | function | Runs the review agent loop and returns a `ReviewAgentResult` |
-| `buildReviewTools` | function | Builds the tool set (`view_step_screenshot`, `view_final_screenshot`, `submit_verdict`) |
-| `extractVerdict` | function | Extracts a `ReviewVerdict` from agent step tool calls |
-| `tryUploadVideo` | function | Downloads and uploads a video recording to the GenAI Files API |
-| `ReviewAgentResult` | type | `{ verdict: ReviewVerdict \| undefined }` |
-| `ScreenshotLoader` | interface | `{ loadScreenshot(key: string): Promise<Buffer> }` |
-| `ReviewStepScreenshots` | interface | Step metadata with optional before/after screenshot keys |
-| `BuildReviewToolsParams` | interface | Params for `buildReviewTools` |
-| `VideoDownloader` | interface | `{ downloadVideo(key: string): Promise<Buffer> }` |
+## generation/
 
-### `@autonoma/review/env`
+The Generation Reviewer. Runs on **every** generation (success and failure) and is the authority on the true outcome — its verdict overrides the execution agent's self-report.
 
-Validated environment config via `createEnv`. Extends `@autonoma/logger/env`, `@autonoma/storage/env`, and `@autonoma/ai/env`. No additional env vars of its own.
+Verdicts: `success | agent_limitation | application_bug | plan_mismatch`.
+
+| Export | Description |
+|--------|-------------|
+| `GenerationContextLoader` | Postgres + S3 -> `GenerationContext` value object. |
+| `buildGenerationReviewMessages` | `GenerationContext` + uploaded video -> `ModelMessage[]`. |
+| `GenerationReviewer` | Runs the agent loop, returns a `GenerationVerdict`. |
+| `GenerationReviewPersister` | Writes the verdict to the `GenerationReview` row. Does not create Issues/Bugs - that's `@autonoma/issue-reporter`'s job. |
+| `runGenerationReview(generationId, deps?)` | Top-level entry point. Idempotent against an already-completed review. |
+
+## replay/
+
+The Replay Reviewer. Failure-only — skips runs whose status is not `failed`.
+
+Verdicts: `engine_error | application_bug`.
+
+Same shape as `generation/`: `RunContextLoader`, `buildReplayReviewMessages`, `ReplayReviewer`, `RunReviewPersister`, `runReplayReview(runId, deps?)`.
 
 ## Usage
 
 ```ts
-import { runReviewAgent, buildReviewTools, tryUploadVideo } from "@autonoma/review";
-import type { ScreenshotLoader, VideoDownloader } from "@autonoma/review";
+import { runGenerationReview, runReplayReview } from "@autonoma/review";
+import { CodebaseResolver } from "@autonoma/codebase";
 
-// 1. Build tools with your storage adapter
-const tools = buildReviewTools({
-    screenshotLoader: myScreenshotLoader,  // implements ScreenshotLoader
-    steps: [
-        { order: 0, screenshotBeforeKey: "s3://before-0.png", screenshotAfterKey: "s3://after-0.png" },
-        { order: 1, screenshotBeforeKey: "s3://before-1.png", screenshotAfterKey: "s3://after-1.png" },
-    ],
-    finalScreenshotKey: "s3://final.png",
+const resolver = new CodebaseResolver({ db, githubApp });
+const codebase = await resolver.cloneForGeneration(generationId, {
+    targetDirSeed: `gen-${generationId}`,
 });
-
-// 2. Optionally upload video for multimodal context
-const uploadedVideo = await tryUploadVideo(videoKey, myVideoDownloader, videoProcessor);
-
-// 3. Run the agent
-const { verdict } = await runReviewAgent(model, systemPrompt, tools, messages);
-
-if (verdict != null) {
-    console.log(verdict.verdict);     // "agent_error" | "application_bug"
-    console.log(verdict.confidence);  // 0-100
-    console.log(verdict.severity);    // "critical" | "high" | "medium" | "low"
-    console.log(verdict.title);       // Short summary
-    console.log(verdict.reasoning);   // Detailed explanation
+try {
+    const result = await runGenerationReview(generationId, { codebase });
+    // result.verdict: GenerationVerdict | undefined
+} finally {
+    if (codebase != null) await codebase.dispose();
 }
 ```
 
-## ReviewVerdict Shape
+## Idempotency
 
-The `submit_verdict` tool uses the `reviewVerdictSchema` from `@autonoma/types`:
+`runGenerationReview` and `runReplayReview` are idempotent against an already-completed review (return `{ status: "skipped" }`).
 
-```ts
-{
-    verdict: "agent_error" | "application_bug";
-    confidence: number;          // 0-100
-    severity: "critical" | "high" | "medium" | "low";
-    title: string;               // Short summary (under 100 chars)
-    reasoning: string;           // Detailed explanation
-    failurePoint: {
-        stepOrder?: number;      // Step where failure occurred
-        description: string;     // What happened at point of failure
-    };
-    evidence: Array<{
-        type: "conversation" | "screenshot" | "video" | "step_output";
-        description: string;
-    }>;
-}
+## Local CLI
+
+Two read-only scripts let you re-run a verdict against an existing generation/run without touching the DB. They compose `*ContextLoader` + `*Reviewer` directly - they do **not** go through `runGenerationReview` / `runReplayReview`, so there are no DB writes, no idempotency guard, and no `AiCostRecord`s.
+
+```bash
+pnpm --filter @autonoma/review review:generation <generationId>
+pnpm --filter @autonoma/review review:replay <runId>
 ```
 
-## Architecture Notes
+The replay CLI is failure-only - it logs and exits 0 if the run's `status` is not `failed`.
 
-- **Platform-agnostic** - the package defines interfaces (`ScreenshotLoader`, `VideoDownloader`) rather than depending on a specific storage backend. Callers inject their own implementations.
-- **Graceful degradation** - `tryUploadVideo` catches download/upload failures and returns `undefined` rather than throwing, so reviews can proceed without video.
-- **Max 15 steps** - the agent is capped at 15 tool-call iterations to bound cost and latency.
-- **Verdict extraction** - `extractVerdict` scans all agent steps for a `submit_verdict` tool call. If the agent hits the step limit without submitting, it returns `undefined`.
+### Required env
+
+| Var | Why |
+|-----|-----|
+| `DATABASE_URL` | Read the generation/run. |
+| `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Download conversation, screenshots, video. |
+| `GEMINI_API_KEY`, `GROQ_KEY`, `OPENROUTER_API_KEY` | Model providers (default model: `GEMINI_3_FLASH_PREVIEW`). |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_SLUG` | Clone the application's repo at the snapshot's `headSha` so the agent gets `read_file` / `grep` / `list_directory` tools to ground its verdict in source. The clone targets `/tmp/codebase/cli-{gen,run}-<id>` and is disposed automatically. |
 
 ## Dependencies
 
-- `@autonoma/ai` - model types, video processing
-- `@autonoma/logger` - structured logging
-- `@autonoma/storage` - storage env config
-- `@autonoma/types` - `ReviewVerdict` schema and type
-- `ai` (Vercel AI SDK) - `ToolLoopAgent`, tool definitions, message types
-- `zod` - schema definitions
+- `@autonoma/ai` - model registry, video processor, cost collector, `ObjectGenerator`
+- `@autonoma/codebase` - optional codebase tools
+- `@autonoma/db` - Prisma client
+- `@autonoma/storage` - S3 access for conversation/screenshots/video
+- `@autonoma/types` - `GenerationVerdict`, `ReplayVerdict`, evidence + severity types
+- `ai` (Vercel AI SDK) - `ToolLoopAgent`, message types
