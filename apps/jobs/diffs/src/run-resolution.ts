@@ -3,11 +3,14 @@ import { db } from "@autonoma/db";
 import type { GeneratedTest, RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, TestDirectory } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
+import { S3Storage } from "@autonoma/storage";
 import type { ResolveDiffsOutput } from "@autonoma/workflow/activities";
 import * as Sentry from "@sentry/node";
+import type { ModelMessage } from "ai";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadFlows, mapTestSuiteToContext } from "./load-context";
 import { runResolutionAgent } from "./run-resolution-agent";
+import { uploadConversation } from "./upload-conversation";
 
 export async function runDiffsResolution(snapshotId: string): Promise<ResolveDiffsOutput> {
     const logger = rootLogger.child({ name: "runDiffsResolution", snapshotId });
@@ -83,6 +86,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
     let resolutionReasoning = "";
     let modifiedSlugs: string[] = [];
     let newTestNames: GeneratedTest[] = [];
+    let resolutionConversation: ModelMessage[] = [];
 
     if (!shouldRunAgent) {
         logger.info("Resolution skipped - no runs and no candidates");
@@ -133,6 +137,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
             resolutionReasoning = agentResult.reasoning;
             modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
             newTestNames = agentResult.newTests;
+            resolutionConversation = agentResult.conversation;
         } finally {
             await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
         }
@@ -152,9 +157,17 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
         logger,
     });
 
+    const resolutionConversationUrl = await uploadConversation({
+        storage: S3Storage.createFromEnv(),
+        snapshotId,
+        phase: "resolution",
+        conversation: resolutionConversation,
+        logger,
+    });
+
     await db.diffsJob.update({
         where: { snapshotId },
-        data: { resolutionReasoning, status: "generating" },
+        data: { resolutionReasoning, resolutionConversationUrl, status: "generating" },
     });
 
     const generations = pendingGens.map((gen) => ({

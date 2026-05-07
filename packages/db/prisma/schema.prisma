@@ -1687,6 +1687,9 @@ model DiffsJob {
   resolutionReasoning String? @map("resolution_reasoning") @db.Text
   failureReason       String? @map("failure_reason") @db.Text
 
+  analysisConversationUrl   String? @map("analysis_conversation_url")
+  resolutionConversationUrl String? @map("resolution_conversation_url")
+
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
 

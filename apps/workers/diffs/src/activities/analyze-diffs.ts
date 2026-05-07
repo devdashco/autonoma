@@ -74,6 +74,7 @@ export async function analyzeDiffs({ snapshotId }: AnalyzeDiffsInput): Promise<A
             where: { snapshotId },
             data: {
                 analysisReasoning: analysisResult.reasoning,
+                analysisConversationUrl: analysisResult.conversationUrl,
                 status: "replaying",
             },
         });

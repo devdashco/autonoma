@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { type ModelMessage, tool } from "ai";
 import { z } from "zod";
 import type { GeneratedTest } from "./add-test-tool";
 import type { ModifiedTest } from "./modify-test-tool";
@@ -11,9 +11,14 @@ export interface ResolutionAgentResult {
     reportedBugs: ReportedBug[];
     newTests: GeneratedTest[];
     reasoning: string;
+    /** Full LLM conversation produced by the agent. Captured so it can be persisted for debugging. */
+    conversation: ModelMessage[];
 }
 
-export type ResolutionResultCollector = Omit<ResolutionAgentResult, "reasoning">;
+export type ResolutionResultCollector = Omit<ResolutionAgentResult, "reasoning" | "conversation">;
+
+/** What the finish tool can produce on its own; the conversation is merged in by the caller. */
+export type ResolutionAgentFinishOutput = Omit<ResolutionAgentResult, "conversation">;
 
 const finishSchema = z.object({
     reasoning: z
@@ -24,7 +29,7 @@ const finishSchema = z.object({
 });
 
 export function buildResolutionFinishTool(
-    onFinish: (result: ResolutionAgentResult) => void,
+    onFinish: (result: ResolutionAgentFinishOutput) => void,
     collector: ResolutionResultCollector,
     failedSlugs: Set<string>,
 ) {

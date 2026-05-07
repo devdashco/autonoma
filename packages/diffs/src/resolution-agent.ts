@@ -1,3 +1,4 @@
+import { extractMessages } from "@autonoma/ai";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { FlowIndex } from "./flow-index";
@@ -11,6 +12,7 @@ import {
 } from "./tools/codebase-tools";
 import type { AffectedReason } from "./tools/mark-affected-test-tool";
 import {
+    type ResolutionAgentFinishOutput,
     type ResolutionAgentResult,
     type ResolutionResultCollector,
     buildResolutionFinishTool,
@@ -85,13 +87,14 @@ export class ResolutionAgent {
             reportedBugs: [],
             newTests: [],
             reasoning: `Resolution agent produced no reasoning after ${MAX_RETRIES} attempts`,
+            conversation: [],
         };
     }
 
     private async runAgent(prompt: string, failedSlugs: Set<string>): Promise<ResolutionAgentResult> {
         const { model, workingDirectory, flowIndex, scenarioIndex, testDirectory, maxSteps = 50 } = this.config;
 
-        let result: ResolutionAgentResult | undefined;
+        let result: ResolutionAgentFinishOutput | undefined;
         const collector: ResolutionResultCollector = {
             modifiedTests: [],
             quarantinedTests: [],
@@ -147,7 +150,8 @@ export class ResolutionAgent {
             },
         });
 
-        await agent.generate({ messages: [{ role: "user", content: prompt }] });
+        const generateResult = await agent.generate({ messages: [{ role: "user", content: prompt }] });
+        const conversation = extractMessages(generateResult);
 
         if (result == null) {
             return {
@@ -156,10 +160,11 @@ export class ResolutionAgent {
                 reportedBugs: collector.reportedBugs,
                 newTests: collector.newTests,
                 reasoning: "",
+                conversation,
             };
         }
 
-        return result;
+        return { ...result, conversation };
     }
 }
 

@@ -1,10 +1,16 @@
+import { extractMessages } from "@autonoma/ai";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import { buildDiffAnalysis } from "./diff-analysis";
 import type { FlowIndex } from "./flow-index";
 import type { TestDirectory } from "./test-directory";
 import { buildActionTools, buildCodebaseTools, buildTestInteractionTools } from "./tools/codebase-tools";
-import { type DiffsAgentResult, type ResultCollector, buildFinishTool } from "./tools/finish-tool";
+import {
+    type DiffsAgentFinishOutput,
+    type DiffsAgentResult,
+    type ResultCollector,
+    buildFinishTool,
+} from "./tools/finish-tool";
 
 // --- Agent input types ---
 
@@ -123,6 +129,7 @@ export class DiffsAgent {
             affectedTests: [],
             testCandidates: [],
             reasoning: `Agent produced no reasoning after ${MAX_RETRIES} attempts`,
+            conversation: [],
         };
     }
 
@@ -133,7 +140,7 @@ export class DiffsAgent {
     ): Promise<DiffsAgentResult> {
         const { model, workingDirectory, flowIndex, testDirectory, maxSteps = 50 } = this.config;
 
-        let result: DiffsAgentResult | undefined;
+        let result: DiffsAgentFinishOutput | undefined;
         const collector: ResultCollector = {
             affectedTests: preClassifiedConflicts.map((c) => ({
                 slug: c.slug,
@@ -188,17 +195,19 @@ export class DiffsAgent {
             },
         });
 
-        await agent.generate({ messages: [{ role: "user", content: prompt }] });
+        const generateResult = await agent.generate({ messages: [{ role: "user", content: prompt }] });
+        const conversation = extractMessages(generateResult);
 
         if (result == null) {
             return {
                 affectedTests: collector.affectedTests,
                 testCandidates: collector.testCandidates,
                 reasoning: "",
+                conversation,
             };
         }
 
-        return result;
+        return { ...result, conversation };
     }
 }
 

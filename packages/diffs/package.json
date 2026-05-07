@@ -20,6 +20,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",

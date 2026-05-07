@@ -2,11 +2,13 @@ import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { AffectedTest, DiffsAgentResult } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
+import { S3Storage } from "@autonoma/storage";
 import * as Sentry from "@sentry/node";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runMergeFlow } from "./merge-flow";
 import { runDiffsAgent } from "./run-diffs-agent";
+import { uploadConversation } from "./upload-conversation";
 
 export interface DiffsAnalysisResult extends DiffsAgentResult {
     /**
@@ -15,6 +17,8 @@ export interface DiffsAnalysisResult extends DiffsAgentResult {
      * dispatching replay runs.
      */
     importedAffectedTests: AffectedTest[];
+    /** S3 URL of the persisted analysis conversation, or undefined if upload was skipped/failed. */
+    conversationUrl?: string;
 }
 
 export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysisResult> {
@@ -92,9 +96,18 @@ export async function runDiffsAnalysis(snapshotId: string): Promise<DiffsAnalysi
             flowIndex,
         });
 
+        const conversationUrl = await uploadConversation({
+            storage: S3Storage.createFromEnv(),
+            snapshotId,
+            phase: "analysis",
+            conversation: agentResult.conversation,
+            logger: logger.child({ name: "uploadConversation", snapshotId }),
+        });
+
         return {
             ...agentResult,
             importedAffectedTests: mergeResult.importedAffectedTests,
+            conversationUrl,
         };
     } finally {
         // Clean up the repo directory after analysis

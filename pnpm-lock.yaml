@@ -1336,6 +1336,9 @@ importers:
 
   packages/diffs:
     dependencies:
+      '@autonoma/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../billing
