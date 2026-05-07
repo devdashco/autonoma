@@ -130,9 +130,8 @@ export abstract class SentryLogger {
         const actualError = isError ? (errorOrExtra as HandledError) : undefined;
         const actualExtra = isError ? extra : (errorOrExtra as Record<string, unknown> | undefined);
         const enrichedExtra = this.enrichWithExecutionContext(actualExtra);
-        const fatalContext = actualError ? { err: actualError, ...enrichedExtra } : enrichedExtra;
 
-        this.structuredLogger.fatal(fatalContext, message);
+        this.captureLog(message, "fatal", enrichedExtra, actualError);
 
         if (actualError) {
             this.captureError(actualError, enrichedExtra, "fatal");
