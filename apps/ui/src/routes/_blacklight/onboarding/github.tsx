@@ -30,9 +30,14 @@ const githubSearchParams = z.object({
 });
 
 export const Route = createFileRoute("/_blacklight/onboarding/github")({
-  component: () => <Navigate to="/onboarding" search={{ step: "github", appId: undefined }} />,
+  component: RouteComponent,
   validateSearch: githubSearchParams,
 });
+
+function RouteComponent() {
+  const { appId } = Route.useSearch();
+  return <Navigate to="/onboarding" search={{ step: "github", appId }} />;
+}
 
 function getErrorMessage(error: string): string {
   switch (error) {
@@ -124,7 +129,7 @@ function ConnectStep({ appId }: { appId: string }) {
         className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
         onClick={() => {
           if (data.installUrl != null) {
-            window.location.href = data.installUrl;
+            window.open(data.installUrl, "_blank");
           }
         }}
         disabled={data.installUrl == null}
