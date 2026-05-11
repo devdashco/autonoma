@@ -1,4 +1,4 @@
-import { db } from "@autonoma/db";
+import { db, type GitHubWebhookEventType } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
@@ -73,10 +73,24 @@ githubHttpRouter.get("/callback", async (ctx) => {
     return ctx.redirect(`${successBase}${successSeparator}connected=true`);
 });
 
+const WEBHOOK_EVENT_TYPES = {
+    "installation.created": "installation_created",
+    "installation.deleted": "installation_deleted",
+    "installation.suspend": "installation_suspend",
+    "installation.unsuspend": "installation_unsuspend",
+    "installation_repositories.added": "installation_repositories_added",
+    "installation_repositories.removed": "installation_repositories_removed",
+    "pull_request.opened": "pull_request_opened",
+    "pull_request.synchronize": "pull_request_synchronize",
+    "pull_request.closed": "pull_request_closed",
+    "pull_request.reopened": "pull_request_reopened",
+} as const satisfies Record<string, GitHubWebhookEventType>;
+
 githubHttpRouter.post("/webhook", async (ctx) => {
     const body = await ctx.req.text();
     const signature = ctx.req.header("x-hub-signature-256") ?? "";
     const event = ctx.req.header("x-github-event") ?? "";
+    const deliveryId = ctx.req.header("x-github-delivery") ?? "";
 
     const { githubApp, githubService } = ctx.var;
 
@@ -86,32 +100,71 @@ githubHttpRouter.post("/webhook", async (ctx) => {
         return ctx.json({ error: "Invalid signature" }, 401);
     }
 
-    try {
-        const payload = JSON.parse(body) as Record<string, unknown>;
-
-        if (event === "installation") {
-            const action = payload.action as string;
-            const installation = payload.installation as {
-                id: number;
-                account?: { login?: string; id?: number; type?: string };
-            };
-
-            if (action === "created") {
-                // Installation is created via the callback URL (which has session context).
-                // The webhook fires too but carries no org context, so we ignore it here.
-                logger.info("GitHub webhook: installation.created (handled via callback)", {
-                    installationId: installation.id,
-                    account: installation.account?.login,
-                });
-            } else if (action === "deleted") {
-                await githubService.handleUninstall(installation.id);
-            } else if (action === "suspend") {
-                await githubService.handleSuspend(installation.id);
-            }
-        }
-    } catch (error) {
-        logger.fatal("Error processing GitHub webhook", error, { event });
+    if (deliveryId === "") {
+        logger.warn("GitHub webhook missing X-GitHub-Delivery header");
+        return ctx.json({ error: "Missing delivery id" }, 400);
     }
+
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    const action = payload.action as string | undefined;
+    const eventKey = action != null ? `${event}.${action}` : undefined;
+    const eventType = eventKey != null ? WEBHOOK_EVENT_TYPES[eventKey as keyof typeof WEBHOOK_EVENT_TYPES] : undefined;
+
+    const installation = payload.installation as { id: number; account?: { login?: string } } | undefined;
+    const installationId = installation?.id;
+
+    // Ignore events we don't model. GitHub retries non-2xx, so still return 200.
+    if (eventType == null || installationId == null) {
+        logger.info("GitHub webhook: ignored event", { event, action, deliveryId });
+        return ctx.json({ ok: true, ignored: true });
+    }
+
+    const organizationId = await githubService.findOrganizationIdByInstallationId(installationId);
+    if (organizationId == null) {
+        logger.warn("GitHub webhook: no organization linked to installation", { installationId, deliveryId });
+        return ctx.json({ ok: true, ignored: true });
+    }
+
+    await githubService.recordWebhookEvent({
+        deliveryId,
+        type: eventType,
+        action,
+        installationId,
+        organizationId,
+        payload,
+    });
+
+    let processingError: string | undefined;
+    try {
+        await dispatchWebhookEvent(eventType, installationId, githubService);
+    } catch (error) {
+        processingError = error instanceof Error ? error.message : String(error);
+        logger.fatal("Error processing GitHub webhook", error, { event, deliveryId });
+    }
+
+    await githubService.markWebhookEventProcessed(deliveryId, processingError);
 
     return ctx.json({ ok: true });
 });
+
+async function dispatchWebhookEvent(
+    type: GitHubWebhookEventType,
+    installationId: number,
+    githubService: GitHubInstallationService,
+): Promise<void> {
+    switch (type) {
+        case "installation_created":
+            // Installation is persisted via the OAuth callback (which has org context).
+            // The webhook fires too — we only log it here.
+            logger.info("installation.created webhook (installation row handled via callback)", { installationId });
+            return;
+        case "installation_deleted":
+            await githubService.handleUninstall(installationId);
+            return;
+        case "installation_suspend":
+            await githubService.handleSuspend(installationId);
+            return;
+        default:
+            return;
+    }
+}

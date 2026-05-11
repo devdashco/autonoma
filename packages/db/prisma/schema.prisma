@@ -138,6 +138,7 @@ model Organization {
   setupArtifacts         ApplicationSetupArtifact[]
   signupHookStates       SignupHookState[]
   previewkitEnvironments PreviewkitEnvironment[]
+  gitHubWebhookEvents    GitHubWebhookEvent[]
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
   testCandidates         TestCandidate[]
@@ -1413,6 +1414,47 @@ model GitHubRepositoryFile {
 
   @@unique([repositoryId, path])
   @@map("github_repository_file")
+}
+
+enum GitHubWebhookEventType {
+  installation_created
+  installation_deleted
+  installation_suspend
+  installation_unsuspend
+  installation_repositories_added
+  installation_repositories_removed
+  pull_request_opened
+  pull_request_synchronize
+  pull_request_closed
+  pull_request_reopened
+
+  @@map("github_webhook_event_type")
+}
+
+model GitHubWebhookEvent {
+  id String @id @default(cuid())
+
+  // X-GitHub-Delivery — unique per delivery, dedup key across GitHub retries
+  deliveryId String @unique @map("delivery_id")
+
+  type           GitHubWebhookEventType
+  action         String?
+  installationId Int?                   @map("installation_id")
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// [GitHubWebhookPayload]
+  payload Json
+
+  processedAt DateTime? @map("processed_at")
+  error       String?
+
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@index([organizationId, type, receivedAt])
+  @@index([installationId, receivedAt])
+  @@map("github_webhook_event")
 }
 
 // ─── Billing ─────────────────────────────────────────────────────

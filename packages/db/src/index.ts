@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
 import type { ScenarioRecipeSchema, ScenarioStructureJsonSchema } from "@autonoma/types";
+import type { EmitterWebhookEvent } from "@octokit/webhooks/types";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { ModelMessage as AIModelMessage } from "ai";
 import type { z } from "zod";
@@ -70,5 +71,6 @@ declare global {
         export type ScenarioMetadata = unknown;
         export type ScenarioLastError = { message: string };
         export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
+        export type GitHubWebhookPayload = EmitterWebhookEvent["payload"];
     }
 }

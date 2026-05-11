@@ -18,6 +18,9 @@ catalogs:
     '@octokit/app':
       specifier: ^16.1.2
       version: 16.1.2
+    '@octokit/webhooks':
+      specifier: ^14.2.0
+      version: 14.2.0
     '@radix-ui/react-slot':
       specifier: ^1.2.2
       version: 1.2.4
@@ -1296,6 +1299,9 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../utils
+      '@octokit/webhooks':
+        specifier: 'catalog:'
+        version: 14.2.0
       '@prisma/adapter-pg':
         specifier: ^7.7.0
         version: 7.7.0

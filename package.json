@@ -7,7 +7,6 @@
         "build": "turbo run build",
         "ui": "turbo run dev --filter=@autonoma/ui",
         "dev": "turbo run dev --parallel --filter @autonoma/ui --filter @autonoma/api",
-        "sb": "pnpm --filter @autonoma/pond-ui storybook",
         "api": "turbo run dev --filter=@autonoma/api",
         "docs": "turbo run dev --filter=@autonoma/docs",
         "lint": "turbo run lint --continue",
