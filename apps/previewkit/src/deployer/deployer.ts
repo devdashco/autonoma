@@ -171,6 +171,10 @@ export class Deployer {
         return this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
     }
 
+    getKubeConfig(): k8s.KubeConfig {
+        return this.kc;
+    }
+
     async getNamespaceAnnotations(repoFullName: string, prNumber: number) {
         const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
         return this.namespaceManager.getAnnotations(namespace);

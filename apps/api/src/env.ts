@@ -29,6 +29,10 @@ export const env = createEnv({
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
         GITHUB_APP_SLUG: z.string().min(1).optional(),
 
+        // Internal Previewkit service URL. When set, pull_request webhooks are forwarded
+        // to Previewkit's REST endpoints. Leave unset to disable preview environments.
+        PREVIEWKIT_URL: z.string().url().optional(),
+
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),

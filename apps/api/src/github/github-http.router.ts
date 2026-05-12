@@ -136,7 +136,7 @@ githubHttpRouter.post("/webhook", async (ctx) => {
 
     let processingError: string | undefined;
     try {
-        await dispatchWebhookEvent(eventType, installationId, githubService);
+        await dispatchWebhookEvent(eventType, installationId, githubService, payload);
     } catch (error) {
         processingError = error instanceof Error ? error.message : String(error);
         logger.fatal("Error processing GitHub webhook", error, { event, deliveryId });
@@ -151,6 +151,7 @@ async function dispatchWebhookEvent(
     type: GitHubWebhookEventType,
     installationId: number,
     githubService: GitHubInstallationService,
+    payload: Record<string, unknown>,
 ): Promise<void> {
     switch (type) {
         case "installation_created":
@@ -164,7 +165,83 @@ async function dispatchWebhookEvent(
         case "installation_suspend":
             await githubService.handleSuspend(installationId);
             return;
+        case "pull_request_opened":
+        case "pull_request_synchronize":
+        case "pull_request_reopened":
+            await forwardPullRequestToPreviewkit("deploy", payload);
+            return;
+        case "pull_request_closed":
+            await forwardPullRequestToPreviewkit("teardown", payload);
+            return;
         default:
             return;
     }
+}
+
+interface PullRequestRef {
+    sha: string;
+    ref: string;
+}
+
+interface PullRequestPayload {
+    number: number;
+    head: PullRequestRef;
+    base: PullRequestRef;
+}
+
+interface RepositoryPayload {
+    full_name: string;
+    clone_url: string;
+}
+
+async function forwardPullRequestToPreviewkit(
+    op: "deploy" | "teardown",
+    payload: Record<string, unknown>,
+): Promise<void> {
+    if (env.PREVIEWKIT_URL == null) {
+        logger.info("Skipping Previewkit forward: PREVIEWKIT_URL not configured", { op });
+        return;
+    }
+
+    const pr = payload.pull_request as PullRequestPayload | undefined;
+    const repo = payload.repository as RepositoryPayload | undefined;
+    if (pr == null || repo == null) {
+        logger.warn("Pull request webhook missing pull_request or repository payload", { op });
+        return;
+    }
+
+    const base = env.PREVIEWKIT_URL.replace(/\/$/, "");
+
+    if (op === "deploy") {
+        const url = `${base}/v1/environments`;
+        const body = {
+            repoFullName: repo.full_name,
+            prNumber: pr.number,
+            headSha: pr.head.sha,
+            headRef: pr.head.ref,
+            baseSha: pr.base.sha,
+            baseRef: pr.base.ref,
+            cloneUrl: repo.clone_url,
+        };
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`Previewkit deploy returned ${res.status}: ${text}`);
+        }
+        logger.info("Forwarded PR deploy to Previewkit", { repo: repo.full_name, pr: pr.number });
+        return;
+    }
+
+    const [owner, name] = repo.full_name.split("/");
+    const url = `${base}/v1/environments/${owner}/${name}/${pr.number}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (!res.ok && res.status !== 404) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Previewkit teardown returned ${res.status}: ${text}`);
+    }
+    logger.info("Forwarded PR teardown to Previewkit", { repo: repo.full_name, pr: pr.number });
 }

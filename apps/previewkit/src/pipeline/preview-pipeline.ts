@@ -15,6 +15,7 @@ import {
 } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
+import { execInDeploymentPod } from "../deployer/pod-exec";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
@@ -294,20 +295,13 @@ export class PreviewPipeline {
             hooks: config.hooks.post_deploy.length,
         });
 
+        const kc = this.deployer.getKubeConfig();
         for (const hook of config.hooks.post_deploy) {
             logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command });
 
-            // kubectl exec into the first pod of the specified app
-            await execFileAsync("kubectl", [
-                "exec",
-                "-n",
-                result.namespace,
-                `deployment/${hook.app}`,
-                "--",
-                "/bin/sh",
-                "-c",
-                hook.command,
-            ]);
+            const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
+            if (stdout) logger.debug("Post-deploy hook stdout", { app: hook.app, stdout });
+            if (stderr) logger.debug("Post-deploy hook stderr", { app: hook.app, stderr });
         }
     }
 
