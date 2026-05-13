@@ -28,7 +28,6 @@
         "@autonoma/engine-web": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/image": "workspace:*",
-        "@autonoma/issue-reporter": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/review": "workspace:*",
         "@autonoma/storage": "workspace:*",

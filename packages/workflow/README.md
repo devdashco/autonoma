@@ -71,12 +71,11 @@ import {
   triggerRunWorkflow,
 } from "@autonoma/workflow";
 
-// Batch generation with auto-assignment after all complete
+// Batch generation - spawns one singleGenerationWorkflow per test plan and
+// assigns step outputs onto the snapshot's test-case assignments when all finish.
 await triggerBatchGeneration({
   testPlans: [{ testGenerationId: "gen-1", scenarioId: "scenario-1" }],
-  agentVersion: "1.0.0",
   architecture: "WEB",
-  autoActivate: true,
 });
 
 // Trigger a run replay workflow

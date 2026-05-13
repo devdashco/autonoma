@@ -11,7 +11,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { planId } = await draft.addTestCase({
                 folderId,
@@ -32,7 +32,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
                 folderId,
@@ -60,7 +60,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { planId: planA } = await draft.addTestCase({
                 folderId,
@@ -92,7 +92,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const pending = await manager.getPendingGenerations();
             expect(pending).toHaveLength(0);
@@ -105,7 +105,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const summary = await manager.getGenerationSummary();
             expect(summary).toHaveLength(0);
@@ -116,7 +116,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { planId: planA } = await draft.addTestCase({
                 folderId,
@@ -145,7 +145,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { testCaseId, planId: firstPlanId } = await draft.addTestCase({
                 folderId,
@@ -176,7 +176,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             await expect(manager.queuePendingGenerations()).rejects.toThrow(MissingJobProviderError);
         });
@@ -224,7 +224,7 @@ testUpdateSuite({
             expect(result.generationsQueued).toBe(true);
             expect(jobProvider.firedBatches).toHaveLength(1);
             // biome-ignore lint/style/noNonNullAssertion: asserted above
-            expect(jobProvider.firedBatches[0]!).toHaveLength(2);
+            expect(jobProvider.firedBatches[0]!.generations).toHaveLength(2);
 
             // Generations should no longer be pending
             const pending = await manager.getPendingGenerations();
@@ -271,7 +271,7 @@ testUpdateSuite({
             const jobProvider = new FakeGenerationProvider();
             // startDraft creates a branch without a deployment
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager({ jobProvider });
+            const manager = harness.generationManagerFor(draft, { jobProvider });
 
             const { planId } = await draft.addTestCase({
                 folderId,
@@ -301,7 +301,7 @@ testUpdateSuite({
             seedResult: { organizationId, applicationId, folderId },
         }) => {
             const draft = await harness.startDraft(organizationId, applicationId);
-            const manager = draft.generationManager();
+            const manager = harness.generationManagerFor(draft);
 
             const { testCaseId, planId } = await draft.addTestCase({
                 folderId,

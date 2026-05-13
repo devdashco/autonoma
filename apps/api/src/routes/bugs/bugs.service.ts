@@ -1,6 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { BUG_CONFIDENCE_THRESHOLD, type IssueReporter } from "@autonoma/issue-reporter";
 import type { StorageProvider } from "@autonoma/storage";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
@@ -11,7 +10,6 @@ export class BugsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
-        private readonly issueReporter: IssueReporter,
     ) {
         super();
     }
@@ -22,7 +20,7 @@ export class BugsService extends Service {
         const bugs = await this.db.bug.findMany({
             where: {
                 organizationId,
-                ...(applicationId != null ? { branch: { applicationId } } : {}),
+                ...(applicationId != null ? { applicationId } : {}),
                 ...(status != null ? { status } : {}),
             },
             select: {
@@ -33,8 +31,13 @@ export class BugsService extends Service {
                 firstSeenAt: true,
                 lastSeenAt: true,
                 resolvedAt: true,
-                testCase: { select: { id: true, name: true, slug: true } },
-                branch: { select: { id: true, name: true } },
+                application: { select: { id: true, name: true, slug: true } },
+                evidence: {
+                    select: {
+                        testCase: { select: { id: true, name: true, slug: true } },
+                    },
+                    orderBy: { lastSeenAt: "desc" },
+                },
                 _count: { select: { issues: true } },
             },
             orderBy: { lastSeenAt: "desc" },
@@ -50,8 +53,8 @@ export class BugsService extends Service {
             firstSeenAt: bug.firstSeenAt,
             lastSeenAt: bug.lastSeenAt,
             resolvedAt: bug.resolvedAt,
-            testCase: bug.testCase,
-            branch: bug.branch,
+            application: bug.application,
+            testCases: bug.evidence.map((e) => e.testCase),
             occurrences: bug._count.issues,
         }));
     }
@@ -70,13 +73,19 @@ export class BugsService extends Service {
                 firstSeenAt: true,
                 lastSeenAt: true,
                 resolvedAt: true,
-                testCase: { select: { id: true, name: true, slug: true } },
-                branch: { select: { id: true, name: true } },
+                application: { select: { id: true, name: true, slug: true } },
+                evidence: {
+                    select: {
+                        firstSeenAt: true,
+                        lastSeenAt: true,
+                        testCase: { select: { id: true, name: true, slug: true } },
+                    },
+                    orderBy: { lastSeenAt: "desc" },
+                },
                 issues: {
                     select: {
                         id: true,
                         title: true,
-                        confidence: true,
                         severity: true,
                         createdAt: true,
                         generationReview: {
@@ -109,7 +118,6 @@ export class BugsService extends Service {
                 return {
                     id: issue.id,
                     title: issue.title,
-                    confidence: issue.confidence,
                     severity: issue.severity,
                     createdAt: issue.createdAt,
                     source: issue.generationReview != null ? ("generation" as const) : ("run" as const),
@@ -129,142 +137,52 @@ export class BugsService extends Service {
             firstSeenAt: bug.firstSeenAt,
             lastSeenAt: bug.lastSeenAt,
             resolvedAt: bug.resolvedAt,
-            testCase: bug.testCase,
-            branch: bug.branch,
+            application: bug.application,
+            testCases: bug.evidence.map((e) => ({
+                ...e.testCase,
+                firstSeenAt: e.firstSeenAt,
+                lastSeenAt: e.lastSeenAt,
+            })),
             issues,
         };
     }
 
-    async pendingReview(organizationId: string, applicationId?: string) {
-        this.logger.info("Listing issues pending bug review", { organizationId, applicationId });
+    async resolveBug(bugId: string, organizationId: string) {
+        this.logger.info("Resolving bug", { bugId, organizationId });
 
-        const issues = await this.db.issue.findMany({
-            where: {
-                organizationId,
-                category: "application_bug",
-                confidence: { lt: BUG_CONFIDENCE_THRESHOLD },
-                bugId: null,
-                dismissed: false,
-                ...(applicationId != null
-                    ? {
-                          OR: [
-                              { generationReview: { generation: { testPlan: { testCase: { applicationId } } } } },
-                              { runReview: { run: { assignment: { testCase: { applicationId } } } } },
-                          ],
-                      }
-                    : {}),
-            },
-            select: {
-                id: true,
-                title: true,
-                confidence: true,
-                severity: true,
-                description: true,
-                createdAt: true,
-                generationReview: {
-                    select: {
-                        generation: {
-                            select: {
-                                id: true,
-                                testPlan: { select: { testCase: { select: { name: true } } } },
-                            },
-                        },
-                    },
-                },
-                runReview: {
-                    select: {
-                        run: {
-                            select: {
-                                id: true,
-                                assignment: { select: { testCase: { select: { name: true } } } },
-                            },
-                        },
-                    },
-                },
-            },
-            orderBy: { createdAt: "desc" },
+        const bug = await this.db.bug.findFirst({
+            where: { id: bugId, organizationId },
+            select: { id: true, status: true },
         });
 
-        return issues.map((issue) => ({
-            id: issue.id,
-            title: issue.title,
-            confidence: issue.confidence,
-            severity: issue.severity,
-            description: issue.description,
-            createdAt: issue.createdAt,
-            testName:
-                issue.generationReview?.generation.testPlan.testCase.name ??
-                issue.runReview?.run.assignment.testCase.name,
-            source: issue.generationReview != null ? ("generation" as const) : ("run" as const),
-            sourceId: issue.generationReview?.generation.id ?? issue.runReview?.run.id,
-        }));
+        if (bug == null) throw new NotFoundError();
+        if (bug.status === "resolved") return;
+
+        await this.db.bug.update({
+            where: { id: bugId },
+            data: { status: "resolved", resolvedAt: new Date() },
+        });
+
+        this.logger.info("Bug resolved", { bugId });
     }
 
-    async confirmIssue(issueId: string, organizationId: string) {
-        this.logger.info("Confirming issue as bug", { issueId, organizationId });
+    async reopenBug(bugId: string, organizationId: string) {
+        this.logger.info("Reopening bug", { bugId, organizationId });
 
-        const issue = await this.db.issue.findFirst({
-            where: { id: issueId, organizationId, category: "application_bug", bugId: null },
-            select: {
-                id: true,
-                title: true,
-                description: true,
-                severity: true,
-                generationReview: {
-                    select: {
-                        generation: {
-                            select: {
-                                snapshot: { select: { branchId: true } },
-                                testPlan: { select: { testCaseId: true } },
-                            },
-                        },
-                    },
-                },
-                runReview: {
-                    select: {
-                        run: {
-                            select: {
-                                assignment: {
-                                    select: {
-                                        testCaseId: true,
-                                        snapshot: { select: { branchId: true } },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
+        const bug = await this.db.bug.findFirst({
+            where: { id: bugId, organizationId },
+            select: { id: true, status: true },
         });
 
-        if (issue == null) throw new NotFoundError();
+        if (bug == null) throw new NotFoundError();
+        if (bug.status === "open") return;
 
-        let branchId: string;
-        let testCaseId: string;
-
-        if (issue.generationReview != null) {
-            branchId = issue.generationReview.generation.snapshot.branchId;
-            testCaseId = issue.generationReview.generation.testPlan.testCaseId;
-        } else if (issue.runReview != null) {
-            branchId = issue.runReview.run.assignment.snapshot.branchId;
-            testCaseId = issue.runReview.run.assignment.testCaseId;
-        } else {
-            throw new NotFoundError("Issue has no associated review");
-        }
-
-        await this.db.$transaction(async (tx) => {
-            await this.issueReporter.promoteIssueToBug(tx, {
-                issueId: issue.id,
-                issueTitle: issue.title,
-                issueDescription: issue.description,
-                branchId,
-                testCaseId,
-                severity: issue.severity,
-                organizationId,
-            });
+        await this.db.bug.update({
+            where: { id: bugId },
+            data: { status: "open", resolvedAt: null },
         });
 
-        this.logger.info("Issue confirmed as bug", { issueId });
+        this.logger.info("Bug reopened", { bugId });
     }
 
     async dismissIssue(issueId: string, organizationId: string) {

@@ -24,7 +24,6 @@
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
-        "@autonoma/issue-reporter": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "ai": "catalog:",

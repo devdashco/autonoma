@@ -1,19 +1,22 @@
 import type { PrismaClient } from "@autonoma/db";
-import type { IssueReporter } from "@autonoma/issue-reporter";
 import { logger } from "@autonoma/logger";
 import type { ReportedBug } from "../tools/report-bug-tool";
 
 interface ReportBugDeps {
     db: PrismaClient;
-    issueReporter: IssueReporter;
-    branchId: string;
+    snapshotId: string;
     applicationId: string;
     organizationId: string;
 }
 
+/**
+ * Records a bug surfaced by the diff resolution agent. Atomic: creates an
+ * Issue, creates a Bug (no deduplication - one Bug per call), records the
+ * test case as evidence, and quarantines the test case in the given snapshot.
+ */
 export async function reportBug(
     bug: ReportedBug,
-    { db, issueReporter, branchId, applicationId, organizationId }: ReportBugDeps,
+    { db, snapshotId, applicationId, organizationId }: ReportBugDeps,
 ): Promise<void> {
     logger.info("Reporting bug found in diff resolution", {
         runId: bug.runId,
@@ -42,16 +45,40 @@ export async function reportBug(
     }
 
     await db.$transaction(async (tx) => {
-        await issueReporter.recordBugFromRunReview(tx, {
-            runReviewId: runReview.id,
-            title: bug.summary,
-            description: buildBugDescription(bug),
-            severity: "medium",
-            confidence: 100,
-            category: "application_bug",
-            branchId,
-            testCaseId: testCase.id,
-            organizationId,
+        const created = await tx.bug.create({
+            data: {
+                title: bug.summary,
+                description: buildBugDescription(bug),
+                severity: "medium",
+                applicationId,
+                organizationId,
+                evidence: {
+                    create: { testCaseId: testCase.id },
+                },
+            },
+            select: { id: true },
+        });
+
+        await tx.issue.create({
+            data: {
+                runReviewId: runReview.id,
+                kind: "application_bug",
+                severity: "medium",
+                title: bug.summary,
+                description: buildBugDescription(bug),
+                bugId: created.id,
+                organizationId,
+            },
+        });
+
+        await tx.testCaseQuarantine.create({
+            data: {
+                snapshotId,
+                testCaseId: testCase.id,
+                reason: "application_bug",
+                bugId: created.id,
+                organizationId,
+            },
         });
     });
 }

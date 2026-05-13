@@ -142,6 +142,8 @@ model Organization {
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
   testCandidates         TestCandidate[]
+  testCaseQuarantines    TestCaseQuarantine[]
+  refinementLoops        RefinementLoop[]
 
   @@map("organization")
 }
@@ -343,6 +345,7 @@ model Application {
   githubRepositories      GitHubRepository[]
   onboardingState         OnboardingState?
   applicationSetups       ApplicationSetup[]
+  bugs                    Bug[]
   previewkitSecret        PreviewkitSecret?
 
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -518,7 +521,6 @@ model Branch {
   mainOfApplication Application?       @relation("MainBranch")
   snapshots         BranchSnapshot[]
   deployments       BranchDeployment[]
-  bugs              Bug[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -602,7 +604,10 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  diffsJob DiffsJob?
+  diffsJob            DiffsJob?
+  issues              Issue[]
+  quarantinedTestCases TestCaseQuarantine[]
+  refinementLoops     RefinementLoop[]
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -663,7 +668,9 @@ model TestCase {
   plans       TestPlan[]
   tags        TestTag[]
   assignments TestCaseAssignment[]
-  bugs        Bug[]
+
+  bugEvidence  BugTestCaseEvidence[]
+  quarantines  TestCaseQuarantine[]
 
   affectedIn             AffectedTest[]
   acceptedFromCandidate  TestCandidate?
@@ -731,9 +738,11 @@ model TestPlan {
   scenario     Scenario? @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
   scenarioName String?   @map("scenario_name")
 
-  generations TestGeneration[]
-  stepLists   StepInputList[]
-  assignments TestCaseAssignment[]
+  generations               TestGeneration[]
+  stepLists                 StepInputList[]
+  assignments               TestCaseAssignment[]
+  runs                      Run[]
+  refinementIterationInputs RefinementIterationInput[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -873,11 +882,11 @@ enum IssueSeverity {
   @@map("issue_severity")
 }
 
-enum IssueCategory {
+enum IssueKind {
   application_bug
-  agent_error
+  engine_limitation
 
-  @@map("issue_category")
+  @@map("issue_kind")
 }
 
 model Issue {
@@ -887,21 +896,27 @@ model Issue {
   runReviewId        String?           @unique @map("run_review_id")
   runReview          RunReview?        @relation(fields: [runReviewId], references: [id], onDelete: Cascade)
 
-  category    IssueCategory
-  confidence  Int
+  kind        IssueKind     @default(application_bug)
   severity    IssueSeverity
   title       String
   description String        @db.Text
   dismissed   Boolean       @default(false)
 
+  // Set only when kind == engine_limitation. Engine quirks are snapshot-scoped.
+  snapshotId String?         @map("snapshot_id")
+  snapshot   BranchSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
   bugId String? @map("bug_id")
   bug   Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
+
+  quarantines TestCaseQuarantine[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([snapshotId])
   @@map("issue")
 }
 
@@ -922,26 +937,194 @@ model Bug {
   description String        @db.Text
   severity    IssueSeverity
 
-  branchId String @map("branch_id")
-  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
-
-  testCaseId String   @map("test_case_id")
-  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   firstSeenAt DateTime  @default(now()) @map("first_seen_at")
   lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
   resolvedAt  DateTime? @map("resolved_at")
 
-  issues Issue[]
+  evidence    BugTestCaseEvidence[]
+  issues      Issue[]
+  quarantines TestCaseQuarantine[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([branchId, testCaseId])
+  @@index([applicationId])
   @@index([status])
   @@map("bug")
+}
+
+model BugTestCaseEvidence {
+  id String @id @default(cuid())
+
+  bugId String @map("bug_id")
+  bug   Bug    @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  testCaseId String   @map("test_case_id")
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@unique([bugId, testCaseId])
+  @@index([testCaseId])
+  @@map("bug_test_case_evidence")
+}
+
+// ─── Test Case Quarantine ────────────────────────────────────────────────────
+
+enum QuarantineReason {
+  application_bug
+  engine_limitation
+
+  @@map("quarantine_reason")
+}
+
+model TestCaseQuarantine {
+  id String @id @default(cuid())
+
+  snapshotId String         @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  testCaseId String   @map("test_case_id")
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  reason QuarantineReason
+
+  bugId   String? @map("bug_id")
+  bug     Bug?    @relation(fields: [bugId], references: [id], onDelete: SetNull)
+  issueId String? @map("issue_id")
+  issue   Issue?  @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, testCaseId])
+  @@index([testCaseId])
+  @@map("test_case_quarantine")
+}
+
+// ─── Refinement Loop ─────────────────────────────────────────────────────────
+
+enum RefinementTrigger {
+  onboarding
+  diffs
+
+  @@map("refinement_trigger")
+}
+
+enum RefinementStatus {
+  running
+  converged
+  max_iterations
+  error
+
+  @@map("refinement_status")
+}
+
+enum RefinementActionKind {
+  update_plan
+  add_test
+  report_bug
+  report_engine_limitation
+  remove_test
+
+  @@map("refinement_action_kind")
+}
+
+enum RefinementIterationStatus {
+  pending
+  running
+  completed
+
+  @@map("refinement_iteration_status")
+}
+
+model RefinementLoop {
+  id String @id @default(cuid())
+
+  snapshotId String         @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  triggeredBy RefinementTrigger @map("triggered_by")
+  status      RefinementStatus  @default(running)
+
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  iterations RefinementIteration[]
+
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@map("refinement_loop")
+}
+
+model RefinementIteration {
+  id String @id @default(cuid())
+
+  loopId String         @map("loop_id")
+  loop   RefinementLoop @relation(fields: [loopId], references: [id], onDelete: Cascade)
+
+  number     Int
+  status     RefinementIterationStatus @default(pending)
+  startedAt  DateTime                  @default(now()) @map("started_at")
+  finishedAt DateTime?                 @map("finished_at")
+
+  /// S3 URL of the persisted HealingAgent conversation for this iteration.
+  healingConversationUrl String? @map("healing_conversation_url")
+
+  actions RefinementAction[]
+  inputs  RefinementIterationInput[]
+
+  @@unique([loopId, number])
+  @@map("refinement_iteration")
+}
+
+model RefinementAction {
+  id String @id @default(cuid())
+
+  iterationId String              @map("iteration_id")
+  iteration   RefinementIteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
+
+  planId     String? @map("plan_id")
+  testCaseId String? @map("test_case_id")
+  kind       RefinementActionKind
+
+  /// ![object]
+  payload   Json
+  reasoning String @db.Text
+
+  appliedAt DateTime? @map("applied_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([iterationId])
+  @@map("refinement_action")
+}
+
+/// The set of plans each refinement iteration is responsible for analyzing.
+/// Iter 1's rows are written by the loop's init from the seed planIds parameter;
+/// iter N+1's rows are written by applyHealingActions when plan-changing actions
+/// (update_plan, add_test) are produced. Makes the loop's scope an explicit
+/// first-class fact rather than an inferred join over upstream tables.
+model RefinementIterationInput {
+  iterationId String   @map("iteration_id")
+  planId      String   @map("plan_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  iteration RefinementIteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
+  plan      TestPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([iterationId, planId])
+  @@index([iterationId])
+  @@map("refinement_iteration_input")
 }
 
 // ─── Step Input / Output ──────────────────────────────────────────────────────
@@ -1107,6 +1290,11 @@ model Run {
   assignmentId String             @map("assignment_id")
   assignment   TestCaseAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 
+  /// Snapshot of the plan this run executed. Captured at run creation time so it
+  /// survives later mutations to TestCaseAssignment.planId via updatePlan.
+  planId String?   @map("plan_id")
+  plan   TestPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
   scenarioInstanceId String?           @map("scenario_instance_id")
   scenarioInstance   ScenarioInstance? @relation(fields: [scenarioInstanceId], references: [id], onDelete: SetNull)
 
@@ -1124,6 +1312,7 @@ model Run {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([assignmentId])
+  @@index([planId])
   @@map("run")
 }
 

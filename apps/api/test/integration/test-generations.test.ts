@@ -258,9 +258,9 @@ apiTestSuite({
 
             expect(harness.generationProvider.firedBatches).toHaveLength(1);
             const fired = harness.generationProvider.firedBatches[0];
-            expect(fired).toHaveLength(1);
-            expect(fired?.[0]?.testGenerationId).toBe(result.generationId);
-            expect(fired?.[0]?.planId).toBe(testPlan.id);
+            expect(fired?.generations).toHaveLength(1);
+            expect(fired?.generations[0]?.testGenerationId).toBe(result.generationId);
+            expect(fired?.generations[0]?.planId).toBe(testPlan.id);
         });
 
         test("rerun with planContent creates a new TestPlan and leaves the original prompt intact", async ({
@@ -296,7 +296,7 @@ apiTestSuite({
 
             expect(harness.generationProvider.firedBatches).toHaveLength(1);
             const fired = harness.generationProvider.firedBatches[0];
-            expect(fired?.[0]?.planId).toBe(newPlan.id);
+            expect(fired?.generations[0]?.planId).toBe(newPlan.id);
         });
 
         test("throws when generationId belongs to a different organization", async ({

@@ -1,6 +1,6 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
-import { SnapshotDraft } from "@autonoma/test-updates";
+import { AddSkill, AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 
@@ -217,19 +217,28 @@ apiTestSuite({
                 },
             });
 
-            const mainDraft = await SnapshotDraft.start({ db: harness.db, branchId: mainBranch.id });
-            const { testCaseId: inheritedTestCaseId } = await mainDraft.addTestCase({
-                folderId: folder.id,
-                name: "Diffs inherited test",
-                description: "Inherited by PR branches",
-                plan: "Open homepage",
-            });
-            const { skillId: inheritedSkillId } = await mainDraft.addSkill({
-                name: "Diffs inherited skill",
-                description: "Inherited by PR branches",
-                plan: "Log in",
-            });
-            await mainDraft.activate();
+            const mainUpdater = await TestSuiteUpdater.startUpdate({ db: harness.db, branchId: mainBranch.id });
+            const { testCaseId: inheritedTestCaseId } = await mainUpdater.apply(
+                new AddTest({
+                    folderId: folder.id,
+                    name: "Diffs inherited test",
+                    description: "Inherited by PR branches",
+                    plan: "Open homepage",
+                }),
+            );
+            const { skillId: inheritedSkillId } = await mainUpdater.apply(
+                new AddSkill({
+                    name: "Diffs inherited skill",
+                    description: "Inherited by PR branches",
+                    plan: "Log in",
+                }),
+            );
+            // Discard pending generations queued by AddTest so the snapshot can finalize -
+            // this test only verifies inheritance, not generation execution.
+            for (const g of await mainUpdater.getPendingGenerations()) {
+                await mainUpdater.discardGeneration(g.testGenerationId);
+            }
+            await mainUpdater.finalize();
 
             const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,

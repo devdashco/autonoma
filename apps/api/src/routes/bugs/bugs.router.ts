@@ -21,21 +21,21 @@ export const bugsRouter = router({
             services.bugs.getBugDetail(input.bugId, organizationId),
         ),
 
-    pendingReview: protectedProcedure
-        .input(z.object({ applicationId: z.string().optional() }).optional())
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.bugs.pendingReview(organizationId, input?.applicationId),
-        ),
-
-    confirmIssue: protectedProcedure
-        .input(z.object({ issueId: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.bugs.confirmIssue(input.issueId, organizationId),
-        ),
-
     dismissIssue: protectedProcedure
         .input(z.object({ issueId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.bugs.dismissIssue(input.issueId, organizationId),
+        ),
+
+    resolve: protectedProcedure
+        .input(z.object({ bugId: z.string() }))
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.bugs.resolveBug(input.bugId, organizationId),
+        ),
+
+    reopen: protectedProcedure
+        .input(z.object({ bugId: z.string() }))
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.bugs.reopenBug(input.bugId, organizationId),
         ),
 });

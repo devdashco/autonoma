@@ -2,17 +2,39 @@ import type { GeneralActivities } from "@autonoma/workflow/activities";
 
 export { scenarioUp, scenarioDown } from "./scenario";
 export { reviewGeneration, reviewReplay } from "./review";
-export { createIssueFromGenerationReview, createIssueFromRunReview } from "./issue";
 export { assignGenerationResults } from "./assign-generation-results";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { markGenerationFailed } from "./mark-generation-failed";
 export { markRunFailed } from "./mark-run-failed";
+export { applyHealingActions } from "./healing";
+export {
+    analyzeResults,
+    finishRefinementIteration,
+    finishRefinementLoop,
+    initRefinementLoop,
+    markRefinementIterationRunning,
+    prepareGenerationQueue,
+    prepareRunsForGenerations,
+    runHealingAgentForRefinement,
+    finalizePendingSnapshot,
+} from "./refinement";
 
 import { assignGenerationResults } from "./assign-generation-results";
-import { createIssueFromGenerationReview, createIssueFromRunReview } from "./issue";
+import { applyHealingActions } from "./healing";
 import { markGenerationFailed } from "./mark-generation-failed";
 import { markRunFailed } from "./mark-run-failed";
 import { notifyGenerationExit } from "./notify-generation-exit";
+import {
+    analyzeResults,
+    finalizePendingSnapshot,
+    finishRefinementIteration,
+    finishRefinementLoop,
+    initRefinementLoop,
+    markRefinementIterationRunning,
+    prepareGenerationQueue,
+    prepareRunsForGenerations,
+    runHealingAgentForRefinement,
+} from "./refinement";
 import { reviewGeneration, reviewReplay } from "./review";
 import { scenarioDown, scenarioUp } from "./scenario";
 
@@ -22,10 +44,18 @@ import { scenarioDown, scenarioUp } from "./scenario";
     scenarioDown,
     reviewGeneration,
     reviewReplay,
-    createIssueFromGenerationReview,
-    createIssueFromRunReview,
     assignGenerationResults,
     notifyGenerationExit,
     markGenerationFailed,
     markRunFailed,
+    applyHealingActions,
+    analyzeResults,
+    initRefinementLoop,
+    markRefinementIterationRunning,
+    finishRefinementIteration,
+    finishRefinementLoop,
+    prepareGenerationQueue,
+    prepareRunsForGenerations,
+    runHealingAgentForRefinement,
+    finalizePendingSnapshot,
 }) satisfies GeneralActivities;

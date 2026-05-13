@@ -38,9 +38,9 @@ describe("trigger functions", () => {
         const { getTemporalClient } = await import("../src/client");
 
         await triggerBatchGeneration({
+            snapshotId: "snap-1",
             testPlans: [{ testGenerationId: "tg-1", scenarioId: "sc-1" }, { testGenerationId: "tg-2" }],
             architecture: "WEB",
-            autoActivate: true,
         });
 
         const client = await getTemporalClient();
@@ -53,9 +53,9 @@ describe("trigger functions", () => {
         const options = call?.[1];
         expect(options?.taskQueue).toBe("general");
         expect(options?.args?.[0]).toEqual({
+            snapshotId: "snap-1",
             testPlans: [{ testGenerationId: "tg-1", scenarioId: "sc-1" }, { testGenerationId: "tg-2" }],
             architecture: "WEB",
-            autoActivate: true,
         });
     });
 

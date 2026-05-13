@@ -72,7 +72,7 @@ await updater.apply(new RemoveTest({ testCaseId: "tc-def" }));
 
 ```ts
 // Fire generation jobs for all pending generations
-await updater.queuePendingGenerations({ autoActivate: true });
+await updater.queuePendingGenerations();
 
 // Later, when generation results come back:
 const updater = await TestSuiteUpdater.continueUpdate({ db, branchId });

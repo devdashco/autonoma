@@ -1,8 +1,8 @@
 import type { PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { TestSuiteChange } from "./changes";
-import type { GenerationJobOptions, GenerationProvider } from "./generation/generation-job-provider";
-import type { GenerationManager } from "./generation/generation-manager";
+import type { GenerationProvider } from "./generation/generation-job-provider";
+import { GenerationManager } from "./generation/generation-manager";
 import { SnapshotDraft } from "./snapshot-draft";
 
 export { MissingJobProviderError } from "./generation/generation-manager";
@@ -63,6 +63,14 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.branchId;
     }
 
+    public get applicationId() {
+        return this.snapshotDraft.applicationId;
+    }
+
+    public get organizationId() {
+        return this.snapshotDraft.organizationId;
+    }
+
     private constructor({ snapshotDraft, generationManager }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;
@@ -100,11 +108,15 @@ export class TestSuiteUpdater {
             headSha,
             baseSha,
         });
-        const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
-            generationManager,
+            generationManager: new GenerationManager({
+                db,
+                snapshotId: snapshotDraft.snapshotId,
+                organizationId: snapshotDraft.organizationId,
+                jobProvider,
+            }),
         });
     }
 
@@ -116,11 +128,15 @@ export class TestSuiteUpdater {
      */
     public static async continueUpdate({ db, branchId, jobProvider, organizationId }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
-        const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
-            generationManager,
+            generationManager: new GenerationManager({
+                db,
+                snapshotId: snapshotDraft.snapshotId,
+                organizationId: snapshotDraft.organizationId,
+                jobProvider,
+            }),
         });
     }
 
@@ -140,11 +156,15 @@ export class TestSuiteUpdater {
         organizationId,
     }: ContinueUpdateBySnapshotArgs) {
         const snapshotDraft = await SnapshotDraft.loadById({ db, snapshotId, organizationId });
-        const generationManager = snapshotDraft.generationManager({ jobProvider });
 
         return new TestSuiteUpdater({
             snapshotDraft,
-            generationManager,
+            generationManager: new GenerationManager({
+                db,
+                snapshotId: snapshotDraft.snapshotId,
+                organizationId: snapshotDraft.organizationId,
+                jobProvider,
+            }),
         });
     }
 
@@ -152,31 +172,51 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.currentTestSuiteInfo();
     }
 
-    public async apply(change: TestSuiteChange) {
+    public async apply<TResult>(change: TestSuiteChange<unknown, TResult>): Promise<TResult> {
         this.logger.info("Applying test suite change", { type: change.constructor.name });
 
-        await change.apply({ snapshotDraft: this.snapshotDraft, generationManager: this.generationManager });
+        const result = await change.apply({
+            snapshotDraft: this.snapshotDraft,
+            generationManager: this.generationManager,
+        });
 
         this.logger.info("Finished applying change");
+
+        return result;
     }
 
     /**
      * Fires generation jobs for all pending generations and marks them as queued.
      *
      * Delegates to the generation manager for validation, job firing, and status updates.
-     * When `autoActivate` is set and no generations were queued (either none pending
-     * or deployment validation failed), automatically finalizes the snapshot.
+     * Fire-and-forget - the caller does not wait for the dispatched batch to complete.
      *
      * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
      */
-    public async queuePendingGenerations(options?: GenerationJobOptions) {
-        this.logger.info("Queueing pending generations", { autoActivate: options?.autoActivate });
+    public async queuePendingGenerations() {
+        this.logger.info("Queueing pending generations");
 
-        const { generationsQueued } = await this.generationManager.queuePendingGenerations(options);
+        const result = await this.generationManager.queuePendingGenerations();
 
-        this.logger.info("Pending generations queued", { generationsQueued });
+        this.logger.info("Pending generations queued", { generationsQueued: result.generationsQueued });
 
-        if (!generationsQueued && options?.autoActivate) await this.finalize();
+        return result;
+    }
+
+    /**
+     * Validates deployment, marks pending generations as queued, and returns the
+     * list ready for dispatch. Use this when the caller (e.g. a Temporal workflow)
+     * will spawn the generation workflow itself rather than going through the
+     * provider's fire-and-forget path.
+     */
+    public async prepareGenerationQueue() {
+        this.logger.info("Preparing generation queue");
+
+        const prepared = await this.generationManager.prepareGenerationQueue();
+
+        this.logger.info("Generation queue prepared", { count: prepared.length });
+
+        return prepared;
     }
 
     /**
@@ -226,11 +266,6 @@ export class TestSuiteUpdater {
     /** Returns all pending generation records for this snapshot. */
     public async getPendingGenerations() {
         return this.generationManager.getPendingGenerations();
-    }
-
-    /** Marks the given generations as queued. */
-    public async markGenerationsQueued(generationIds: string[]) {
-        await this.generationManager.markAsQueued(generationIds);
     }
 
     /** Discards a single pending generation by ID. */

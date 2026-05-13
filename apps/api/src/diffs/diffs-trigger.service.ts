@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { TriggerSource } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
-import { BranchAlreadyHasPendingSnapshotError, SnapshotDraft, TestSuiteUpdater } from "@autonoma/test-updates";
+import { BranchAlreadyHasPendingSnapshotError, TestSuiteUpdater } from "@autonoma/test-updates";
 import type { TriggerDiffsJobParams } from "@autonoma/workflow";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { Service } from "../routes/service";
@@ -303,13 +303,13 @@ export class DiffsTriggerService extends Service {
 
             this.logger.info("Cancelling existing diffs job and discarding pending snapshot", { branchId });
 
-            const staleSnapshot = await SnapshotDraft.loadPending({ db: this.db, branchId });
-            await this.cancelDiffsJob(staleSnapshot.snapshotId);
-            await staleSnapshot.discard();
+            const staleUpdater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
+            await this.cancelDiffsJob(staleUpdater.snapshotId);
+            await staleUpdater.discard();
 
             this.logger.info("Stale snapshot discarded, starting fresh update", {
                 branchId,
-                staleSnapshotId: staleSnapshot.snapshotId,
+                staleSnapshotId: staleUpdater.snapshotId,
             });
 
             const updater = await TestSuiteUpdater.startUpdate({

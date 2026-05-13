@@ -10,7 +10,6 @@ import {
 } from "@autonoma/diffs";
 import type { FlowIndex } from "@autonoma/diffs";
 import type { TestDirectory } from "@autonoma/diffs";
-import { IssueReporter } from "@autonoma/issue-reporter";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 
@@ -18,6 +17,7 @@ export interface RunResolutionAgentParams {
     input: ResolutionAgentInput;
     db: PrismaClient;
     updater: TestSuiteUpdater;
+    snapshotId: string;
     applicationId: string;
     organizationId: string;
     repoDir: string;
@@ -29,6 +29,7 @@ export async function runResolutionAgent({
     input,
     db,
     updater,
+    snapshotId,
     applicationId,
     organizationId,
     repoDir,
@@ -39,7 +40,6 @@ export async function runResolutionAgent({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
     const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
-    const issueReporter = IssueReporter.fromModel(model);
 
     const scenarioIndex = await loadScenarioIndex(db, applicationId);
 
@@ -59,10 +59,10 @@ export async function runResolutionAgent({
     const callbacks = createResolutionCallbacks({
         db,
         updater,
+        snapshotId,
         applicationId,
         organizationId,
         testDirectory,
-        issueReporter,
     });
 
     await Promise.all([

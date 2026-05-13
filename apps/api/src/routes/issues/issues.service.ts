@@ -35,8 +35,7 @@ export class IssuesService extends Service {
             },
             select: {
                 id: true,
-                category: true,
-                confidence: true,
+                kind: true,
                 severity: true,
                 title: true,
                 createdAt: true,
@@ -88,8 +87,7 @@ export class IssuesService extends Service {
             if (issue.generationReview != null) {
                 return {
                     id: issue.id,
-                    category: issue.category,
-                    confidence: issue.confidence,
+                    kind: issue.kind,
                     severity: issue.severity,
                     title: issue.title,
                     createdAt: issue.createdAt,
@@ -104,8 +102,7 @@ export class IssuesService extends Service {
             if (run == null) throw new NotFoundError();
             return {
                 id: issue.id,
-                category: issue.category,
-                confidence: issue.confidence,
+                kind: issue.kind,
                 severity: issue.severity,
                 title: issue.title,
                 createdAt: issue.createdAt,
@@ -124,8 +121,7 @@ export class IssuesService extends Service {
             where: { id: issueId, organizationId },
             select: {
                 id: true,
-                category: true,
-                confidence: true,
+                kind: true,
                 severity: true,
                 title: true,
                 description: true,
@@ -202,8 +198,7 @@ export class IssuesService extends Service {
 
             return {
                 id: issue.id,
-                category: issue.category,
-                confidence: issue.confidence,
+                kind: issue.kind,
                 severity: issue.severity,
                 title: issue.title,
                 description: issue.description,
@@ -237,8 +232,7 @@ export class IssuesService extends Service {
 
         return {
             id: issue.id,
-            category: issue.category,
-            confidence: issue.confidence,
+            kind: issue.kind,
             severity: issue.severity,
             title: issue.title,
             description: issue.description,

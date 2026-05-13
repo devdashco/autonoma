@@ -3,8 +3,6 @@ import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddSkillParams, AddTestParams, UpdateSkillParams, UpdateTestParams } from "./changes";
-import type { GenerationProvider } from "./generation/generation-job-provider";
-import { GenerationManager } from "./generation/generation-manager";
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
 import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 
@@ -700,14 +698,5 @@ export class SnapshotDraft {
         });
 
         this.logger.info("Pending snapshot discarded");
-    }
-
-    public generationManager(options?: { jobProvider?: GenerationProvider }) {
-        return new GenerationManager({
-            db: this.db,
-            snapshotId: this.snapshotId,
-            organizationId: this.organizationId,
-            jobProvider: options?.jobProvider,
-        });
     }
 }

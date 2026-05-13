@@ -26,7 +26,6 @@
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",
-        "@autonoma/issue-reporter": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
         "@autonoma/storage": "workspace:*",

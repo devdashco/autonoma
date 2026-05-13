@@ -5,6 +5,7 @@ packages:
   - "!apps/**/.nitro/**"
 
 allowBuilds:
+  '@google/genai': true
   '@prisma/engines': true
   '@swc/core': true
   core-js: true

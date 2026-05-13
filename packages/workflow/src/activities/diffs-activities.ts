@@ -19,22 +19,14 @@ export interface ResolveDiffsInput {
     snapshotId: string;
 }
 
-export interface GenerationInfo {
-    testGenerationId: string;
-    scenarioId?: string;
-    architecture: WorkflowArchitecture;
-}
-
-export interface ResolveDiffsOutput {
-    generations: GenerationInfo[];
-}
-
 export interface FinalizeDiffsInput {
     snapshotId: string;
+    /** When provided, the DiffsJob is marked failed with this reason instead of completed. */
+    failureReason?: string;
 }
 
 export interface DiffsActivities {
     analyzeDiffs(input: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput>;
-    resolveDiffs(input: ResolveDiffsInput): Promise<ResolveDiffsOutput>;
+    resolveDiffs(input: ResolveDiffsInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
 }

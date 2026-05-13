@@ -31,16 +31,16 @@ const SEVERITY_BADGE: Record<string, BadgeVariant> = {
   low: "secondary",
 };
 
-type CategoryBadgeVariant = "status-failed" | "outline";
+type KindBadgeVariant = "status-failed" | "warn";
 
-const CATEGORY_BADGE: Record<string, CategoryBadgeVariant> = {
+const KIND_BADGE: Record<string, KindBadgeVariant> = {
   application_bug: "status-failed",
-  agent_error: "outline",
+  engine_limitation: "warn",
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
+const KIND_LABEL: Record<string, string> = {
   application_bug: "Application Bug",
-  agent_error: "Agent Error",
+  engine_limitation: "Engine Limitation",
 };
 
 const EVIDENCE_TYPE_LABEL: Record<string, string> = {
@@ -101,9 +101,7 @@ function IssueDetailPage() {
             <p className="mt-1 text-sm text-text-secondary">{issue.testCase.name}</p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <Badge variant={CATEGORY_BADGE[issue.category] ?? "outline"}>
-              {CATEGORY_LABEL[issue.category] ?? issue.category}
-            </Badge>
+            <Badge variant={KIND_BADGE[issue.kind] ?? "secondary"}>{KIND_LABEL[issue.kind] ?? issue.kind}</Badge>
             <Badge variant={SEVERITY_BADGE[issue.severity] ?? "secondary"} className="h-7 px-3 text-xs">
               {issue.severity}
             </Badge>
@@ -116,19 +114,10 @@ function IssueDetailPage() {
           <div className="flex flex-col gap-4">
             <Panel>
               <PanelBody className="flex flex-col gap-5 p-5">
-                <DetailRow label="Category">
-                  <Badge variant={CATEGORY_BADGE[issue.category] ?? "outline"} className="mt-1">
-                    {CATEGORY_LABEL[issue.category] ?? issue.category}
+                <DetailRow label="Kind">
+                  <Badge variant={KIND_BADGE[issue.kind] ?? "secondary"} className="mt-1">
+                    {KIND_LABEL[issue.kind] ?? issue.kind}
                   </Badge>
-                </DetailRow>
-
-                <DetailRow label="Confidence">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm font-medium">{issue.confidence}%</span>
-                    <div className="h-1.5 flex-1 bg-surface-base">
-                      <div className="h-full bg-primary" style={{ width: `${issue.confidence}%` }} />
-                    </div>
-                  </div>
                 </DetailRow>
 
                 <DetailRow label="Severity">

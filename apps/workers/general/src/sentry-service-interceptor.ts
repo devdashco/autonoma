@@ -6,7 +6,7 @@ export const sentryServiceInterceptor = createSentryServiceInterceptor(
         scenarioDown: "scenario",
         reviewGeneration: "generation-reviewer",
         reviewReplay: "replay-reviewer",
-        assignGenerationResults: "generation-assigner",
+        assignGenerationResults: "worker-general",
         notifyGenerationExit: "run-completion-notification",
         markGenerationFailed: "worker-general",
     },

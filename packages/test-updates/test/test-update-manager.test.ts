@@ -25,7 +25,7 @@ testUpdateSuite({
             await updater.queuePendingGenerations();
 
             expect(jobProvider.firedBatches).toHaveLength(1);
-            expect(jobProvider.firedBatches[0]).toHaveLength(1);
+            expect(jobProvider.firedBatches[0]!.generations).toHaveLength(1);
         });
 
         test("assignGenerationResults: assigns steps from successful generations", async ({
@@ -46,7 +46,7 @@ testUpdateSuite({
 
             await updater.queuePendingGenerations();
             // biome-ignore lint/style/noNonNullAssertion: just created
-            const { testGenerationId: generationId, planId } = jobProvider.firedBatches[0]![0]!;
+            const { testGenerationId: generationId, planId } = jobProvider.firedBatches[0]!.generations[0]!;
 
             // Simulate a successful generation run
             const stepInputList = await harness.db.stepInputList.create({
@@ -81,7 +81,7 @@ testUpdateSuite({
 
             await updater.queuePendingGenerations();
             // biome-ignore lint/style/noNonNullAssertion: just created
-            const { testGenerationId: generationId } = jobProvider.firedBatches[0]![0]!;
+            const { testGenerationId: generationId } = jobProvider.firedBatches[0]!.generations[0]!;
 
             await harness.db.testGeneration.update({
                 where: { id: generationId },
@@ -120,7 +120,7 @@ testUpdateSuite({
 
             await updater.queuePendingGenerations();
             // biome-ignore lint/style/noNonNullAssertion: just created
-            const [genSuccess, genFailure] = jobProvider.firedBatches[0]!;
+            const [genSuccess, genFailure] = jobProvider.firedBatches[0]!.generations;
 
             // Simulate: first succeeds, second fails
             const stepInputList = await harness.db.stepInputList.create({
@@ -171,7 +171,7 @@ testUpdateSuite({
 
             await updater.queuePendingGenerations();
             // biome-ignore lint/style/noNonNullAssertion: just created
-            const { testGenerationId: generationId } = jobProvider.firedBatches[0]![0]!;
+            const { testGenerationId: generationId } = jobProvider.firedBatches[0]!.generations[0]!;
 
             await harness.db.testGeneration.update({
                 where: { id: generationId },
@@ -234,7 +234,7 @@ testUpdateSuite({
             // Verify a single batch was fired with both generations
             expect(jobProvider.firedBatches).toHaveLength(1);
             // biome-ignore lint/style/noNonNullAssertion: asserted above
-            const batch = jobProvider.firedBatches[0]!;
+            const batch = jobProvider.firedBatches[0]!.generations;
             expect(batch).toHaveLength(2);
         });
 

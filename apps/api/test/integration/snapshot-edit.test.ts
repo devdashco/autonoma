@@ -160,8 +160,8 @@ apiTestSuite({
 
             expect(harness.generationProvider.firedBatches.length).toBe(batchesBefore + 1);
             const lastBatch = harness.generationProvider.firedBatches.at(-1);
-            expect(lastBatch).toHaveLength(1);
-            expect(lastBatch?.[0]?.testGenerationId).toBeDefined();
+            expect(lastBatch?.generations).toHaveLength(1);
+            expect(lastBatch?.generations[0]?.testGenerationId).toBeDefined();
         });
 
         test("finalize activates the snapshot", async ({ harness }) => {

@@ -239,56 +239,11 @@ export class RunPersister<TSpec extends CommandSpec> {
             },
         });
 
-        if (result.success) {
-            await this.tryAutoResolveBugs();
-        }
-
         this.logger.info("Uploading run video", { videoPath });
         const videoBuffer = await readFile(videoPath);
         await this.config.storageProvider.upload(this.videoKey(this.id), videoBuffer);
 
         this.logger.info("Run completed and video uploaded");
-    }
-
-    private async tryAutoResolveBugs(): Promise<void> {
-        try {
-            const run = await this.db.run.findUniqueOrThrow({
-                where: { id: this.id },
-                select: {
-                    assignment: {
-                        select: {
-                            testCaseId: true,
-                            snapshot: { select: { branchId: true } },
-                        },
-                    },
-                },
-            });
-
-            const { testCaseId } = run.assignment;
-            const { branchId } = run.assignment.snapshot;
-
-            const result = await this.db.bug.updateMany({
-                where: {
-                    branchId,
-                    testCaseId,
-                    status: { in: ["open", "regressed"] },
-                },
-                data: {
-                    status: "resolved",
-                    resolvedAt: new Date(),
-                },
-            });
-
-            if (result.count > 0) {
-                this.logger.info("Auto-resolved bugs after successful run", {
-                    resolvedCount: result.count,
-                    branchId,
-                    testCaseId,
-                });
-            }
-        } catch (error) {
-            this.logger.error("Failed to auto-resolve bugs", error);
-        }
     }
 
     private async getStepInputId(_interaction: string, index: number): Promise<string> {

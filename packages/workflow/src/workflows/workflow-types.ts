@@ -5,6 +5,8 @@ export const WORKFLOW_TYPE = {
     GENERATION_REVIEW: "generationReviewWorkflow",
     REPLAY_REVIEW: "replayReviewWorkflow",
     DIFFS_ANALYSIS: "diffsAnalysisWorkflow",
+    REFINEMENT_LOOP: "refinementLoopWorkflow",
+    RUN_GENERATION_PIPELINE: "runGenerationPipelineWorkflow",
 } as const;
 
 export type WorkflowType = (typeof WORKFLOW_TYPE)[keyof typeof WORKFLOW_TYPE];

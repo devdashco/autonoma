@@ -78,7 +78,7 @@ export function MockGenerationsPage() {
 
 interface MockIssue {
   title: string;
-  category: "application_bug" | "agent_error";
+  kind: "application_bug" | "engine_limitation";
   severity: "critical" | "high" | "medium";
   testName: string;
   created: string;
@@ -87,35 +87,35 @@ interface MockIssue {
 const MOCK_ISSUES: MockIssue[] = [
   {
     title: "Login button unresponsive after invalid input",
-    category: "application_bug",
+    kind: "application_bug",
     severity: "critical",
     testName: "User login with valid credentials",
     created: "2 hours ago",
   },
   {
     title: "Cart badge count not updated",
-    category: "application_bug",
+    kind: "application_bug",
     severity: "high",
     testName: "Add item to cart and checkout",
     created: "3 hours ago",
   },
   {
-    title: "Could not locate search input",
-    category: "agent_error",
+    title: "Engine could not interact with shadow DOM element",
+    kind: "engine_limitation",
     severity: "medium",
     testName: "Search products by keyword",
     created: "4 hours ago",
   },
 ];
 
-const CATEGORY_VARIANT = {
+const KIND_VARIANT = {
   application_bug: "critical",
-  agent_error: "warn",
+  engine_limitation: "warn",
 } as const;
 
-const CATEGORY_LABEL = {
+const KIND_LABEL = {
   application_bug: "App Bug",
-  agent_error: "Agent Error",
+  engine_limitation: "Engine",
 } as const;
 
 const SEVERITY_VARIANT = {
@@ -144,7 +144,7 @@ export function MockIssuesPage() {
                 Title
               </th>
               <th className="w-[18%] px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary">
-                Category
+                Kind
               </th>
               <th className="w-[15%] px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary">
                 Severity
@@ -159,8 +159,8 @@ export function MockIssuesPage() {
               <tr key={issue.title} className="border-b border-border-dim last:border-0">
                 <td className="truncate px-4 py-2.5 text-2xs font-medium text-text-primary">{issue.title}</td>
                 <td className="px-4 py-2.5">
-                  <Badge variant={CATEGORY_VARIANT[issue.category]} className="text-4xs">
-                    {CATEGORY_LABEL[issue.category]}
+                  <Badge variant={KIND_VARIANT[issue.kind]} className="text-4xs">
+                    {KIND_LABEL[issue.kind]}
                   </Badge>
                 </td>
                 <td className="px-4 py-2.5">

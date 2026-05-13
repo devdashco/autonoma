@@ -1,11 +1,6 @@
 import { type Logger, logger } from "@autonoma/logger";
 import { triggerBatchGeneration } from "@autonoma/workflow";
-import type {
-    FiredBatch,
-    GenerationJobOptions,
-    GenerationProvider,
-    PendingGeneration,
-} from "./generation-job-provider";
+import type { FiredBatch, GenerationProvider, PendingGeneration } from "./generation-job-provider";
 
 export class TemporalGenerationProvider implements GenerationProvider {
     private readonly logger: Logger;
@@ -14,7 +9,7 @@ export class TemporalGenerationProvider implements GenerationProvider {
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async fireJobs(generations: PendingGeneration[], options?: GenerationJobOptions): Promise<FiredBatch> {
+    async fireJobs(snapshotId: string, generations: PendingGeneration[]): Promise<FiredBatch> {
         const firstGeneration = generations[0];
         if (firstGeneration == null) {
             return { batchWorkflowId: "", batchWorkflowRunId: "" };
@@ -22,19 +17,15 @@ export class TemporalGenerationProvider implements GenerationProvider {
 
         const architecture = firstGeneration.architecture;
         const testGenerationIds = generations.map((g) => g.testGenerationId);
-        this.logger.info("Firing batch generation workflow", {
-            testGenerationIds,
-            architecture,
-            autoActivate: options?.autoActivate,
-        });
+        this.logger.info("Firing batch generation workflow", { snapshotId, testGenerationIds, architecture });
 
         const triggerResult = (await triggerBatchGeneration({
+            snapshotId,
             testPlans: generations.map((g) => ({
                 testGenerationId: g.testGenerationId,
                 scenarioId: g.scenarioId,
             })),
             architecture,
-            autoActivate: options?.autoActivate,
         })) as { workflowId?: string; runId?: string } | void;
 
         const workflowId = typeof triggerResult?.workflowId === "string" ? triggerResult.workflowId : "";

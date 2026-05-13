@@ -6,8 +6,8 @@ export interface AddSkillParams {
     plan: string;
 }
 
-export class AddSkill extends TestSuiteChange<AddSkillParams> {
-    async apply({ snapshotDraft }: ApplyChangeParams): Promise<void> {
-        await snapshotDraft.addSkill(this.params);
+export class AddSkill extends TestSuiteChange<AddSkillParams, { skillId: string; planId: string }> {
+    async apply({ snapshotDraft }: ApplyChangeParams): Promise<{ skillId: string; planId: string }> {
+        return snapshotDraft.addSkill(this.params);
     }
 }

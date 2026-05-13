@@ -257,7 +257,7 @@ export class TestGenerationsService extends Service {
 
         const scenarioId = existing.testPlan.scenarioId ?? undefined;
 
-        await this.generationProvider.fireJobs([
+        await this.generationProvider.fireJobs(existing.snapshotId, [
             {
                 testGenerationId: newGeneration.id,
                 planId: newGeneration.testPlanId,

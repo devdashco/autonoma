@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
-import { type GenerationProvider, SnapshotNotPendingError, TestSuiteUpdater } from "@autonoma/test-updates";
+import type { GenerationProvider } from "@autonoma/test-updates";
+import { triggerRefinementLoop } from "@autonoma/workflow";
 import { CompletedState } from "./states/completed-state";
 import { ConfigureState } from "./states/configure-state";
 import { DiscoveredState } from "./states/discovered-state";
@@ -297,37 +298,44 @@ export class OnboardingManager {
         return new stateConstructor(applicationId, this.db, deps);
     }
 
-    /** Queue test generations for the application's main branch after onboarding completes. */
+    /**
+     * Trigger the refinement loop on the application's main branch after onboarding completes.
+     * The loop fires pending generations, validates them, and finalizes the snapshot.
+     */
     async enqueueGenerations(applicationId: string, organizationId: string) {
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { mainBranch: { select: { id: true } } },
+            select: { mainBranch: { select: { id: true, pendingSnapshotId: true } } },
         });
         const branchId = app?.mainBranch?.id;
+        const pendingSnapshotId = app?.mainBranch?.pendingSnapshotId;
 
-        if (branchId == null) return;
+        if (branchId == null || pendingSnapshotId == null) {
+            this.logger.info("No pending snapshot to refine after onboarding", {
+                applicationId,
+                branchId,
+            });
+            return;
+        }
 
         try {
-            this.logger.info("Enqueuing generations after onboarding complete", { applicationId, branchId });
-            const updater = await TestSuiteUpdater.continueUpdate({
-                db: this.db,
+            this.logger.info("Triggering refinement loop after onboarding", {
+                applicationId,
                 branchId,
-                organizationId,
-                jobProvider: this.generationProvider,
+                snapshotId: pendingSnapshotId,
             });
-            await updater.queuePendingGenerations({ autoActivate: true });
-            this.logger.info("Generations enqueued", { applicationId, branchId });
+            await triggerRefinementLoop({
+                snapshotId: pendingSnapshotId,
+                triggeredBy: "onboarding",
+            });
+            this.logger.info("Refinement loop triggered", { applicationId, branchId });
         } catch (err) {
-            if (err instanceof SnapshotNotPendingError) {
-                this.logger.info("No pending snapshot to enqueue - skipping", { applicationId, branchId });
-            } else {
-                // Log but don't block onboarding completion - generation queueing can be retried later
-                this.logger.error("Failed to enqueue generations after onboarding", {
-                    applicationId,
-                    branchId,
-                    error: err instanceof Error ? err.message : String(err),
-                });
-            }
+            // Log but don't block onboarding completion - the refinement can be retried later.
+            this.logger.error("Failed to trigger refinement loop after onboarding", {
+                applicationId,
+                branchId,
+                error: err instanceof Error ? err.message : String(err),
+            });
         }
     }
 }

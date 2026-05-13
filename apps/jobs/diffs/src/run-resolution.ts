@@ -4,7 +4,6 @@ import type { GeneratedTest, RunReviewVerdict, TestCandidateInput } from "@auton
 import { FlowIndex, TestDirectory } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
-import type { ResolveDiffsOutput } from "@autonoma/workflow/activities";
 import * as Sentry from "@sentry/node";
 import type { ModelMessage } from "ai";
 import { createDiffsServices } from "./create-services";
@@ -12,7 +11,7 @@ import { loadBranchData, loadFlows, mapTestSuiteToContext } from "./load-context
 import { runResolutionAgent } from "./run-resolution-agent";
 import { uploadConversation } from "./upload-conversation";
 
-export async function runDiffsResolution(snapshotId: string): Promise<ResolveDiffsOutput> {
+export async function runDiffsResolution(snapshotId: string): Promise<void> {
     const logger = rootLogger.child({ name: "runDiffsResolution", snapshotId });
 
     Sentry.setTag("snapshotId", snapshotId);
@@ -41,7 +40,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
                                 status: true,
                                 verdict: true,
                                 reasoning: true,
-                                issue: { select: { confidence: true, title: true, description: true } },
+                                issue: { select: { title: true, description: true } },
                             },
                         },
                     },
@@ -127,6 +126,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
                 },
                 db,
                 updater,
+                snapshotId,
                 applicationId: branchData.applicationId,
                 organizationId: branchData.organizationId,
                 repoDir,
@@ -141,13 +141,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
         } finally {
             await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
         }
-    }
-
-    // Gather all pending generations (from both modified tests and new tests added in Step 1)
-    const pendingGens = await updater.getPendingGenerations();
-
-    if (pendingGens.length > 0) {
-        await updater.markGenerationsQueued(pendingGens.map((g) => g.testGenerationId));
     }
 
     await linkResolutionOutcomes({
@@ -170,19 +163,10 @@ export async function runDiffsResolution(snapshotId: string): Promise<ResolveDif
         data: { resolutionReasoning, resolutionConversationUrl, status: "generating" },
     });
 
-    const generations = pendingGens.map((gen) => ({
-        testGenerationId: gen.testGenerationId,
-        scenarioId: gen.scenarioId,
-        architecture: gen.architecture,
-    }));
-
     logger.info("Diffs resolution complete", {
         modifiedTests: modifiedSlugs.length,
         newTests: newTestNames.length,
-        generations: generations.length,
     });
-
-    return { generations };
 }
 
 type AffectedTestWithRun = {
@@ -198,7 +182,7 @@ type AffectedTestWithRun = {
             status: string;
             verdict: string | null;
             reasoning: string | null;
-            issue: { confidence: number; title: string; description: string } | null;
+            issue: { title: string; description: string } | null;
         } | null;
     } | null;
 };
@@ -238,7 +222,6 @@ function buildVerdicts(
             verdict: review.verdict ?? "unknown",
             reviewReasoning: review.reasoning ?? "",
             issueTitle: review.issue?.title ?? undefined,
-            issueConfidence: review.issue?.confidence ?? undefined,
             issueDescription: review.issue?.description ?? undefined,
             affectedReason: affected.affectedReason,
         });

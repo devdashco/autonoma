@@ -95,6 +95,37 @@ export async function withCodebaseForGeneration<T>(
     }
 }
 
+export async function withCodebaseForSnapshot<T>(snapshotId: string, handlers: WithCodebaseHandlers<T>): Promise<T> {
+    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
+        where: { id: snapshotId },
+        select: {
+            headSha: true,
+            branch: {
+                select: {
+                    application: { select: { organizationId: true, githubRepositoryId: true } },
+                },
+            },
+        },
+    });
+    const resolved = await resolveClone(
+        {
+            organizationId: snapshot.branch.application.organizationId,
+            githubRepositoryId: snapshot.branch.application.githubRepositoryId,
+            headSha: snapshot.headSha,
+        },
+        `Snapshot ${snapshotId}`,
+    );
+    const codebase = await Codebase.clone(resolved.githubClient, `/tmp/codebase/${handlers.targetDirSeed}`, {
+        repoName: resolved.repoName,
+        commitSha: resolved.commitSha,
+    });
+    try {
+        return await handlers.body(codebase);
+    } finally {
+        await codebase.dispose();
+    }
+}
+
 export async function withCodebaseForRun<T>(runId: string, handlers: WithCodebaseHandlers<T>): Promise<T> {
     const run = await db.run.findUniqueOrThrow({
         where: { id: runId },

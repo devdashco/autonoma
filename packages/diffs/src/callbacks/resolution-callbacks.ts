@@ -1,5 +1,4 @@
 import type { PrismaClient } from "@autonoma/db";
-import type { IssueReporter } from "@autonoma/issue-reporter";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { TestDirectory } from "../test-directory";
 import type { ReportedBug } from "../tools/report-bug-tool";
@@ -18,24 +17,24 @@ export interface ResolutionCallbacks {
 export interface CreateResolutionCallbacksParams {
     db: PrismaClient;
     updater: TestSuiteUpdater;
+    snapshotId: string;
     applicationId: string;
     organizationId: string;
     testDirectory: TestDirectory;
-    issueReporter: IssueReporter;
 }
 
 export function createResolutionCallbacks({
     db,
     updater,
+    snapshotId,
     applicationId,
     organizationId,
     testDirectory,
-    issueReporter,
 }: CreateResolutionCallbacksParams): ResolutionCallbacks {
     const modifyDeps = { db, updater, testDirectory };
     const quarantineDeps = { db, updater, applicationId };
     const addTestDeps = { updater };
-    const reportBugDeps = { db, issueReporter, branchId: updater.branchId, applicationId, organizationId };
+    const reportBugDeps = { db, snapshotId, applicationId, organizationId };
 
     return {
         modifyTest: (slug, newInstruction) => modifyTest({ slug, newInstruction }, modifyDeps),

@@ -7,10 +7,6 @@ export interface PendingGeneration {
     architecture: WorkflowArchitecture;
 }
 
-export interface GenerationJobOptions {
-    autoActivate?: boolean;
-}
-
 export interface FiredBatch {
     /** Batch workflow ID - usable as a fallback link before child workflows are created. */
     batchWorkflowId: string;
@@ -18,5 +14,5 @@ export interface FiredBatch {
 }
 
 export interface GenerationProvider {
-    fireJobs(generations: PendingGeneration[], options?: GenerationJobOptions): Promise<FiredBatch>;
+    fireJobs(snapshotId: string, generations: PendingGeneration[]): Promise<FiredBatch>;
 }

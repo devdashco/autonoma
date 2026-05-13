@@ -1,7 +1,7 @@
 import type { GenerationStatus, PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
-import type { GenerationJobOptions, GenerationProvider, PendingGeneration } from "./generation-job-provider";
+import type { FiredBatch, GenerationProvider, PendingGeneration } from "./generation-job-provider";
 
 export class MissingJobProviderError extends Error {
     constructor() {
@@ -203,37 +203,29 @@ export class GenerationManager {
     }
 
     /**
-     * Fires generation jobs for all pending generations and marks them as queued.
+     * Validates deployment, marks pending generations as queued, and returns
+     * the list ready for dispatch. Does NOT fire any jobs - callers that need
+     * to start a workflow per generation do that themselves (see
+     * `queuePendingGenerations` for the fire-and-forget HTTP path).
      *
-     * Validates deployment configuration before firing. If validation fails,
-     * marks all pending generations as failed.
-     *
-     * @returns Whether any generations were queued. This is used to trigger the auto-activation logic.
-     * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
+     * If validation fails, marks all pending generations as failed and returns
+     * an empty list.
      */
-    async queuePendingGenerations(options?: GenerationJobOptions): Promise<{ generationsQueued: boolean }> {
-        if (this.jobProvider == null) throw new MissingJobProviderError();
-
+    async prepareGenerationQueue(): Promise<PendingGeneration[]> {
         const pending = await this.getPendingGenerations();
 
         if (pending.length === 0) {
-            this.logger.info("No pending generations to queue");
-            return { generationsQueued: false };
+            this.logger.info("No pending generations to prepare");
+            return [];
         }
-        this.logger.info("Queueing pending generations", {
-            count: pending.length,
-            autoActivate: options?.autoActivate,
-        });
+        this.logger.info("Preparing generation queue", { count: pending.length });
 
         try {
             await this.validateDeploymentForGenerations(pending);
-
-            await this.jobProvider.fireJobs(pending, options);
         } catch (error) {
-            this.logger.fatal("Failed to queue pending generations", error, {
+            this.logger.fatal("Deployment validation failed", error, {
                 count: pending.length,
                 generationIds: pending.map((g) => g.testGenerationId),
-                autoActivate: options?.autoActivate,
             });
 
             await this.markAsFailed(
@@ -243,14 +235,55 @@ export class GenerationManager {
                     : "Unknown error. Contact the Autonoma team for help.",
             );
 
-            return { generationsQueued: false };
+            return [];
         }
 
         await this.markAsQueued(pending.map((g) => g.testGenerationId));
 
-        this.logger.info("Pending generations queued", { count: pending.length });
+        this.logger.info("Generation queue prepared", { count: pending.length });
 
-        return { generationsQueued: true };
+        return pending;
+    }
+
+    /**
+     * Fires generation jobs for all pending generations and marks them as queued.
+     *
+     * Validates deployment configuration before firing. If validation fails,
+     * marks all pending generations as failed. For workflow callers that need to
+     * dispatch the batch themselves, see `prepareGenerationQueue`.
+     *
+     * @returns Whether any generations were queued.
+     * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
+     */
+    async queuePendingGenerations(): Promise<{ generationsQueued: boolean; batch?: FiredBatch }> {
+        if (this.jobProvider == null) throw new MissingJobProviderError();
+
+        const prepared = await this.prepareGenerationQueue();
+        if (prepared.length === 0) {
+            return { generationsQueued: false };
+        }
+        this.logger.info("Firing generation jobs", { count: prepared.length });
+
+        let batch: FiredBatch;
+        try {
+            batch = await this.jobProvider.fireJobs(this.snapshotId, prepared);
+        } catch (error) {
+            this.logger.fatal("Failed to fire generation jobs", error, {
+                count: prepared.length,
+                generationIds: prepared.map((g) => g.testGenerationId),
+            });
+
+            await this.markAsFailed(
+                prepared.map((g) => g.testGenerationId),
+                "Unknown error. Contact the Autonoma team for help.",
+            );
+
+            return { generationsQueued: false };
+        }
+
+        this.logger.info("Generation jobs fired", { count: prepared.length });
+
+        return { generationsQueued: true, batch };
     }
 
     /** Marks the given generations as failed with the given reasoning. */
@@ -264,7 +297,7 @@ export class GenerationManager {
     }
 
     /** Marks the given generations as queued. */
-    async markAsQueued(generationIds: string[]) {
+    private async markAsQueued(generationIds: string[]) {
         this.logger.info("Marking generations as queued", { generationIds });
 
         await this.db.testGeneration.updateMany({

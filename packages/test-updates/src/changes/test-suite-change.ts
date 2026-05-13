@@ -10,7 +10,7 @@ export interface ApplyChangeParams {
 }
 
 /** Represents some update to the test suite of the application. */
-export abstract class TestSuiteChange<TParams = unknown> {
+export abstract class TestSuiteChange<TParams = unknown, TResult = void> {
     protected readonly logger: Logger;
 
     constructor(public readonly params: TParams) {
@@ -18,5 +18,5 @@ export abstract class TestSuiteChange<TParams = unknown> {
     }
 
     /** Applies the test suite change to the snapshot draft. */
-    abstract apply(params: ApplyChangeParams): Promise<void>;
+    abstract apply(params: ApplyChangeParams): Promise<TResult>;
 }

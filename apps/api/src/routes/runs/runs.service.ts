@@ -57,6 +57,7 @@ export class RunsService extends Service {
                 assignmentId: assignment.id,
                 organizationId,
                 status: "pending",
+                planId: assignment.planId,
             },
             select: { id: true },
         });
@@ -273,8 +274,10 @@ export class RunsService extends Service {
             where: { id: runId, organizationId },
             select: {
                 assignmentId: true,
+                planId: true,
                 assignment: {
                     select: {
+                        planId: true,
                         plan: { select: { scenarioId: true } },
                         testCase: {
                             select: { application: { select: { architecture: true } } },
@@ -290,6 +293,7 @@ export class RunsService extends Service {
                 assignmentId: run.assignmentId,
                 organizationId,
                 status: "pending",
+                planId: run.planId ?? run.assignment.planId,
             },
             select: { id: true },
         });
@@ -346,7 +350,7 @@ export class RunsService extends Service {
                 stepsId: { not: null },
             },
             orderBy: { createdAt: "desc" },
-            select: { id: true, stepsId: true, plan: { select: { scenarioId: true } } },
+            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
         });
 
         if (assignmentWithSteps != null) return assignmentWithSteps;
@@ -368,7 +372,7 @@ export class RunsService extends Service {
         const assignment = await this.db.testCaseAssignment.findFirst({
             where: { testCaseId, testCase: { organizationId } },
             orderBy: { createdAt: "desc" },
-            select: { id: true, stepsId: true, plan: { select: { scenarioId: true } } },
+            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
         });
 
         if (assignment == null) return null;
@@ -382,6 +386,7 @@ export class RunsService extends Service {
         return {
             id: assignment.id,
             stepsId: latestGeneration.stepsId,
+            planId: assignment.planId,
             plan: assignment.plan ?? { scenarioId: latestGeneration.testPlan.scenarioId },
         };
     }

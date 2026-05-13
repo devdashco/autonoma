@@ -272,14 +272,6 @@ The mobile engine extends the AI, database, logger, and storage environments. Al
 | `GITHUB_APP_WEBHOOK_SECRET` | Yes | - | GitHub App webhook secret for verifying events. |
 | `AGENT_VERSION` | No | `latest` | Version tag for the diff agent. |
 
-### Generation Assigner
-
-**Source:** `apps/jobs/generation-assigner/src/env.ts`
-
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `AUTO_ACTIVATE` | No | - | When set, automatically activates generated test cases without manual review. |
-
 ### Review Jobs (Generation Reviewer, Replay Reviewer)
 
 **Source:** `packages/review/src/env.ts`

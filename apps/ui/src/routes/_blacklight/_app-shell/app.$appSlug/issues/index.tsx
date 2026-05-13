@@ -29,16 +29,16 @@ const SEVERITY_BADGE: Record<string, BadgeVariant> = {
   low: "secondary",
 };
 
-type CategoryBadgeVariant = "status-failed" | "outline";
+type KindBadgeVariant = "status-failed" | "warn";
 
-const CATEGORY_BADGE: Record<string, CategoryBadgeVariant> = {
+const KIND_BADGE: Record<string, KindBadgeVariant> = {
   application_bug: "status-failed",
-  agent_error: "outline",
+  engine_limitation: "warn",
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
+const KIND_LABEL: Record<string, string> = {
   application_bug: "Application Bug",
-  agent_error: "Agent Error",
+  engine_limitation: "Engine Limitation",
 };
 
 function IssuesTable() {
@@ -67,9 +67,8 @@ function IssuesTable() {
         <table className="w-full min-w-160 table-fixed text-sm">
           <thead className="sticky top-0 z-10 border-b border-border-dim bg-surface-base">
             <tr>
-              <th className={`${TH} w-4/12`}>Title</th>
-              <th className={`${TH} w-2/12`}>Category</th>
-              <th className={`${TH} w-1/12`}>Confidence</th>
+              <th className={`${TH} w-5/12`}>Title</th>
+              <th className={`${TH} w-2/12`}>Kind</th>
               <th className={`${TH} w-1/12`}>Severity</th>
               <th className={`${TH} w-2/12`}>Test name</th>
               <th className={`${TH} w-2/12`}>Created</th>
@@ -78,7 +77,7 @@ function IssuesTable() {
           <tbody>
             {issues.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-sm text-text-tertiary">
+                <td colSpan={5} className="px-4 py-10 text-center text-sm text-text-tertiary">
                   No issues found
                 </td>
               </tr>
@@ -93,12 +92,7 @@ function IssuesTable() {
                   <span className="block truncate text-sm font-medium text-text-primary">{issue.title}</span>
                 </td>
                 <td className="px-4 py-2.5">
-                  <Badge variant={CATEGORY_BADGE[issue.category] ?? "outline"}>
-                    {CATEGORY_LABEL[issue.category] ?? issue.category}
-                  </Badge>
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className="font-mono text-sm text-text-secondary">{issue.confidence}%</span>
+                  <Badge variant={KIND_BADGE[issue.kind] ?? "secondary"}>{KIND_LABEL[issue.kind] ?? issue.kind}</Badge>
                 </td>
                 <td className="px-4 py-2.5">
                   <Badge variant={SEVERITY_BADGE[issue.severity] ?? "secondary"}>{issue.severity}</Badge>

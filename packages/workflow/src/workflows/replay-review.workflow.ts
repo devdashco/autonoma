@@ -11,15 +11,8 @@ const general = proxyActivities<GeneralActivities>({
 
 export interface ReplayReviewInput {
     runId: string;
-    skipIssueBugCreation?: boolean;
 }
 
 export async function replayReviewWorkflow(input: ReplayReviewInput): Promise<void> {
-    const reviewOutput = await general.reviewReplay({ runId: input.runId });
-    if (reviewOutput.status !== "completed" || reviewOutput.verdict == null) return;
-    await general.createIssueFromRunReview({
-        runId: input.runId,
-        verdict: reviewOutput.verdict,
-        skipBugCreation: input.skipIssueBugCreation,
-    });
+    await general.reviewReplay({ runId: input.runId });
 }

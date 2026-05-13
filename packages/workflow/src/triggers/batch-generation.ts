@@ -8,16 +8,16 @@ import type { TestPlanItem, WorkflowArchitecture, WorkflowRef } from "../types";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
 export interface TriggerBatchGenerationParams {
+    snapshotId: string;
     testPlans: TestPlanItem[];
     architecture: WorkflowArchitecture;
-    autoActivate?: boolean;
 }
 
 export async function triggerBatchGeneration(params: TriggerBatchGenerationParams): Promise<WorkflowRef> {
-    const { testPlans, architecture, autoActivate } = params;
+    const { snapshotId, testPlans, architecture } = params;
     const testGenerationIds = testPlans.map((tp) => tp.testGenerationId);
 
-    logger.info("Triggering batch generation workflow", { testGenerationIds, architecture });
+    logger.info("Triggering batch generation workflow", { snapshotId, testGenerationIds, architecture });
 
     const client = await getTemporalClient();
     const batchKey = createHash("sha256").update(testGenerationIds.join(":"), "utf8").digest("hex").slice(0, 16);
@@ -30,13 +30,7 @@ export async function triggerBatchGeneration(params: TriggerBatchGenerationParam
             workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
             taskQueue: TaskQueue.GENERAL,
             searchAttributes: getWorkflowSearchAttributes(),
-            args: [
-                {
-                    testPlans,
-                    architecture,
-                    autoActivate: autoActivate ?? false,
-                },
-            ],
+            args: [{ snapshotId, testPlans, architecture }],
         });
     } catch (error) {
         const grpcCause =

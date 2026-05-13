@@ -1,11 +1,13 @@
-import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Separator, Skeleton } from "@autonoma/blacklight";
+import { Badge, Button, Panel, PanelBody, PanelHeader, PanelTitle, Separator, Skeleton } from "@autonoma/blacklight";
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { BugBeetleIcon } from "@phosphor-icons/react/BugBeetle";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { VideoIcon } from "@phosphor-icons/react/Video";
 import { createFileRoute } from "@tanstack/react-router";
 import { EvidenceLightbox } from "components/evidence-lightbox";
 import { formatDate } from "lib/format";
-import { ensureBugDetailData, useBugDetail } from "lib/query/bugs.queries";
+import { ensureBugDetailData, useBugDetail, useReopenBug, useResolveBug } from "lib/query/bugs.queries";
 import { Suspense, useState } from "react";
 import { AppLink } from "../../-app-link";
 
@@ -44,6 +46,8 @@ interface EvidenceMedia {
 function BugDetail() {
   const { bugId } = Route.useParams();
   const { data: bug } = useBugDetail(bugId);
+  const resolveBug = useResolveBug(bugId);
+  const reopenBug = useReopenBug(bugId);
   const [activeMedia, setActiveMedia] = useState<EvidenceMedia | undefined>(undefined);
 
   function getIssueMediaItems(evidence: Array<{ type: string; description: string; url?: string }>) {
@@ -62,8 +66,34 @@ function BugDetail() {
             <Badge variant={STATUS_BADGE[bug.status] ?? "secondary"}>{bug.status}</Badge>
           </div>
           <p className="mt-1 font-mono text-xs text-text-secondary">
-            {bug.testCase.name} - {bug.branch.name}
+            {bug.application.name}
+            {bug.testCases.length > 0
+              ? ` - ${bug.testCases.length} test ${bug.testCases.length === 1 ? "case" : "cases"} affected`
+              : ""}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {bug.status === "resolved" ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => reopenBug.mutate({ bugId })}
+              disabled={reopenBug.isPending}
+            >
+              <ArrowCounterClockwiseIcon size={14} />
+              Reopen
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => resolveBug.mutate({ bugId })}
+              disabled={resolveBug.isPending}
+            >
+              <CheckCircleIcon size={14} />
+              Mark resolved
+            </Button>
+          )}
         </div>
       </header>
 
@@ -88,10 +118,9 @@ function BugDetail() {
                 <table className="w-full min-w-120 table-fixed text-sm">
                   <thead className="sticky top-0 z-10 border-b border-border-dim bg-surface-base">
                     <tr>
-                      <th className={`${TH} w-4/12`}>Title</th>
-                      <th className={`${TH} w-2/12`}>Confidence</th>
+                      <th className={`${TH} w-5/12`}>Title</th>
                       <th className={`${TH} w-2/12`}>Severity</th>
-                      <th className={`${TH} w-1/12`}>Evidence</th>
+                      <th className={`${TH} w-2/12`}>Evidence</th>
                       <th className={`${TH} w-3/12`}>Date</th>
                     </tr>
                   </thead>
@@ -113,9 +142,6 @@ function BugDetail() {
                             >
                               {issue.title}
                             </AppLink>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="font-mono text-sm text-text-secondary">{issue.confidence}%</span>
                           </td>
                           <td className="px-4 py-2.5">
                             <Badge variant={SEVERITY_BADGE[issue.severity] ?? "secondary"}>{issue.severity}</Badge>
@@ -192,21 +218,27 @@ function BugDetail() {
               <Separator />
 
               <div>
-                <span className="font-mono text-2xs uppercase text-text-tertiary">Test case</span>
-                <p className="mt-1">
-                  <AppLink
-                    to="/app/$appSlug/tests/$testSlug"
-                    params={{ testSlug: bug.testCase.slug }}
-                    className="text-sm text-primary hover:underline"
-                  >
-                    {bug.testCase.name}
-                  </AppLink>
-                </p>
+                <span className="font-mono text-2xs uppercase text-text-tertiary">
+                  {bug.testCases.length === 1 ? "Test case" : `Test cases (${bug.testCases.length})`}
+                </span>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {bug.testCases.map((tc) => (
+                    <li key={tc.id}>
+                      <AppLink
+                        to="/app/$appSlug/tests/$testSlug"
+                        params={{ testSlug: tc.slug }}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        {tc.name}
+                      </AppLink>
+                    </li>
+                  ))}
+                </ul>
               </div>
 
               <div>
-                <span className="font-mono text-2xs uppercase text-text-tertiary">Branch</span>
-                <p className="mt-1 text-sm text-text-secondary">{bug.branch.name}</p>
+                <span className="font-mono text-2xs uppercase text-text-tertiary">Application</span>
+                <p className="mt-1 text-sm text-text-secondary">{bug.application.name}</p>
               </div>
             </PanelBody>
           </Panel>

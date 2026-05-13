@@ -1,10 +1,10 @@
 import { db } from "@autonoma/db";
 import { runDiffsResolution } from "@autonoma/job-diffs/run-resolution";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { ResolveDiffsInput, ResolveDiffsOutput } from "@autonoma/workflow/activities";
+import type { ResolveDiffsInput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 
-export async function resolveDiffs({ snapshotId }: ResolveDiffsInput): Promise<ResolveDiffsOutput> {
+export async function resolveDiffs({ snapshotId }: ResolveDiffsInput): Promise<void> {
     const logger = rootLogger.child({ name: "resolveDiffs", snapshotId });
     logger.info("Starting diffs resolution");
 
@@ -16,7 +16,7 @@ export async function resolveDiffs({ snapshotId }: ResolveDiffsInput): Promise<R
             data: { status: "resolving" },
         });
 
-        return await runDiffsResolution(snapshotId);
+        await runDiffsResolution(snapshotId);
     } catch (error) {
         await db.diffsJob.update({
             where: { snapshotId },

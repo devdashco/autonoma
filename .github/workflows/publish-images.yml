@@ -61,13 +61,6 @@ jobs:
             prepare: mkdir -p pruned && cp -r apps/jobs/scenario/dist pruned/dist
             context: ./pruned
 
-          - name: Generation Assigner
-            image: generation-assigner
-            dockerfile: apps/jobs/generation-assigner/Dockerfile
-            turbo-filter: "@autonoma/generation-assigner..."
-            prepare: mkdir -p pruned && cp -r apps/jobs/generation-assigner/dist pruned/dist
-            context: ./pruned
-
           - name: Diffs
             image: diffs
             dockerfile: apps/jobs/diffs/Dockerfile

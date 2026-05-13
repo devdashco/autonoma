@@ -59,6 +59,7 @@ export async function prepareRuns(
         testCaseId: string;
         testCaseName: string;
         assignmentId: string;
+        planId?: string;
         architecture: ApplicationArchitecture;
         scenarioId?: string;
         affectedReason: AffectedReason;
@@ -82,6 +83,7 @@ export async function prepareRuns(
             testCaseId: testCase.id,
             testCaseName: testCase.name,
             assignmentId: assignment.id,
+            planId: assignment.planId,
             architecture: testCase.application.architecture,
             scenarioId: assignment.scenarioId,
             affectedReason: affected.affectedReason,
@@ -115,6 +117,7 @@ export async function prepareRuns(
                 assignmentId: prepared.assignmentId,
                 organizationId,
                 status: "pending",
+                planId: prepared.planId,
             },
             select: { id: true },
         });
@@ -164,10 +167,10 @@ async function findAssignmentWithSteps(
     testCaseId: string,
     slug: string,
     logger: Logger,
-): Promise<{ id: string; scenarioId?: string } | undefined> {
+): Promise<{ id: string; planId?: string; scenarioId?: string } | undefined> {
     const assignment = await db.testCaseAssignment.findUnique({
         where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
-        select: { id: true, stepsId: true, plan: { select: { scenarioId: true } } },
+        select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
     });
 
     if (assignment == null) {
@@ -191,6 +194,7 @@ async function findAssignmentWithSteps(
 
     return {
         id: assignment.id,
+        planId: assignment.planId ?? undefined,
         scenarioId: assignment.plan?.scenarioId ?? undefined,
     };
 }

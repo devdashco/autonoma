@@ -7,7 +7,6 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 | Job | Package Name | Purpose |
 |-----|-------------|---------|
 | **diffs** | `@autonoma/job-diffs` | Analyzes code diffs on a branch, runs an AI agent to determine test impacts (new tests, updates, bug reports, skill updates), and queues pending generations. |
-| **generation-assigner** | `@autonoma/generation-assigner` | Assigns completed generation results back to a test suite snapshot. Optionally finalizes (activates) the snapshot. |
 | **scenario** | `@autonoma/job-scenario` | Manages test scenario lifecycle - "up" provisions a scenario instance before a run/generation, "down" tears it down afterward. |
 | **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/review`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |
@@ -45,13 +44,6 @@ Jobs that support local execution have a dedicated script:
 # scenario (test mode)
 cd apps/jobs/scenario
 pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
-```
-
-Most jobs accept arguments via CLI args or environment variables:
-
-```bash
-# generation-assigner takes generation IDs as positional args
-node dist/index.js <generationId1> <generationId2> ...
 ```
 
 For local generation/replay reviewer inspection, see `@autonoma/review` (`pnpm --filter @autonoma/review review:generation <generationId>` / `review:replay <runId>`).
@@ -95,12 +87,6 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 | `GITHUB_APP_PRIVATE_KEY` | Yes | GitHub App private key |
 | `GITHUB_APP_WEBHOOK_SECRET` | Yes | GitHub App webhook secret |
 | `AGENT_VERSION` | No | Agent version tag (default: `latest`) |
-
-### generation-assigner
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AUTO_ACTIVATE` | No | Set to `"true"` to finalize the snapshot after assigning |
 
 ### scenario
 

@@ -3,7 +3,7 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
 import type { GenerationProvider } from "../src/generation/generation-job-provider";
-import type { GenerationManager } from "../src/generation/generation-manager";
+import { GenerationManager } from "../src/generation/generation-manager";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
 
@@ -132,6 +132,16 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return SnapshotDraft.start({ db: this.db, branchId });
     }
 
+    /** Builds a GenerationManager for a SnapshotDraft. */
+    generationManagerFor(draft: SnapshotDraft, options?: { jobProvider?: GenerationProvider }): GenerationManager {
+        return new GenerationManager({
+            db: this.db,
+            snapshotId: draft.snapshotId,
+            organizationId: draft.organizationId,
+            jobProvider: options?.jobProvider,
+        });
+    }
+
     /** Creates a fresh branch with a deployment and active snapshot, then starts a SnapshotDraft and GenerationManager on it. */
     async startDraftWithDeployment(
         organizationId: string,
@@ -164,7 +174,12 @@ export class TestUpdatesHarness implements IntegrationHarness {
         });
 
         const draft = await SnapshotDraft.start({ db: this.db, branchId });
-        const manager = draft.generationManager({ jobProvider: options?.jobProvider });
+        const manager = new GenerationManager({
+            db: this.db,
+            snapshotId: draft.snapshotId,
+            organizationId: draft.organizationId,
+            jobProvider: options?.jobProvider,
+        });
 
         return { draft, manager };
     }

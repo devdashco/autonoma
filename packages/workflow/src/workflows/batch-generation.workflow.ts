@@ -12,15 +12,14 @@ const general = proxyActivities<GeneralActivities>({
 });
 
 export interface BatchGenerationInput {
+    snapshotId: string;
     testPlans: TestPlanItem[];
     architecture: WorkflowArchitecture;
-    autoActivate: boolean;
 }
 
 export async function batchGenerationWorkflow(input: BatchGenerationInput): Promise<void> {
-    const { testPlans, architecture, autoActivate } = input;
+    const { snapshotId, testPlans, architecture } = input;
 
-    // Run all test generations in parallel - each as a child workflow
     await Promise.all(
         testPlans.map((plan) =>
             executeChild(singleGenerationWorkflow, {
@@ -36,9 +35,8 @@ export async function batchGenerationWorkflow(input: BatchGenerationInput): Prom
         ),
     );
 
-    // After all generations complete (regardless of success), assign results
     await general.assignGenerationResults({
+        snapshotId,
         generationIds: testPlans.map((p) => p.testGenerationId),
-        autoActivate,
     });
 }

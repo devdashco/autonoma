@@ -39,21 +39,7 @@ function dispatchReplay({ runId, architecture, scenarioId }: RunReplayArgs): Pro
     return executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
         workflowId: `run-replay-${runId}`,
         taskQueue: TaskQueue.GENERAL,
-        args: [{ runId, architecture, scenarioId, skipIssueBugCreation: true }],
-    });
-}
-
-interface GenerationArgs {
-    testGenerationId: string;
-    scenarioId?: string;
-    architecture: WorkflowArchitecture;
-}
-
-function dispatchGeneration({ testGenerationId, scenarioId, architecture }: GenerationArgs): Promise<void> {
-    return executeChild(WORKFLOW_TYPE.SINGLE_GENERATION, {
-        workflowId: `generation-${testGenerationId}`,
-        taskQueue: TaskQueue.GENERAL,
-        args: [{ testGenerationId, scenarioId, architecture, skipIssueBugCreation: true }],
+        args: [{ runId, architecture, scenarioId }],
     });
 }
 
@@ -73,15 +59,28 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
 
     // Step 3: Resolve - reads reviewer verdicts from DB, modifies stale tests, gathers pending generations.
     // Persists DiffsJob.resolutionReasoning and reconciles AffectedTest/TestCandidate links.
-    const step2 = await standard.resolveDiffs({ snapshotId });
+    await standard.resolveDiffs({ snapshotId });
 
-    // Step 4: Execute generations in parallel.
-    // The generation-reviewer fires automatically in each generation workflow's finally block
-    // (skipping Issue/Bug creation for diffs-triggered generations).
-    if (step2.generations.length > 0) {
-        await Promise.allSettled(step2.generations.map((gen) => dispatchGeneration(gen)));
+    // Step 4: Run the refinement loop synchronously. The loop reads pending
+    // gens from the snapshot as its iter-1 scope, fires + analyzes them, heals
+    // failures, and activates the snapshot on completion. We surface refinement
+    // failures through the DiffsJob status so UI consumers (which poll by job
+    // status) see the failure rather than seeing the job hung in "generating".
+    try {
+        await executeChild(WORKFLOW_TYPE.REFINEMENT_LOOP, {
+            workflowId: `refinement-loop-${snapshotId}`,
+            taskQueue: TaskQueue.GENERAL,
+            args: [{ snapshotId, triggeredBy: "diffs" as const }],
+        });
+    } catch (error) {
+        await shortLived.finalizeDiffs({
+            snapshotId,
+            failureReason: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
     }
 
-    // Step 5: Finalize - assigns generation results, activates snapshot.
+    // Step 5: Mark the DiffsJob completed. Runs after the refinement loop so
+    // the job's terminal status reflects the full pipeline including refinement.
     await shortLived.finalizeDiffs({ snapshotId });
 }
