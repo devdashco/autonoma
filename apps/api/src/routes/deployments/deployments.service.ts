@@ -11,7 +11,11 @@ export class DeploymentsService extends Service {
         this.logger.info("Listing web deployments for PR", { applicationId, prNumber, organizationId });
 
         const branch = await this.db.branch.findFirst({
-            where: { applicationId, prNumber, organizationId },
+            where: {
+                applicationId,
+                organizationId,
+                prInfo: { prNumber },
+            },
             select: { id: true },
         });
 
@@ -27,7 +31,7 @@ export class DeploymentsService extends Service {
                 id: true,
                 createdAt: true,
                 updatedAt: true,
-                branch: { select: { id: true, name: true, prNumber: true } },
+                branch: { select: { id: true, name: true } },
                 webDeployment: {
                     select: { url: true, file: true, updatedAt: true },
                 },
