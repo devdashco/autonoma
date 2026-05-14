@@ -16,10 +16,9 @@ export default defineConfig({
             GOOGLE_CLIENT_SECRET: "test",
             GEMINI_API_KEY: "test",
             REDIS_URL: "redis://localhost:6379",
-            GITHUB_APP_ID: "test",
-            GITHUB_APP_PRIVATE_KEY: "test",
-            GITHUB_APP_WEBHOOK_SECRET: "test",
-            GITHUB_APP_SLUG: "test",
+            // GitHub App: tests run against the fake (LOCAL_DEV=true). Real credentials
+            // are unnecessary; passing them as base64 PEM is awkward in test fixtures.
+            LOCAL_DEV: "true",
             BETTER_AUTH_SECRET: "test-secret",
             ...config({ path: join(__dirname, "../../.env") }).parsed,
             TESTING: "true",

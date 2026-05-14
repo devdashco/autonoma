@@ -612,6 +612,9 @@ importers:
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@autonoma/github':
+        specifier: workspace:*
+        version: link:../../packages/github
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../packages/logger
@@ -1420,6 +1423,9 @@ importers:
       '@octokit/app':
         specifier: 'catalog:'
         version: 16.1.2
+      zod:
+        specifier: 'catalog:'
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

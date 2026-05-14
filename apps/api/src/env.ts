@@ -1,5 +1,6 @@
 import { env as billingEnv } from "@autonoma/billing/env";
 import { env as dbEnv } from "@autonoma/db/env";
+import { base64PrivateKey } from "@autonoma/github/env";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
@@ -24,8 +25,9 @@ export const env = createEnv({
 
         // Secrets for GitHub HTTP app authentication.
         // Optional when LOCAL_DEV=true (the fake app is used instead); required otherwise.
+        // The private key is supplied as base64-encoded PEM and decoded at boot.
         GITHUB_APP_ID: z.string().min(1).optional(),
-        GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
+        GITHUB_APP_PRIVATE_KEY: base64PrivateKey.optional(),
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
         GITHUB_APP_SLUG: z.string().min(1).optional(),
 

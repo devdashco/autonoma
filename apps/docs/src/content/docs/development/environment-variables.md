@@ -268,7 +268,7 @@ The mobile engine extends the AI, database, logger, and storage environments. Al
 | `BRANCH_ID` | Yes | - | Branch identifier for computing diffs. |
 | `GEMINI_API_KEY` | Yes | - | Gemini API key for AI-powered diff analysis. |
 | `GITHUB_APP_ID` | Yes | - | GitHub App ID for repository access. |
-| `GITHUB_APP_PRIVATE_KEY` | Yes | - | GitHub App private key (PEM format). |
+| `GITHUB_APP_PRIVATE_KEY` | Yes | - | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`). |
 | `GITHUB_APP_WEBHOOK_SECRET` | Yes | - | GitHub App webhook secret for verifying events. |
 | `AGENT_VERSION` | No | `latest` | Version tag for the diff agent. |
 
@@ -287,7 +287,7 @@ These variables appear in `.env.example` and are used by the API server and the 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `GITHUB_APP_ID` | No | - | GitHub App ID. Required for GitHub integration features. |
-| `GITHUB_APP_PRIVATE_KEY` | No | - | GitHub App private key in PEM format. |
+| `GITHUB_APP_PRIVATE_KEY` | No | - | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`). Decoded at boot. |
 | `GITHUB_APP_WEBHOOK_SECRET` | No | - | Secret for verifying GitHub webhook payloads. |
 | `GITHUB_APP_SLUG` | No | - | GitHub App slug (URL-friendly name). Used for generating installation links. |
 

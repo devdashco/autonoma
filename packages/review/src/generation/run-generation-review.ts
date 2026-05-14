@@ -3,6 +3,7 @@ import { env as aiEnv } from "@autonoma/ai/env";
 import { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
+import { base64PrivateKey } from "@autonoma/github/env";
 import { logger } from "@autonoma/logger";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { S3Storage } from "@autonoma/storage";
@@ -17,7 +18,7 @@ const env = createEnv({
     extends: [loggerEnv, storageEnv, aiEnv],
     server: {
         GITHUB_APP_ID: z.string().min(1),
-        GITHUB_APP_PRIVATE_KEY: z.string().min(1),
+        GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
         GITHUB_APP_SLUG: z.string().min(1),
     },

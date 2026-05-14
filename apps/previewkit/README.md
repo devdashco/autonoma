@@ -201,7 +201,7 @@ GET    /health                            Health check
 | `PORT` | No | `3000` | HTTP server port |
 | `LOG_LEVEL` | No | `info` | Log level: `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
 | `GITHUB_APP_ID` | Yes | | GitHub App ID |
-| `GITHUB_PRIVATE_KEY` | Yes | | GitHub App private key (PEM format) |
+| `GITHUB_PRIVATE_KEY` | Yes | | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`) |
 | `GITHUB_WEBHOOK_SECRET` | Yes | | GitHub webhook secret for signature verification |
 | `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry |
 | `BUILDKIT_HOST` | No | `tcp://buildkitd.previewkit.svc.cluster.local:1234` | BuildKit daemon address |

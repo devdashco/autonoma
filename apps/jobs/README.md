@@ -84,7 +84,7 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 |----------|----------|-------------|
 | `BRANCH_ID` | Yes | Branch to analyze |
 | `GITHUB_APP_ID` | Yes | GitHub App ID for repo access |
-| `GITHUB_APP_PRIVATE_KEY` | Yes | GitHub App private key |
+| `GITHUB_APP_PRIVATE_KEY` | Yes | GitHub App private key, base64-encoded PEM |
 | `GITHUB_APP_WEBHOOK_SECRET` | Yes | GitHub App webhook secret |
 | `AGENT_VERSION` | No | Agent version tag (default: `latest`) |
 

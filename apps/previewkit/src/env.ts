@@ -1,3 +1,4 @@
+import { base64PrivateKey } from "@autonoma/github/env";
 import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
@@ -8,9 +9,10 @@ export const env = createEnv({
         PORT: z.coerce.number().default(3000),
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
-        // GitHub App credentials
+        // GitHub App credentials. The private key is supplied as base64-encoded PEM
+        // and decoded at boot.
         GITHUB_APP_ID: z.string().min(1),
-        GITHUB_PRIVATE_KEY: z.string().min(1),
+        GITHUB_PRIVATE_KEY: base64PrivateKey,
 
         // Container registry
         REGISTRY_URL: z.string().default("registry.previewkit.svc.cluster.local:5000"),

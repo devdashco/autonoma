@@ -4,7 +4,8 @@
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./env": "./src/env.ts"
     },
     "scripts": {
         "build": "tsc",
@@ -14,7 +15,8 @@
     },
     "dependencies": {
         "@autonoma/logger": "workspace:*",
-        "@octokit/app": "catalog:"
+        "@octokit/app": "catalog:",
+        "zod": "catalog:"
     },
     "devDependencies": {
         "@types/node": "catalog:",
