@@ -272,12 +272,16 @@ export class ScenarioTestHarness implements IntegrationHarness {
         const snapshot = await this.db.branchSnapshot.create({
             data: { branchId, source: "MANUAL", status: SnapshotStatus.processing },
         });
+        const folder = await this.db.folder.create({
+            data: { name: `Folder ${Date.now()}`, applicationId, organizationId },
+        });
         const testCase = await this.db.testCase.create({
             data: {
                 name: `Test Case ${Date.now()}`,
                 slug: `test-case-${Date.now()}`,
                 applicationId,
                 organizationId,
+                folderId: folder.id,
             },
         });
         const testPlan = await this.db.testPlan.create({

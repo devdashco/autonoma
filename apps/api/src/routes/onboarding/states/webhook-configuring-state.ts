@@ -50,7 +50,6 @@ export class WebhookConfiguringState extends OnboardingState {
             data: {
                 step: "discovering",
                 discoveringStartedAt: new Date(),
-                discoveryAttempts: { increment: 1 },
             },
         });
 

@@ -8,16 +8,6 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getState(input.applicationId)),
 
-    getWebhookConfig: protectedProcedure.input(applicationIdInput).query(async ({ ctx, input }) => {
-        const app = await ctx.db.application.findFirst({
-            where: { id: input.applicationId, organizationId: ctx.organizationId },
-            select: { webhookUrl: true },
-        });
-        return {
-            webhookUrl: app?.webhookUrl ?? undefined,
-        };
-    }),
-
     getLogs: protectedProcedure
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId)),

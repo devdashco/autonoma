@@ -241,6 +241,33 @@ async function seed() {
         [dashboardApp.id, dashboardBranch.snapshotId],
     ]);
 
+    const portalFolder = await db.folder.upsert({
+        where: { id: "seed-folder-portal" },
+        update: {},
+        create: {
+            id: "seed-folder-portal",
+            name: "General",
+            applicationId: portalApp.id,
+            organizationId: autonoma.id,
+        },
+    });
+
+    const dashboardFolder = await db.folder.upsert({
+        where: { id: "seed-folder-dashboard" },
+        update: {},
+        create: {
+            id: "seed-folder-dashboard",
+            name: "General",
+            applicationId: dashboardApp.id,
+            organizationId: autonoma.id,
+        },
+    });
+
+    const appFolderMap = new Map<string, string>([
+        [portalApp.id, portalFolder.id],
+        [dashboardApp.id, dashboardFolder.id],
+    ]);
+
     if (existingGeneration == null) {
         const mockGenerations: Array<{
             app: typeof portalApp;
@@ -413,12 +440,16 @@ async function seed() {
         ];
 
         for (const mock of mockGenerations) {
+            const folderId = appFolderMap.get(mock.app.id);
+            if (folderId == null) throw new Error(`No folder for app ${mock.app.id}`);
+
             const testCase = await db.testCase.create({
                 data: {
                     name: mock.planName,
                     slug: toSlug(mock.planName),
                     applicationId: mock.app.id,
                     organizationId: autonoma.id,
+                    folderId,
                 },
             });
 

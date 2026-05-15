@@ -5,7 +5,7 @@ interface BaseChange {
     testCaseId: string;
     testCaseName: string;
     testCaseSlug: string;
-    testCaseFolderId: string | null;
+    testCaseFolderId: string;
 }
 
 interface AddedChange extends BaseChange {

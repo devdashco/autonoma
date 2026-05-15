@@ -21,12 +21,21 @@ apiTestSuite({
         // biome-ignore lint/style/noNonNullAssertion: `applications.createApplication` adds an active snapshot
         const snapshotId = mainBranch.activeSnapshotId!;
 
+        const folder = await harness.db.folder.create({
+            data: {
+                name: "Default",
+                applicationId: application.id,
+                organizationId: harness.organizationId,
+            },
+        });
+
         const testCase = await harness.db.testCase.create({
             data: {
                 name: "Login flow test",
                 slug: "login-flow-test",
                 applicationId: application.id,
                 organizationId: harness.organizationId,
+                folderId: folder.id,
             },
         });
 
@@ -115,6 +124,7 @@ apiTestSuite({
                 slug: "ungenerated-test",
                 applicationId: application.id,
                 organizationId: harness.organizationId,
+                folderId: folder.id,
             },
         });
 

@@ -23,7 +23,7 @@ export function TestsTreePanel() {
   const branch = useMainBranch();
 
   const testCases: TestCaseRecord[] = branch.activeSnapshot.testCaseAssignments.map(
-    (a: { testCase: { id: string; name: string; slug: string; folderId: string | null }; stepsId: string | null }) => ({
+    (a: { testCase: { id: string; name: string; slug: string; folderId: string }; stepsId: string | null }) => ({
       id: a.testCase.id,
       name: a.testCase.name,
       slug: a.testCase.slug,

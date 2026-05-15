@@ -128,12 +128,10 @@ export abstract class OnboardingState {
                 agentConnectedAt: null,
                 agentLogs: [],
                 productionUrl: null,
-                productionTestsPassed: false,
                 completedAt: null,
                 lastDiscoveryError: null,
                 lastDiscoveredAt: null,
                 lastDiscoveredModels: null,
-                discoveryAttempts: 0,
                 discoveringStartedAt: null,
             },
         });

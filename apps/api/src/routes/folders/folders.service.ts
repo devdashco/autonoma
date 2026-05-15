@@ -131,11 +131,22 @@ export class FoldersService extends Service {
     async deleteFolder(folderId: string, organizationId: string) {
         this.logger.info("Deleting folder", { folderId });
 
-        const { count } = await this.db.folder.deleteMany({
-            where: { id: folderId, application: { organizationId } },
-        });
+        await this.db.$transaction(async (tx) => {
+            const folder = await tx.folder.findFirst({
+                where: { id: folderId, application: { organizationId } },
+                select: { id: true, _count: { select: { testCases: true } } },
+            });
 
-        if (count === 0) throw new NotFoundError();
+            if (folder == null) throw new NotFoundError();
+
+            if (folder._count.testCases > 0) {
+                throw new BadRequestError(
+                    "Cannot delete a folder that contains test cases. Move or delete them first.",
+                );
+            }
+
+            await tx.folder.delete({ where: { id: folderId } });
+        });
 
         this.logger.info("Folder deleted", { folderId });
     }

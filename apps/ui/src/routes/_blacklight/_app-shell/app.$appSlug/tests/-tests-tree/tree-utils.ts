@@ -17,11 +17,9 @@ export function buildTree(folders: FolderRecord[], testCases: TestCaseRecord[]):
     }
 
     for (const tc of testCases) {
-        if (tc.folderId != null) {
-            const folder = folderMap.get(tc.folderId);
-            if (folder != null) {
-                folder.children.push(tc);
-            }
+        const folder = folderMap.get(tc.folderId);
+        if (folder != null) {
+            folder.children.push(tc);
         }
     }
 
@@ -30,11 +28,6 @@ export function buildTree(folders: FolderRecord[], testCases: TestCaseRecord[]):
         if (f.parentId == null) {
             const node = folderMap.get(f.id);
             if (node != null) roots.push(node);
-        }
-    }
-    for (const tc of testCases) {
-        if (tc.folderId == null) {
-            roots.push(tc);
         }
     }
 

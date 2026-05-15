@@ -6,7 +6,7 @@ export interface TestCaseRecord {
     id: string;
     name: string;
     slug: string;
-    folderId: string | null;
+    folderId: string;
     hasSteps?: boolean;
 }
 

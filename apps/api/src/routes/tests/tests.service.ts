@@ -93,7 +93,7 @@ export class TestsService extends Service {
             slug: testCase.slug,
             description: testCase.description ?? undefined,
             applicationId: testCase.application.id,
-            folderName: testCase.folder?.name ?? undefined,
+            folderName: testCase.folder.name,
             tags: testCase.tags.map((tt) => tt.tag.name),
             prompt: assignment?.plan?.prompt ?? undefined,
             generationId: assignment?.plan?.generations[0]?.id ?? undefined,

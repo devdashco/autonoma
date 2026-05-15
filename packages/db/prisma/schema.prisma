@@ -139,7 +139,6 @@ model Organization {
   promoRedemptions       BillingPromoRedemption[]
   billingCustomer        BillingCustomer?
   applicationSetups      ApplicationSetup[]
-  setupArtifacts         ApplicationSetupArtifact[]
   signupHookStates       SignupHookState[]
   previewkitEnvironments PreviewkitEnvironment[]
   gitHubWebhookEvents    GitHubWebhookEvent[]
@@ -175,12 +174,10 @@ model OnboardingState {
   /// [AgentLogEntry]
   agentLogs             Json           @default("[]") @map("agent_logs")
   productionUrl         String?        @map("production_url")
-  productionTestsPassed Boolean        @default(false) @map("production_tests_passed")
   completedAt           DateTime?      @map("completed_at")
   lastDiscoveryError    String?        @map("last_discovery_error")
   lastDiscoveredAt      DateTime?      @map("last_discovered_at")
   lastDiscoveredModels  Int?           @map("last_discovered_models")
-  discoveryAttempts     Int            @default(0) @map("discovery_attempts")
   discoveringStartedAt  DateTime?      @map("discovering_started_at")
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")
@@ -208,8 +205,7 @@ model ApplicationSetup {
   userId         String       @map("user_id")
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  events    ApplicationSetupEvent[]
-  artifacts ApplicationSetupArtifact[]
+    events ApplicationSetupEvent[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -229,25 +225,6 @@ model ApplicationSetupEvent {
 
   @@index([setupId])
   @@map("application_setup_event")
-}
-
-model ApplicationSetupArtifact {
-  id             String           @id @default(cuid())
-  path           String
-  content        String           @db.Text
-  setupId        String           @map("setup_id")
-  setup          ApplicationSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
-  applicationId  String           @map("application_id")
-  application    Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  organizationId String           @map("organization_id")
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-
-  @@unique([setupId, path])
-  @@index([setupId])
-  @@index([applicationId])
-  @@map("application_setup_artifact")
 }
 
 model Member {
@@ -309,20 +286,11 @@ enum ApplicationArchitecture {
   @@map("application_architecture")
 }
 
-enum ApplicationMode {
-  TRUNK_BASED
-  MAIN_ONLY
-  MANUAL
-
-  @@map("application_mode")
-}
-
 model Application {
   id                 String                  @id @default(cuid())
   name               String
   slug               String                  @map("slug")
   architecture       ApplicationArchitecture
-  mode               ApplicationMode         @default(MAIN_ONLY)
   customInstructions String?                 @map("custom_instructions")
   disabled           Boolean                 @default(false)
   githubRepositoryId Int?                    @map("github_repository_id")
@@ -330,7 +298,6 @@ model Application {
   mainBranchId String? @unique @map("main_branch_id")
   mainBranch   Branch? @relation("MainBranch", fields: [mainBranchId], references: [id])
 
-  webhookUrl       String? @map("webhook_url")
   signingSecretEnc String? @map("signing_secret_enc")
 
   folders                 Folder[]
@@ -342,11 +309,9 @@ model Application {
   scenarioRecipeVersions  ScenarioRecipeVersion[]
   scenarioInstances       ScenarioInstance[]
   webhookCalls            WebhookCall[]
-  setupArtifacts          ApplicationSetupArtifact[]
   branches                Branch[]
   featureBranchInfos      FeatureBranchInfo[]
   mainBranchInfo          MainBranchInfo?
-  githubRepositories      GitHubRepository[]
   onboardingState         OnboardingState?
   applicationSetups       ApplicationSetup[]
   bugs                    Bug[]
@@ -377,7 +342,6 @@ model BranchDeployment {
   webhookHeaders Json?   @map("webhook_headers")
 
   activeOnBranch    Branch?            @relation("ActiveDeployment")
-  snapshots         BranchSnapshot[]   @relation("SnapshotDeployment")
   scenarioInstances ScenarioInstance[]
   webDeployment     WebDeployment?
   mobileDeployment  MobileDeployment?
@@ -468,15 +432,6 @@ enum OrganizationStatus {
   @@map("organization_status")
 }
 
-enum ConversationMessageRole {
-  user
-  assistant
-  system
-  tool_call
-
-  @@map("conversation_message_role")
-}
-
 // ─── Organization & Test Structure ─────────────────────────────────
 
 model Folder {
@@ -505,8 +460,6 @@ model Branch {
   id   String @id @default(cuid())
   name String
 
-  prNumber       Int?    @map("pr_number")
-  githubRef      String? @map("github_ref")
   lastHandledSha String? @map("last_handled_sha")
 
   applicationId String      @map("application_id")
@@ -591,9 +544,6 @@ model BranchSnapshot {
   /// [JsonValue]
   payload Json?
 
-  deploymentId String?           @map("deployment_id")
-  deployment   BranchDeployment? @relation("SnapshotDeployment", fields: [deploymentId], references: [id])
-
   prevSnapshotId String?          @map("prev_snapshot_id")
   prevSnapshot   BranchSnapshot?  @relation("SnapshotHistory", fields: [prevSnapshotId], references: [id])
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
@@ -666,8 +616,8 @@ model TestCase {
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  folderId String? @map("folder_id")
-  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId String @map("folder_id")
+  folder   Folder @relation(fields: [folderId], references: [id], onDelete: Restrict)
 
   plans       TestPlan[]
   tags        TestTag[]
@@ -1495,40 +1445,6 @@ enum GitHubInstallationStatus {
   @@map("github_installation_status")
 }
 
-enum GitHubIndexingStatus {
-  pending
-  running
-  completed
-  failed
-
-  @@map("github_indexing_status")
-}
-
-enum GitHubDeploymentTrigger {
-  push
-  github_action
-
-  @@map("github_deployment_trigger")
-}
-
-enum GitHubDeploymentStatus {
-  pending
-  fetching_diff
-  ready
-  failed
-
-  @@map("github_deployment_status")
-}
-
-enum GitHubGenerationStatus {
-  pending
-  running
-  completed
-  failed
-
-  @@map("github_generation_status")
-}
-
 model GitHubInstallation {
   id             String                   @id @default(cuid())
   installationId Int                      @unique @map("installation_id")
@@ -1540,74 +1456,9 @@ model GitHubInstallation {
   createdAt      DateTime                 @default(now()) @map("created_at")
   updatedAt      DateTime                 @updatedAt @map("updated_at")
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  repositories GitHubRepository[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("github_installation")
-}
-
-model GitHubRepository {
-  id                String                  @id @default(cuid())
-  installationId    String                  @map("installation_id")
-  githubRepoId      Int                     @map("github_repo_id")
-  name              String
-  fullName          String                  @map("full_name")
-  defaultBranch     String                  @map("default_branch")
-  private           Boolean
-  indexingStatus    GitHubIndexingStatus    @default(pending) @map("indexing_status")
-  indexedAt         DateTime?               @map("indexed_at")
-  watchBranch       String                  @default("main") @map("watch_branch")
-  deploymentTrigger GitHubDeploymentTrigger @default(push) @map("deployment_trigger")
-  createdAt         DateTime                @default(now()) @map("created_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
-
-  generationStatus GitHubGenerationStatus? @map("generation_status")
-  autonomaUrl      String?                 @map("autonoma_url")
-  testsUrl         String?                 @map("tests_url")
-
-  applicationId String?      @map("application_id")
-  application   Application? @relation(fields: [applicationId], references: [id])
-
-  installation GitHubInstallation     @relation(fields: [installationId], references: [id], onDelete: Cascade)
-  files        GitHubRepositoryFile[]
-  deployments  GitHubDeployment[]
-
-  @@unique([installationId, githubRepoId])
-  @@map("github_repository")
-}
-
-model GitHubDeployment {
-  id           String                 @id @default(cuid())
-  repositoryId String                 @map("repository_id")
-  sha          String
-  baseSha      String?                @map("base_sha")
-  environment  String
-  url          String?
-  diff         String?
-  status       GitHubDeploymentStatus @default(pending)
-  createdAt    DateTime               @default(now()) @map("created_at")
-  updatedAt    DateTime               @updatedAt @map("updated_at")
-
-  repository GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-
-  @@map("github_deployment")
-}
-
-model GitHubRepositoryFile {
-  id           String   @id @default(cuid())
-  repositoryId String   @map("repository_id")
-  path         String
-  content      String?
-  sha          String
-  size         Int
-  type         String
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  repository GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-
-  @@unique([repositoryId, path])
-  @@map("github_repository_file")
 }
 
 enum GitHubWebhookEventType {
@@ -1650,6 +1501,7 @@ model GitHubWebhookEvent {
   @@index([installationId, receivedAt])
   @@map("github_webhook_event")
 }
+
 
 // ─── Billing ─────────────────────────────────────────────────────
 
@@ -1781,11 +1633,9 @@ model BillingPromoRedemption {
   promoCodeId    String @map("promo_code_id")
   organizationId String @map("organization_id")
 
-  redeemedAt DateTime @default(now()) @map("redeemed_at")
-
-  promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  creditTransaction CreditTransaction?
+    promoCode         BillingPromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+    organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    creditTransaction CreditTransaction?
 
   @@unique([promoCodeId, organizationId])
   @@index([promoCodeId])

@@ -109,14 +109,6 @@ export async function loadFlows(applicationId: string, suiteInfo: TestSuiteInfo)
             });
             continue;
         }
-        // folderId is mandatory for newly created test cases; null is unexpected.
-        if (testCase.folderId == null) {
-            logger.warn("Test case has no folderId, skipping from flow index", {
-                testCaseId: testCase.id,
-                slug: testCase.slug,
-            });
-            continue;
-        }
         const slugs = testSlugsByFolderId.get(testCase.folderId);
         if (slugs != null) {
             slugs.push(testCase.slug);
