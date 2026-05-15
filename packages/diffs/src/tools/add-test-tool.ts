@@ -17,6 +17,13 @@ export const generatedTestSchema = z.object({
                 "`read_scenario`). Provide when the test needs preconditions like an authenticated user or " +
                 "pre-existing records. Omit for tests that start from a fresh, unauthenticated state.",
         ),
+    acceptingCandidateId: z
+        .string()
+        .optional()
+        .describe(
+            "Set this to the `candidate` id from the Test Candidates list when you are accepting one of those " +
+                "candidates. Omit when you are creating a test that wasn't proposed in Step 1.",
+        ),
 });
 
 export type GeneratedTest = z.infer<typeof generatedTestSchema>;

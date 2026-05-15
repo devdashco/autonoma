@@ -23,6 +23,15 @@ export interface RunResolutionAgentParams {
     flowIndex: FlowIndex;
 }
 
+export interface AcceptedCandidateLink {
+    candidateId: string;
+    testCaseId: string;
+}
+
+export interface RunResolutionAgentResult extends ResolutionAgentResult {
+    accepted: AcceptedCandidateLink[];
+}
+
 export async function runResolutionAgent({
     input,
     db,
@@ -32,7 +41,7 @@ export async function runResolutionAgent({
     organizationId,
     repoDir,
     flowIndex,
-}: RunResolutionAgentParams): Promise<ResolutionAgentResult> {
+}: RunResolutionAgentParams): Promise<RunResolutionAgentResult> {
     const registry = new ModelRegistry({
         models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
     });
@@ -60,11 +69,21 @@ export async function runResolutionAgent({
         organizationId,
     });
 
+    const accepted: AcceptedCandidateLink[] = [];
+
     await Promise.all([
         ...result.modifiedTests.map((t) => callbacks.modifyTest(t.slug, t.newInstruction)),
         ...result.quarantinedTests.map((t) => callbacks.quarantineTest(t.slug)),
         ...result.reportedBugs.map((b) => callbacks.reportBug(b)),
-        ...result.newTests.map((t) => callbacks.addTest({ ...t, folderId: flowIndex.getFlow(t.folderName)!.id })),
+        ...result.newTests.map(async (t) => {
+            const { testCaseId } = await callbacks.addTest({
+                ...t,
+                folderId: flowIndex.getFlow(t.folderName)!.id,
+            });
+            if (t.acceptingCandidateId != null) {
+                accepted.push({ candidateId: t.acceptingCandidateId, testCaseId });
+            }
+        }),
     ]);
 
     logger.info("Resolution agent complete", {
@@ -73,11 +92,12 @@ export async function runResolutionAgent({
         quarantinedTests: result.quarantinedTests.length,
         reportedBugs: result.reportedBugs.length,
         newTests: result.newTests.length,
+        acceptedCandidates: accepted.length,
         reasoning: result.reasoning.slice(0, 500),
         modelUsage: registry.modelUsage,
     });
 
-    return result;
+    return { ...result, accepted };
 }
 
 async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {

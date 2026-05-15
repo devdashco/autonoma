@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import { db } from "@autonoma/db";
-import type { GeneratedTest, RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
+import type { RunReviewVerdict, TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
@@ -8,7 +8,7 @@ import * as Sentry from "@sentry/node";
 import type { ModelMessage } from "ai";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadFlows, mapTestSuiteToContext } from "./load-context";
-import { runResolutionAgent } from "./run-resolution-agent";
+import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
 import { uploadConversation } from "./upload-conversation";
 
 export async function runDiffsResolution(snapshotId: string): Promise<void> {
@@ -75,6 +75,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
     }
 
     const candidateInputs: TestCandidateInput[] = testCandidates.map((c) => ({
+        candidateId: c.id,
         name: c.name,
         instruction: c.instruction,
         reasoning: c.reasoning,
@@ -84,7 +85,8 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
 
     let resolutionReasoning = "";
     let modifiedSlugs: string[] = [];
-    let newTestNames: GeneratedTest[] = [];
+    let newTestsCount = 0;
+    let acceptedCandidates: AcceptedCandidateLink[] = [];
     let resolutionConversation: ModelMessage[] = [];
 
     if (!shouldRunAgent) {
@@ -135,7 +137,8 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
 
             resolutionReasoning = agentResult.reasoning;
             modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
-            newTestNames = agentResult.newTests;
+            newTestsCount = agentResult.newTests.length;
+            acceptedCandidates = agentResult.accepted;
             resolutionConversation = agentResult.conversation;
         } finally {
             await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
@@ -145,7 +148,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
     await linkResolutionOutcomes({
         snapshotId,
         modifiedSlugs,
-        newTestNames: newTestNames.map((t) => t.name),
+        accepted: acceptedCandidates,
         logger,
     });
 
@@ -164,7 +167,8 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
 
     logger.info("Diffs resolution complete", {
         modifiedTests: modifiedSlugs.length,
-        newTests: newTestNames.length,
+        newTests: newTestsCount,
+        acceptedCandidates: acceptedCandidates.length,
     });
 }
 
@@ -240,21 +244,21 @@ function buildVerdicts(
 interface LinkResolutionOutcomesParams {
     snapshotId: string;
     modifiedSlugs: string[];
-    newTestNames: string[];
+    accepted: AcceptedCandidateLink[];
     logger: ReturnType<typeof rootLogger.child>;
 }
 
 async function linkResolutionOutcomes({
     snapshotId,
     modifiedSlugs,
-    newTestNames,
+    accepted,
     logger,
 }: LinkResolutionOutcomesParams): Promise<void> {
     if (modifiedSlugs.length > 0) {
         await linkModifiedToGenerations(snapshotId, modifiedSlugs, logger);
     }
 
-    await reconcileTestCandidates(snapshotId, newTestNames, logger);
+    await reconcileTestCandidates(snapshotId, accepted, logger);
 }
 
 async function linkModifiedToGenerations(
@@ -287,57 +291,50 @@ async function linkModifiedToGenerations(
     }
 }
 
-export class CandidateNotFoundError extends Error {
-    constructor(public readonly missingNames: string[]) {
-        super(`Test candidates with names "${missingNames.join('", "')}" not found in database`);
-    }
-}
-
 async function reconcileTestCandidates(
     snapshotId: string,
-    acceptedNames: string[],
+    accepted: AcceptedCandidateLink[],
     logger: ReturnType<typeof rootLogger.child>,
 ): Promise<void> {
-    if (acceptedNames.length === 0) {
+    if (accepted.length === 0) {
         logger.info("No new test candidates accepted");
+        await db.testCandidate.updateMany({
+            where: { snapshotId, status: "pending" },
+            data: { status: "rejected" },
+        });
         return;
     }
 
+    const ids = accepted.map((a) => a.candidateId);
     const candidates = await db.testCandidate.findMany({
-        where: { snapshotId, name: { in: acceptedNames } },
-        select: { id: true, name: true, snapshotId: true, organizationId: true },
+        where: { snapshotId, id: { in: ids } },
+        select: { id: true },
     });
+    const validIds = new Set(candidates.map((c) => c.id));
 
-    if (candidates.length !== acceptedNames.length) {
-        logger.fatal("Mismatch between accepted candidate names and database entries", {
-            acceptedNames,
-            foundCandidates: candidates.map((c) => c.name),
+    const missing = accepted.filter((a) => !validIds.has(a.candidateId));
+    if (missing.length > 0) {
+        logger.warn("Accepted candidate ids not found in this snapshot", {
+            missingCandidateIds: missing.map((m) => m.candidateId),
         });
-        throw new CandidateNotFoundError(acceptedNames.filter((name) => !candidates.some((c) => c.name === name)));
     }
 
-    const orgId = candidates[0]!.organizationId;
-    const newTestCases = await db.testCase.findMany({
-        where: {
-            name: { in: acceptedNames },
-            organizationId: orgId,
-            assignments: { some: { snapshotId } },
-        },
-        select: { id: true, name: true },
-    });
-    const testCaseIdByName = new Map(newTestCases.map((tc) => [tc.name, tc.id]));
-
     await Promise.all(
-        candidates.map(async (candidate) =>
-            db.testCandidate
-                .update({
-                    where: { id: candidate.id },
-                    data: { status: "accepted", acceptedTestCaseId: testCaseIdByName.get(candidate.name) },
-                })
-                .catch((error) => {
-                    logger.warn("Failed to mark candidate accepted", { candidateId: candidate.id, error });
-                }),
-        ),
+        accepted
+            .filter((a) => validIds.has(a.candidateId))
+            .map((a) =>
+                db.testCandidate
+                    .update({
+                        where: { id: a.candidateId },
+                        data: { status: "accepted", acceptedTestCaseId: a.testCaseId },
+                    })
+                    .catch((error) => {
+                        logger.warn("Failed to mark candidate accepted", {
+                            candidateId: a.candidateId,
+                            error,
+                        });
+                    }),
+            ),
     );
 
     await db.testCandidate.updateMany({

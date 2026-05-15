@@ -29,7 +29,7 @@
 
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import type { ResolutionAgentResult, RunReviewVerdict, ScenarioInfo, TestCandidateInput } from "@autonoma/diffs";
+import type { LocalTestCandidateInput, ResolutionAgentResult, RunReviewVerdict, ScenarioInfo } from "@autonoma/diffs";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readSkillFiles, readTestFiles } from "./isolated-utils";
@@ -68,7 +68,7 @@ function parseCliArgs(): CliArgs {
 
 interface Step1Result {
     reasoning: string;
-    testCandidates: TestCandidateInput[];
+    testCandidates: LocalTestCandidateInput[];
 }
 
 async function loadStep1Result(path: string): Promise<Step1Result> {

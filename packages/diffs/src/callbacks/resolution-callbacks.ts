@@ -10,7 +10,7 @@ export interface ResolutionCallbacks {
     modifyTest(slug: string, newInstruction: string): Promise<void>;
     reportBug(bug: ReportedBug): Promise<void>;
     quarantineTest(slug: string): Promise<void>;
-    addTest(test: AddTestInput): Promise<void>;
+    addTest(test: AddTestInput): Promise<{ testCaseId: string; planId: string }>;
 }
 
 export interface CreateResolutionCallbacksParams {

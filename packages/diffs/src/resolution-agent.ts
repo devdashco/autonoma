@@ -35,6 +35,7 @@ export interface RunReviewVerdict {
 }
 
 export interface TestCandidateInput {
+    candidateId: string;
     name: string;
     instruction: string;
     reasoning: string;
@@ -219,9 +220,11 @@ The following tests were replayed after Step 1's analysis. Each test has been re
 
 Step 1 suggested the following new tests. Review each candidate and decide whether to create it using \`add_test\`. You may modify the instruction before creating.
 
+When you call \`add_test\` to accept a candidate, set \`acceptingCandidateId\` to the id shown above so the system can link your new test back to the candidate. Omit \`acceptingCandidateId\` only when you are creating a test that does NOT correspond to a Step 1 candidate.
+
 `;
         for (const candidate of testCandidates) {
-            prompt += `### ${candidate.name}
+            prompt += `### ${candidate.name} (candidate \`${candidate.candidateId}\`)
 - **Reasoning**: ${candidate.reasoning}
 - **Instruction**: ${candidate.instruction}
 
@@ -299,7 +302,7 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 - \`modify_test\`: rewrite a stale test instruction (for agent_error verdicts)
 - \`quarantine_test\`: remove a test whose flow no longer exists
 - \`report_bug\`: report an application bug with codebase context (for application_bug verdicts)
-- \`add_test\`: create a new test (from candidates or your own judgment)
+- \`add_test\`: create a new test (from candidates or your own judgment). When accepting a Step 1 candidate, pass its id as \`acceptingCandidateId\` so the system can link the new test back to the candidate. Omit \`acceptingCandidateId\` for tests you invent that weren't proposed in Step 1.
 - \`finish\`: call when done resolving ALL failures
 
 ## Scenarios

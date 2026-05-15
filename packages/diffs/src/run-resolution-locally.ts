@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { LanguageModel } from "ai";
 import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
@@ -10,6 +11,8 @@ import {
 } from "./resolution-agent";
 import { ScenarioIndex, type ScenarioInfo } from "./scenario-index";
 
+export type LocalTestCandidateInput = Omit<TestCandidateInput, "candidateId"> & { candidateId?: string };
+
 export interface LocalResolutionRunnerParams {
     model: LanguageModel;
     repoDir: string;
@@ -17,7 +20,7 @@ export interface LocalResolutionRunnerParams {
     existingSkills: ExistingSkillInfo[];
     verdicts: RunReviewVerdict[];
     step1Reasoning: string;
-    testCandidates: TestCandidateInput[];
+    testCandidates: LocalTestCandidateInput[];
     scenarios?: ScenarioInfo[];
     maxSteps?: number;
 }
@@ -60,7 +63,20 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         maxSteps,
     });
 
-    const result = await agent.resolve({ verdicts, step1Reasoning, testCandidates, existingTests, existingSkills });
+    const candidatesWithIds: TestCandidateInput[] = testCandidates.map((c) => ({
+        candidateId: c.candidateId ?? randomUUID(),
+        name: c.name,
+        instruction: c.instruction,
+        reasoning: c.reasoning,
+    }));
+
+    const result = await agent.resolve({
+        verdicts,
+        step1Reasoning,
+        testCandidates: candidatesWithIds,
+        existingTests,
+        existingSkills,
+    });
 
     logger.info("Resolution complete", {
         modifiedTests: result.modifiedTests.length,

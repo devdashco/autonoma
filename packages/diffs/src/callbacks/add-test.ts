@@ -8,10 +8,13 @@ interface AddTestDeps {
 
 export type AddTestInput = Omit<GeneratedTest, "folderName"> & { folderId: string };
 
-export async function addTest(test: AddTestInput, { updater }: AddTestDeps): Promise<void> {
+export async function addTest(
+    test: AddTestInput,
+    { updater }: AddTestDeps,
+): Promise<{ testCaseId: string; planId: string }> {
     logger.info("Adding new test", { name: test.name });
 
-    await updater.apply(
+    const result = await updater.apply(
         new AddTestChange({
             name: test.name,
             plan: test.instruction,
@@ -20,5 +23,7 @@ export async function addTest(test: AddTestInput, { updater }: AddTestDeps): Pro
         }),
     );
 
-    logger.info("New test added to snapshot", { name: test.name });
+    logger.info("New test added to snapshot", { name: test.name, testCaseId: result.testCaseId });
+
+    return result;
 }

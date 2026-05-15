@@ -52,4 +52,8 @@ export {
     type RelevantMerge,
 } from "./merge-detection";
 export { runDiffsAgentLocally, type LocalDiffsRunnerParams } from "./run-diffs-locally";
-export { runResolutionAgentLocally, type LocalResolutionRunnerParams } from "./run-resolution-locally";
+export {
+    runResolutionAgentLocally,
+    type LocalResolutionRunnerParams,
+    type LocalTestCandidateInput,
+} from "./run-resolution-locally";
