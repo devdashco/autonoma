@@ -191,10 +191,11 @@ export class BuildKitBuilder implements Builder {
         await mkdir(planDir, { recursive: true });
 
         try {
+            const envArgs = Object.entries(request.buildArgs).flatMap(([k, v]) => ["--env", `${k}=${v}`]);
             await this.exec(
                 "railpack",
-                ["prepare", request.contextPath, "--plan-out", join(planDir, "railpack-plan.json")],
-                request.buildArgs,
+                ["prepare", request.contextPath, "--plan-out", join(planDir, "railpack-plan.json"), ...envArgs],
+                {},
                 logStream,
             );
 
@@ -217,11 +218,13 @@ export class BuildKitBuilder implements Builder {
                 ...this.buildCacheArgs(request.cacheKey),
             ];
 
+            const buildSecretEnv: Record<string, string> = {};
             for (const [key, value] of Object.entries(request.buildArgs)) {
-                args.push("--opt", `build-arg:${key}=${value}`);
+                args.push("--secret", `id=${key},env=${key}`);
+                buildSecretEnv[key] = value;
             }
 
-            const extraEnv: Record<string, string> = {};
+            const extraEnv: Record<string, string> = { ...buildSecretEnv };
             if (dockerConfigDir != null) {
                 extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
             }
