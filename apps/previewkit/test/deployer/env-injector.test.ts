@@ -253,13 +253,16 @@ describe("EnvInjector", () => {
         expect(resolved["ORG"]).toBe("acme-corp");
     });
 
-    it("resolves Temporal service with context variables", () => {
+    it("resolves Temporal service to the in-namespace dev cluster", () => {
+        // The temporal recipe now deploys a single-binary dev cluster per
+        // preview, so `{{temporal.host}}` resolves to the in-namespace
+        // service name (just `temporal`), not an external shared address.
         const temporalServices: ServiceConfig[] = [
             ...services,
             {
                 name: "temporal",
                 recipe: "temporal",
-                env: { address: "temporal.shared.svc.cluster.local:7233" },
+                env: {},
                 resources: { cpu: "250m", memory: "256Mi" },
             },
         ];
@@ -279,7 +282,7 @@ describe("EnvInjector", () => {
             defaultContext,
             defaultPublicUrlInfo,
         );
-        expect(resolved["TEMPORAL_ADDRESS"]).toBe("temporal.shared.svc.cluster.local:7233");
+        expect(resolved["TEMPORAL_ADDRESS"]).toBe("temporal:7233");
         expect(resolved["TEMPORAL_NAMESPACE"]).toBe("preview-pr-42");
         expect(resolved["TEMPORAL_TASK_QUEUE"]).toBe("pr-42-default");
     });

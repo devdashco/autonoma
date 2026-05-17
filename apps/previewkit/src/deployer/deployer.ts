@@ -327,9 +327,19 @@ export class Deployer {
     private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 120_000): Promise<void> {
         if (config.services.length === 0) return;
 
-        const start = Date.now();
-        const serviceNames = config.services.map((s) => s.name);
+        // Only wait on services that actually generated a K8s Service resource.
+        // Connector-style recipes can intentionally return no resources — there's
+        // no Endpoints object to poll for them, and waiting would hang forever.
+        const serviceNames = config.services
+            .filter((svc) => this.recipeRegistry.get(svc.recipe).generate(svc, namespace).services.length > 0)
+            .map((svc) => svc.name);
 
+        if (serviceNames.length === 0) {
+            logger.info("No deployable services to wait on; skipping readiness check", { namespace });
+            return;
+        }
+
+        const start = Date.now();
         logger.info("Waiting for services to be ready", { namespace, services: serviceNames });
 
         while (Date.now() - start < timeoutMs) {
