@@ -61,7 +61,7 @@ export function buildHealingActionTools(
 
     const report_bug = tool({
         description:
-            "Report a confirmed application bug. Atomic: creates an Issue, links to or creates a Bug, and quarantines the test case for this snapshot. Call find_matching_bugs first to dedupe against existing bugs; pass the matched bugId as matchedBugId.",
+            "Report a confirmed application bug. Atomic: creates an Issue, links to an existing Bug or creates a new one, and quarantines the test case for this snapshot. The apply layer dedupes against existing bugs and against your other report_bug calls in this batch - just describe each bug you find.",
         inputSchema: reportBugInputSchema,
         execute: (input) => {
             collector.actions.push({ kind: "report_bug", ...input });

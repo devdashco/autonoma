@@ -34,12 +34,6 @@ const reportBugActionSchema = z.object({
     description: z.string().describe("Full bug description with reproduction steps and root cause hypothesis"),
     severity: reviewSeveritySchema,
     evidence: z.array(evidenceItemSchema).describe("Screenshots, videos, step outputs supporting the bug report"),
-    matchedBugId: z
-        .string()
-        .optional()
-        .describe(
-            "Existing Bug ID returned by find_matching_bugs when this candidate dedupes against a tracked bug. Omit to create a new Bug.",
-        ),
     reasoning: z.string().describe("Why this is an application bug rather than a test or engine issue"),
 });
 

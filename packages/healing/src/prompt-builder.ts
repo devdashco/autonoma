@@ -162,8 +162,7 @@ function buildInstructionsSection(input: HealingInput): string {
         "1. Read each failure and the reviewer's reasoning.",
         "2. Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
         "3. For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
-        "4. If you have multiple `report_bug` candidates, batch them through `find_matching_bugs` first.",
-        "5. Optionally call `add_test` for any coverage gap you discover.",
-        "6. Call `finish` with a one-paragraph summary when every failure is handled.",
+        "4. Optionally call `add_test` for any coverage gap you discover.",
+        "5. Call `finish` with a one-paragraph summary when every failure is handled.",
     ].join("\n");
 }

@@ -1,5 +1,7 @@
 import { db } from "@autonoma/db";
+import { BugMatcher } from "@autonoma/healing";
 import { logger as rootLogger } from "@autonoma/logger";
+import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
 import { applyAddTest } from "./apply-add-test";
 import { applyRemoveTest } from "./apply-remove-test";
@@ -16,6 +18,12 @@ import { applyUpdatePlan } from "./apply-update-plan";
  * in parallel would create lost-update races on TestCaseAssignment / TestPlan.
  * The transactional iter-N+1 setup at the end of the function makes iter N+1
  * either fully visible to subsequent activities or not at all.
+ *
+ * Per-action bug dedup: each report_bug action calls BugMatcher.findMatch
+ * against the application's existing Bug rows before applyReportBug runs.
+ * Because applyReportBug writes synchronously inside the loop, same-batch
+ * siblings with the same root cause are matched against the freshly persisted
+ * Bug on subsequent iterations, so duplicates should never reach the database.
  */
 export async function applyHealingActions(input: ApplyHealingActionsInput): Promise<ApplyHealingActionsOutput> {
     const logger = rootLogger.child({
@@ -26,6 +34,8 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
         count: input.actions.length,
     });
     logger.info("Applying healing actions");
+
+    const matcher = await buildBugMatcher(input);
 
     const nextIterationPlanIds: string[] = [];
 
@@ -55,7 +65,12 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                 nextIterationPlanIds.push(planId);
                 break;
             }
-            case "report_bug":
+            case "report_bug": {
+                if (matcher == null) throw new Error("matcher should be defined when a report_bug action exists");
+                const matchedBugId = await matcher.findMatch({
+                    title: action.title,
+                    description: action.description,
+                });
                 await applyReportBug({
                     refinementActionId,
                     snapshotId: input.snapshotId,
@@ -65,10 +80,11 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                     description: action.description,
                     severity: action.severity,
                     evidence: action.evidence,
-                    matchedBugId: action.matchedBugId,
+                    matchedBugId,
                     reviewLink: action.reviewLink,
                 });
                 break;
+            }
             case "report_engine_limitation":
                 await applyReportEngineLimitation({
                     refinementActionId,
@@ -126,4 +142,16 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
     });
 
     return { nextIterationId: nextIteration.id, nextIterationPlanIds };
+}
+
+async function buildBugMatcher(input: ApplyHealingActionsInput): Promise<BugMatcher | undefined> {
+    const hasReportBug = input.actions.some(({ action }) => action.kind === "report_bug");
+    if (!hasReportBug) return undefined;
+
+    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
+        db,
+        snapshotId: input.snapshotId,
+        organizationId: input.organizationId,
+    });
+    return new BugMatcher(db, updater.applicationId);
 }

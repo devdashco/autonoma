@@ -220,7 +220,6 @@ export interface PersistedHealingAction {
               description: string;
               severity: HealingSeverity;
               evidence: HealingEvidenceItem[];
-              matchedBugId?: string;
               reasoning: string;
               reviewLink: HealingReviewLink;
           }

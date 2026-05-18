@@ -17,9 +17,4 @@ export {
     type RemoveTestAction,
     type HealingEvidenceItem,
 } from "./actions";
-export {
-    BugMatcher,
-    buildFindMatchingBugsTool,
-    type FindMatchingBugsInput,
-    type FindMatchingBugsResult,
-} from "./tools/find-matching-bugs";
+export { BugMatcher, type BugCandidate } from "./bug-matcher";

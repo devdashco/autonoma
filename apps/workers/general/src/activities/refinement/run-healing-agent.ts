@@ -53,7 +53,7 @@ export async function runHealingAgentForRefinement(
         const result = await withCodebaseForSnapshot(input.snapshotId, {
             targetDirSeed: `healing-${input.iterationId}`,
             body: async (codebase) => {
-                const agent = new HealingAgent({ model, db });
+                const agent = new HealingAgent({ model });
                 return await agent.heal({
                     mode: "refinement",
                     iteration: input.iteration,

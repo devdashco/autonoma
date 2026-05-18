@@ -2,12 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, extractMessages } from "@autonoma/ai";
 import { buildCodebaseTools } from "@autonoma/codebase";
-import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import { buildHealingPrompt } from "./prompt-builder";
 import { buildHealingActionTools, createHealingActionCollector } from "./tools/action-tools";
-import { BugMatcher, buildFindMatchingBugsTool } from "./tools/find-matching-bugs";
 import { buildFinishTool } from "./tools/finish-tool";
 import type { HealingInput, HealingResult } from "./types";
 
@@ -15,7 +13,6 @@ const SYSTEM_PROMPT = readFileSync(join(import.meta.dirname, "system-prompt.md")
 
 export interface HealingAgentConfig {
     model: LanguageModel;
-    db: PrismaClient;
     maxSteps?: number;
 }
 
@@ -52,15 +49,12 @@ export class HealingAgent {
             finishResult = r;
         };
 
-        const matcher = new BugMatcher(this.config.db, this.config.model);
-
         const agent = new ToolLoopAgent({
             model: this.config.model,
             instructions: SYSTEM_PROMPT,
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
                 ...buildCodebaseTools(input.codebase),
-                ...buildFindMatchingBugsTool(matcher),
                 ...buildHealingActionTools(collector, failureKeysByTestCaseId, {
                     allowAddTest: input.mode === "diffs",
                 }),

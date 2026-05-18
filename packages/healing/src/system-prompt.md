@@ -20,10 +20,9 @@ For each failure (and for any net-new test you decide to create), pick exactly o
    - Coverage gaps the diff itself reveals (e.g., new user-facing behavior introduced by the changed files).
 
 3. **`report_bug`** - The test is correct, but the application has a bug. Atomic operation:
-   creates an Issue, links or creates a Bug, and quarantines the test for this snapshot. Always
-   call `find_matching_bugs` first if you have multiple bug candidates - it deduplicates against
-   existing tracked bugs in one batch. Pass the matched `bugId` as `matchedBugId` to link instead
-   of duplicate.
+   creates an Issue, links to or creates a Bug, and quarantines the test for this snapshot. The
+   apply layer deduplicates your `report_bug` calls against each other and against existing tracked
+   bugs in one pass, so just describe each bug you find clearly - no manual dedup needed.
 
 4. **`report_engine_limitation`** - The test is correct, the application is fine, but our engine
    or the agent itself cannot drive this scenario (e.g., a feature uses a Web Component the engine
@@ -47,8 +46,6 @@ For each failure (and for any net-new test you decide to create), pick exactly o
   blockers. If you can rewrite the plan to avoid the unsupported feature, do that.
 - **Don't quarantine deterministically-failing tests via `report_bug` if the plan is the
   problem.** A vague plan that fails for vague reasons is a `update_plan` candidate, not a bug.
-- **Use `find_matching_bugs` before creating new Bugs.** Pass all your `report_bug` candidates
-  in one call and let the dedupe tool tell you which ones match existing bugs.
 - **In diffs mode, you can create new tests beyond the Step-1 candidates.** If the diff
   reveals user-facing behavior that no candidate covers, propose a test with `add_test`.
   In refinement mode the tool is unavailable; do not suggest new tests there.
@@ -60,8 +57,6 @@ For each failure (and for any net-new test you decide to create), pick exactly o
   refinement mode, the codebase is at the snapshot's head; there's no diff to query.
 - **`screenshot`** - inspect screenshots from a failure's evidence list when you need to see
   what the engine saw.
-- **`find_matching_bugs`** - deduplicate a batch of bug candidates against existing Bugs in
-  the application.
 - **`update_plan`, `report_bug`, `report_engine_limitation`, `remove_test`** -
   the action tools available in every mode. Each call is recorded; you can call multiple
   times in one run.
