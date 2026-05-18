@@ -70,15 +70,51 @@
                 }
             }
         },
+        "branchConvention": {
+            "description": "How to derive the dependency repo branch name from the main app PR branch.",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["type"],
+                    "additionalProperties": false,
+                    "description": "Use the exact same branch name as the main app PR branch. Falls back to fallback_branch if not found.",
+                    "properties": { "type": { "const": "same_branch_name" } }
+                },
+                {
+                    "type": "object",
+                    "required": ["type", "pattern", "replacement"],
+                    "additionalProperties": false,
+                    "description": "Apply a regex to the main app branch name to derive the dependency branch. Falls back to fallback_branch if no match.",
+                    "properties": {
+                        "type": { "const": "regex" },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Regex applied to the main app branch name (e.g. '^feat/(.+)$')."
+                        },
+                        "replacement": {
+                            "type": "string",
+                            "description": "Replacement string applied to the main app branch. Supports capture groups: $1, $2, etc."
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "required": ["type"],
+                    "additionalProperties": false,
+                    "description": "Always use fallback_branch. No automatic branch resolution.",
+                    "properties": { "type": { "const": "manual" } }
+                }
+            ]
+        },
         "repoDependency": {
             "type": "object",
             "required": ["name", "repo"],
             "additionalProperties": false,
-            "description": "A backend repository this preview depends on. Its URL is available as {{name.url}} in app env vars.",
+            "description": "A dependency repository included in the preview environment.",
             "properties": {
                 "name": {
                     "$ref": "#/definitions/k8sName",
-                    "description": "Alias for this repo. Used in env var templates as {{name.url}}."
+                    "description": "Alias for this repo. Must be a valid Kubernetes name."
                 },
                 "repo": {
                     "type": "string",
@@ -87,19 +123,23 @@
                 "fallback_branch": {
                     "type": "string",
                     "default": "main",
-                    "description": "Branch whose ready environment to use as the backend URL."
+                    "description": "Branch to clone when no convention-resolved branch exists in this repo."
                 }
             }
         },
         "multirepoConfig": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Multi-repo preview configuration. Declares backend repos this frontend depends on.",
+            "description": "Multi-repo preview configuration. Declares dependency repos and how branches are matched.",
             "properties": {
+                "branch_convention": {
+                    "$ref": "#/definitions/branchConvention",
+                    "description": "How to match dependency repo branches to the main app PR branch. Defaults to always using fallback_branch."
+                },
                 "repos": {
                     "type": "array",
                     "default": [],
-                    "description": "Backend repos to inject as URLs. Reference them in app env vars via {{name.url}}.",
+                    "description": "Dependency repos to clone and build together with the primary repo.",
                     "items": { "$ref": "#/definitions/repoDependency" }
                 }
             }

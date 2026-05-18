@@ -4,7 +4,7 @@ import path from "node:path";
 import { db } from "@autonoma/db";
 import type { Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/config-loader";
-import type { PreviewConfig, RepoDependency } from "../config/schema";
+import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
 import {
     isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
@@ -19,6 +19,7 @@ import { execInDeploymentPod } from "../deployer/pod-exec";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
+import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import type { SecretStore } from "../secrets/secret-store";
 
@@ -28,7 +29,7 @@ interface AppBuildResult {
     logUrl: string;
 }
 
-interface BackendEntry {
+interface DependencyEntry {
     dep: RepoDependency;
     config: PreviewConfig;
     tmpDir: string;
@@ -91,8 +92,8 @@ export class PreviewPipeline {
         // 2. Check that the repo opted in to Previewkit before we touch anything.
         //    A missing `.preview.yaml` is the second normal opt-out signal — repos
         //    linked to an Application but not yet using Previewkit skip cleanly.
-        const frontendConfig = await loadPreviewConfig(this.provider, repoFullName, headSha);
-        if (frontendConfig == null) {
+        const primaryConfig = await loadPreviewConfig(this.provider, repoFullName, headSha);
+        if (primaryConfig == null) {
             logger.warn("No .preview.yaml found at ref; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -146,45 +147,46 @@ export class PreviewPipeline {
             }),
         );
 
-        let frontendDir: string | undefined;
-        let backendEntries: BackendEntry[] = [];
+        let primaryDir: string | undefined;
+        let dependencyEntries: DependencyEntry[] = [];
 
         try {
-            // 5. Clone frontend repo and all backend repos in parallel.
+            // 5. Clone the primary repo and all dependency repos in parallel.
             await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
-            frontendDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
-            const backendDeps = frontendConfig.config?.multirepo?.repos ?? [];
-            const [backendResults] = await Promise.all([
-                Promise.all(backendDeps.map((dep) => this.cloneBackendRepo(dep, prNumber))),
-                this.provider.fetchRepoTarball(repoFullName, headSha, frontendDir),
+            primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
+            const deps = primaryConfig.config?.multirepo?.repos ?? [];
+            const convention = primaryConfig.config?.multirepo?.branch_convention;
+            const [dependencyResults] = await Promise.all([
+                Promise.all(deps.map((dep) => this.cloneDependency(dep, prNumber, event.headRef, convention))),
+                this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
-            backendEntries = backendResults.filter((e): e is BackendEntry => e != null);
+            dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
 
             // 6. Merge all configs into a single config for building and deploying.
-            const mergedConfig = this.mergeConfigs(frontendConfig, backendEntries);
+            const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
 
             // 7. Build appRepoDirs: maps each app name to the directory it should be built from.
             const appRepoDirs = new Map<string, string>();
-            for (const app of frontendConfig.apps) {
-                appRepoDirs.set(app.name, frontendDir);
+            for (const app of primaryConfig.apps) {
+                appRepoDirs.set(app.name, primaryDir);
             }
-            for (const entry of backendEntries) {
+            for (const entry of dependencyEntries) {
                 for (const app of entry.config.apps) {
                     appRepoDirs.set(app.name, entry.tmpDir);
                 }
             }
 
             // 8. Load stored secrets per app, using the correct org owner for each repo.
-            const frontendOwner = repoFullName.split("/")[0]!;
+            const primaryOwner = repoFullName.split("/")[0]!;
             const appToOwner = new Map<string, string>();
-            for (const app of frontendConfig.apps) appToOwner.set(app.name, frontendOwner);
-            for (const entry of backendEntries) {
-                const backendOwner = entry.dep.repo.split("/")[0]!;
-                for (const app of entry.config.apps) appToOwner.set(app.name, backendOwner);
+            for (const app of primaryConfig.apps) appToOwner.set(app.name, primaryOwner);
+            for (const entry of dependencyEntries) {
+                const depOwner = entry.dep.repo.split("/")[0]!;
+                for (const app of entry.config.apps) appToOwner.set(app.name, depOwner);
             }
             const storedSecrets: Record<string, Record<string, string>> = {};
             for (const app of mergedConfig.apps) {
-                const owner = appToOwner.get(app.name) ?? frontendOwner;
+                const owner = appToOwner.get(app.name) ?? primaryOwner;
                 storedSecrets[app.name] = await this.secretStore.getMerged(owner, app.name, prNumber);
             }
 
@@ -320,39 +322,52 @@ export class PreviewPipeline {
 
             throw err;
         } finally {
-            const dirsToClean = [frontendDir, ...backendEntries.map((e) => e.tmpDir)].filter((d) => d != null);
+            const dirsToClean = [primaryDir, ...dependencyEntries.map((e) => e.tmpDir)].filter((d) => d != null);
             await Promise.all(dirsToClean.map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
         }
     }
 
-    // Fetches the .preview.yaml from a backend repo and clones it into a temp dir.
-    // Returns null if the repo has no .preview.yaml (opt-out — skip silently).
-    private async cloneBackendRepo(dep: RepoDependency, prNumber: number): Promise<BackendEntry | null> {
-        const config = await loadPreviewConfig(this.provider, dep.repo, dep.fallback_branch);
+    // Resolves the target branch, fetches the .preview.yaml, and clones the repo into a temp dir.
+    // Returns null if no .preview.yaml is found on either the resolved branch or the fallback (opt-out).
+    private async cloneDependency(
+        dep: RepoDependency,
+        prNumber: number,
+        headRef: string,
+        convention: BranchConvention | undefined,
+    ): Promise<DependencyEntry | null> {
+        const targetBranch = resolveTargetBranch(headRef, convention, dep.fallback_branch);
+
+        let config = await loadPreviewConfig(this.provider, dep.repo, targetBranch);
+        let branch = targetBranch;
+
+        if (config == null && targetBranch !== dep.fallback_branch) {
+            config = await loadPreviewConfig(this.provider, dep.repo, dep.fallback_branch);
+            branch = dep.fallback_branch;
+        }
+
         if (config == null) {
-            logger.warn("No .preview.yaml found for backend repo dependency, skipping", {
+            logger.warn("No .preview.yaml found for dependency repo, skipping", {
                 name: dep.name,
                 repo: dep.repo,
-                branch: dep.fallback_branch,
+                targetBranch,
+                fallbackBranch: dep.fallback_branch,
             });
             return null;
         }
+
         const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
-        await this.provider.fetchRepoTarball(dep.repo, dep.fallback_branch, tmpDir);
-        logger.info("Cloned backend repo", { name: dep.name, repo: dep.repo, branch: dep.fallback_branch });
+        await this.provider.fetchRepoTarball(dep.repo, branch, tmpDir);
+        logger.info("Cloned dependency repo", { name: dep.name, repo: dep.repo, branch });
         return { dep, config, tmpDir };
     }
 
-    private mergeConfigs(frontendConfig: PreviewConfig, backends: BackendEntry[]): PreviewConfig {
+    private mergeConfigs(primaryConfig: PreviewConfig, deps: DependencyEntry[]): PreviewConfig {
         return {
-            ...frontendConfig,
-            apps: [...frontendConfig.apps, ...backends.flatMap((b) => b.config.apps)],
-            services: [...frontendConfig.services, ...backends.flatMap((b) => b.config.services)],
+            ...primaryConfig,
+            apps: [...primaryConfig.apps, ...deps.flatMap((d) => d.config.apps)],
+            services: [...primaryConfig.services, ...deps.flatMap((d) => d.config.services)],
             hooks: {
-                post_deploy: [
-                    ...frontendConfig.hooks.post_deploy,
-                    ...backends.flatMap((b) => b.config.hooks.post_deploy),
-                ],
+                post_deploy: [...primaryConfig.hooks.post_deploy, ...deps.flatMap((d) => d.config.hooks.post_deploy)],
             },
         };
     }

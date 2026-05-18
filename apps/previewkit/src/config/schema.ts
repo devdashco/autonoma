@@ -33,6 +33,23 @@ const serviceSchema = z.object({
     resources: resourcesSchema,
 });
 
+const branchConventionSchema = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("same_branch_name") }),
+    z.object({
+        type: z.literal("regex"),
+        pattern: z.string().refine((p) => {
+            try {
+                new RegExp(p);
+                return true;
+            } catch {
+                return false;
+            }
+        }, "Invalid regular expression pattern"),
+        replacement: z.string(),
+    }),
+    z.object({ type: z.literal("manual") }),
+]);
+
 const repoDependencySchema = z.object({
     name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
     repo: z.string(),
@@ -40,6 +57,7 @@ const repoDependencySchema = z.object({
 });
 
 const multirepoConfigSchema = z.object({
+    branch_convention: branchConventionSchema.optional(),
     repos: z.array(repoDependencySchema).default([]),
 });
 
@@ -72,5 +90,6 @@ export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = z.infer<typeof appSchema>;
 export type ServiceConfig = z.infer<typeof serviceSchema>;
 export type HookStep = z.infer<typeof hookStepSchema>;
+export type BranchConvention = z.infer<typeof branchConventionSchema>;
 export type RepoDependency = z.infer<typeof repoDependencySchema>;
 export type MultirepoConfig = z.infer<typeof multirepoConfigSchema>;
