@@ -87,8 +87,6 @@ export interface DiffsAgentInput {
 
 // --- Agent ---
 
-const MAX_RETRIES = 3;
-
 export interface DiffsAgentConfig {
     model: LanguageModel;
     workingDirectory: string;
@@ -124,28 +122,14 @@ export class DiffsAgent {
         const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
         const preClassifiedConflicts = input.preClassifiedConflicts ?? [];
 
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(
-                prompt,
-                validSlugs,
-                quarantinedSlugs,
-                preClassifiedConflicts,
-                input.existingTests,
-                input.existingSkills,
-            );
-
-            const hasReasoning = attemptResult.reasoning.trim().length > 0;
-            if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
-
-            this.logger.warn("Agent produced no reasoning, retrying", { attempt });
-        }
-
-        return {
-            affectedTests: [],
-            testCandidates: [],
-            reasoning: `Agent produced no reasoning after ${MAX_RETRIES} attempts`,
-            conversation: [],
-        };
+        return await this.runAgent(
+            prompt,
+            validSlugs,
+            quarantinedSlugs,
+            preClassifiedConflicts,
+            input.existingTests,
+            input.existingSkills,
+        );
     }
 
     private async runAgent(
@@ -178,9 +162,7 @@ export class DiffsAgent {
                 ...buildCodebaseTools(model, workingDirectory),
                 ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
                 ...buildActionTools(collector, validSlugs, validConflictSlugs, quarantinedSlugs),
-                finish: buildFinishTool((output) => {
-                    result = output;
-                }, collector),
+                finish: buildFinishTool((output) => (result = output), collector),
             },
             stopWhen: [stepCountIs(maxSteps), hasToolCall("finish")],
             onStepFinish: ({ content }) => {
@@ -217,13 +199,17 @@ export class DiffsAgent {
         const generateResult = await agent.generate({ messages: [{ role: "user", content: prompt }] });
         const conversation = extractMessages(generateResult);
 
-        if (result == null) {
-            return {
-                affectedTests: collector.affectedTests,
-                testCandidates: collector.testCandidates,
-                reasoning: "",
-                conversation,
-            };
+        if (result == null || result.reasoning.trim() === "") {
+            this.logger.error(
+                "Agent finished without calling finish tool or with empty reasoning. Returning partial results with a warning.",
+                {
+                    partialResult: collector,
+                },
+            );
+
+            throw new Error(
+                "Diffs agent did not produce a final result. This may be due to a failure to call the finish tool or an empty reasoning output. Partial results have been collected and logged, but the final output is incomplete.",
+            );
         }
 
         return { ...result, conversation };

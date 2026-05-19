@@ -54,8 +54,6 @@ export { type ResolutionAgentResult } from "./tools/resolution-finish-tool";
 
 // --- Agent ---
 
-const MAX_RETRIES = 3;
-
 export interface ResolutionAgentConfig {
     model: LanguageModel;
     workingDirectory: string;
@@ -76,29 +74,7 @@ export class ResolutionAgent {
         const failedSlugs = new Set(input.verdicts.map((v) => v.testSlug));
         const quarantinedSlugs = new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug));
 
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            const attemptResult = await this.runAgent(
-                prompt,
-                failedSlugs,
-                quarantinedSlugs,
-                input.existingTests,
-                input.existingSkills,
-            );
-
-            const hasReasoning = attemptResult.reasoning.trim().length > 0;
-            if (hasReasoning || attempt === MAX_RETRIES) return attemptResult;
-
-            this.logger.warn("Resolution agent produced no reasoning, retrying", { attempt });
-        }
-
-        return {
-            modifiedTests: [],
-            removedTests: [],
-            reportedBugs: [],
-            newTests: [],
-            reasoning: `Resolution agent produced no reasoning after ${MAX_RETRIES} attempts`,
-            conversation: [],
-        };
+        return await this.runAgent(prompt, failedSlugs, quarantinedSlugs, input.existingTests, input.existingSkills);
     }
 
     private async runAgent(
@@ -127,13 +103,7 @@ export class ResolutionAgent {
                 ...buildTestInteractionTools(flowIndex, existingTests, existingSkills),
                 ...buildScenarioTools(scenarioIndex),
                 ...buildResolutionActionTools(collector, failedSlugs, quarantinedSlugs, flowIndex, scenarioIndex),
-                finish: buildResolutionFinishTool(
-                    (output) => {
-                        result = output;
-                    },
-                    collector,
-                    failedSlugs,
-                ),
+                finish: buildResolutionFinishTool((output) => (result = output), collector, failedSlugs),
             },
             stopWhen: [stepCountIs(maxSteps), hasToolCall("finish")],
             onStepFinish: ({ content }) => {
@@ -170,15 +140,17 @@ export class ResolutionAgent {
         const generateResult = await agent.generate({ messages: [{ role: "user", content: prompt }] });
         const conversation = extractMessages(generateResult);
 
-        if (result == null) {
-            return {
-                modifiedTests: collector.modifiedTests,
-                removedTests: collector.removedTests,
-                reportedBugs: collector.reportedBugs,
-                newTests: collector.newTests,
-                reasoning: "",
-                conversation,
-            };
+        if (result == null || result.reasoning.trim() === "") {
+            this.logger.error(
+                "Agent finished without calling finish tool or with empty reasoning. Returning partial results with a warning.",
+                {
+                    partialResult: collector,
+                },
+            );
+
+            throw new Error(
+                "Resolution agent did not produce a final result. This may be due to a failure to call the finish tool or an empty reasoning output. Partial results have been collected and logged, but the final output is incomplete.",
+            );
         }
 
         return { ...result, conversation };
