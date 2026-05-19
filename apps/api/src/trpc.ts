@@ -31,6 +31,26 @@ const apiErrorToTrpcCode: Array<{ ctor: APIErrorCtor; code: TRPCErrorCode }> = [
 
 const sentryMiddleware = t.middleware(Sentry.trpcMiddleware({ attachRpcInput: true }));
 
+const loggerMiddleware = t.middleware(async ({ ctx, next, path, type }) => {
+    const organizationId = ctx.session?.activeOrganizationId;
+    const userId = ctx.user?.id;
+
+    if (organizationId != null) Sentry.getCurrentScope().setTag("organizationId", organizationId);
+    if (userId != null) Sentry.getCurrentScope().setTag("userId", userId);
+
+    const start = Date.now();
+    const result = await next();
+    logger.info(`tRPC ${type} ${path}`, {
+        procedure: path,
+        type,
+        organizationId,
+        userId,
+        durationMs: Date.now() - start,
+        ok: result.ok,
+    });
+    return result;
+});
+
 const errorMiddleware = t.middleware(async ({ next, path }) => {
     const result = await next();
 
@@ -68,7 +88,8 @@ export const protectedProcedure = t.procedure
                 organizationId: ctx.session.activeOrganizationId,
             },
         });
-    });
+    })
+    .use(loggerMiddleware);
 
 export const internalProcedure = protectedProcedure.use(async ({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
