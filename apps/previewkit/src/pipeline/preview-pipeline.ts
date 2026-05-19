@@ -117,15 +117,42 @@ export class PreviewPipeline {
             await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
         }
 
-        // 3. Post initial comment (best-effort — fails silently if app lacks Issues permission)
-        const commentId = feedbackEnabled
-            ? await this.provider
-                  .postComment(repoFullName, prNumber, this.buildPendingComment(prNumber))
-                  .catch((_e) => {
-                      logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
-                      return "";
-                  })
-            : "";
+        // 3. Reuse the existing PR comment if one was created on a previous push.
+        //    A single PR has exactly one comment that gets edited through every
+        //    push and through teardown — no comment-spam on PR conversations
+        //    that get many pushes. On the very first deploy this falls through
+        //    to postComment; on subsequent deploys it updates in place.
+        let commentId = "";
+        if (feedbackEnabled) {
+            const pendingBody = this.buildPendingComment(prNumber);
+            const existing = await db.previewkitEnvironment.findUnique({
+                where: { repoFullName_prNumber: { repoFullName, prNumber } },
+                select: { commentId: true },
+            });
+
+            if (existing?.commentId != null && existing.commentId !== "") {
+                commentId = existing.commentId;
+                await this.provider.updateComment(repoFullName, commentId, pendingBody).catch((err) => {
+                    // Existing comment was deleted on GitHub (or we lack
+                    // permissions). Drop the stale id; the block below will
+                    // post a fresh one and overwrite the stored value.
+                    logger.warn("Failed to update existing PR comment; posting a fresh one", {
+                        repo: repoFullName,
+                        pr: prNumber,
+                        commentId,
+                        err: err instanceof Error ? err.message : String(err),
+                    });
+                    commentId = "";
+                });
+            }
+
+            if (commentId === "") {
+                commentId = await this.provider.postComment(repoFullName, prNumber, pendingBody).catch((_e) => {
+                    logger.warn("Failed to post initial PR comment", { repo: repoFullName, pr: prNumber });
+                    return "";
+                });
+            }
+        }
 
         // 4. Ensure namespace exists so status can be polled from the first moment
         const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {

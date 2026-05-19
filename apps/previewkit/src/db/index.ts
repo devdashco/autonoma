@@ -41,6 +41,13 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
     const { repoFullName, prNumber, headSha, headRef, namespace, organizationId, commentId } = input;
     logger.info("Recording environment created", { namespace, repoFullName, prNumber, organizationId });
 
+    // On update, only overwrite `commentId` when the caller actually provides
+    // one. Empty / undefined means "preserve the stored value" — important so
+    // a deploy with feedback disabled (or a transient failure to post) doesn't
+    // wipe out the existing PR comment id, which we rely on to keep the
+    // single-comment-per-PR contract across pushes.
+    const updateCommentId = commentId != null && commentId !== "";
+
     await db.previewkitEnvironment.upsert({
         where: { namespace },
         create: {
@@ -57,7 +64,7 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
         update: {
             headSha,
             headRef,
-            commentId,
+            ...(updateCommentId ? { commentId } : {}),
             status: "pending",
             phase: "initializing",
             error: null,
