@@ -52,6 +52,12 @@ export const env = createEnv({
         // External Secrets Operator: name of the ClusterSecretStore that points to AWS Secrets Manager.
         // Required only when AWS secret registrations are present for any organization.
         CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
+
+        // Autonoma API integration: after a preview environment is ready, Previewkit calls the
+        // internal diffs trigger endpoint so Autonoma can run tests automatically.
+        // Leave unset to disable automatic diffs triggering.
+        AUTONOMA_API_URL: z.string().url().optional(),
+        AUTONOMA_SERVICE_SECRET: z.string().min(1).optional(),
     },
     runtimeEnv: process.env,
 });

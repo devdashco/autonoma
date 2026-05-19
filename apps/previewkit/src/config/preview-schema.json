@@ -203,6 +203,10 @@
                     "default": 1,
                     "description": "Number of pod replicas."
                 },
+                "primary": {
+                    "type": "boolean",
+                    "description": "Marks this app as the primary entry point. Previewkit uses its URL to trigger Autonoma diffs analysis after deploy. If omitted, the first app in the list is used."
+                },
                 "resources": { "$ref": "#/definitions/resources" },
                 "depends_on": {
                     "type": "array",

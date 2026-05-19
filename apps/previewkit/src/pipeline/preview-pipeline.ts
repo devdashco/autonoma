@@ -16,6 +16,8 @@ import {
 import type { Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
 import { execInDeploymentPod } from "../deployer/pod-exec";
+import type { DiffsClient } from "../diffs/diffs-client";
+import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
@@ -42,15 +44,17 @@ interface PreviewPipelineOptions {
     secretStore: SecretStore;
     awsSecretsFetcher: AwsSecretsFetcher;
     registryUrl: string;
+    diffsClient?: DiffsClient;
 }
 
 export class PreviewPipeline {
-    private provider: GitProvider;
-    private builder: Builder;
-    private deployer: Deployer;
-    private secretStore: SecretStore;
-    private awsSecretsFetcher: AwsSecretsFetcher;
-    private registryUrl: string;
+    private readonly provider: GitProvider;
+    private readonly builder: Builder;
+    private readonly deployer: Deployer;
+    private readonly secretStore: SecretStore;
+    private readonly awsSecretsFetcher: AwsSecretsFetcher;
+    private readonly registryUrl: string;
+    private readonly diffsClient?: DiffsClient;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -59,6 +63,7 @@ export class PreviewPipeline {
         this.secretStore = options.secretStore;
         this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.registryUrl = options.registryUrl;
+        this.diffsClient = options.diffsClient;
     }
 
     async deploy(event: PullRequestEvent): Promise<void> {
@@ -311,6 +316,33 @@ export class PreviewPipeline {
                     "Preview environment ready",
                     firstUrl,
                 );
+            }
+
+            // 15. Trigger diffs analysis
+            const diffsClient = this.diffsClient;
+            if (diffsClient != null) {
+                const primaryUrl = resolvePrimaryUrl(primaryConfig.apps, result.urls);
+                if (primaryUrl != null) {
+                    await diffsClient
+                        .triggerPrDiffs({
+                            organizationId,
+                            repoId: githubRepositoryId,
+                            prNumber,
+                            url: primaryUrl,
+                        })
+                        .catch((err) => {
+                            logger.fatal("Failed to trigger diffs analysis", err, {
+                                repo: repoFullName,
+                                pr: prNumber,
+                            });
+                        });
+                } else {
+                    logger.fatal("No primary URL resolved for diffs trigger", {
+                        repo: repoFullName,
+                        pr: prNumber,
+                        availableUrls: Object.keys(result.urls),
+                    });
+                }
             }
 
             logger.info("Preview deployment complete", { repo: repoFullName, pr: prNumber, urls: result.urls });

@@ -20,6 +20,7 @@ const appSchema = z.object({
     command: z.string().optional(),
     health_check: z.string().optional(),
     replicas: z.number().int().positive().default(1),
+    primary: z.boolean().optional(),
     resources: resourcesSchema,
     depends_on: z.array(z.string()).optional(),
 });

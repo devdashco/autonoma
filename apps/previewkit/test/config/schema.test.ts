@@ -130,4 +130,41 @@ describe("previewConfigSchema", () => {
         });
         expect(result.success).toBe(false);
     });
+
+    describe("primary field", () => {
+        it("parses primary: true", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, primary: true }],
+            });
+            expect(result.success).toBe(true);
+            if (result.success) expect(result.data.apps[0].primary).toBe(true);
+        });
+
+        it("parses primary: false", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, primary: false }],
+            });
+            expect(result.success).toBe(true);
+            if (result.success) expect(result.data.apps[0].primary).toBe(false);
+        });
+
+        it("is undefined when primary is absent", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000 }],
+            });
+            expect(result.success).toBe(true);
+            if (result.success) expect(result.data.apps[0].primary).toBeUndefined();
+        });
+
+        it("rejects primary with a non-boolean value", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, primary: "yes" }],
+            });
+            expect(result.success).toBe(false);
+        });
+    });
 });

@@ -10,7 +10,7 @@ interface BaseTriggerDiffsParams {
     organizationId: string;
     repoId: number;
     url: string;
-    webhookUrl: string;
+    webhookUrl?: string;
     webhookHeaders?: Record<string, string>;
     environment?: string;
 }
@@ -248,7 +248,7 @@ export class DiffsTriggerService extends Service {
         branchId: string;
         organizationId: string;
         url: string;
-        webhookUrl: string;
+        webhookUrl?: string;
         webhookHeaders?: Record<string, string>;
     }): Promise<string> {
         this.logger.info("Creating branch deployment", { branchId, url });

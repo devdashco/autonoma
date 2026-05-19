@@ -6,6 +6,7 @@ import { createApp } from "./app";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
+import { DiffsClient } from "./diffs/diffs-client";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
@@ -86,6 +87,12 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         awsExternalSecretManager,
     );
 
+    // Diffs client
+    const diffsClient =
+        env.AUTONOMA_API_URL != null && env.AUTONOMA_SERVICE_SECRET != null
+            ? new DiffsClient(env.AUTONOMA_API_URL, env.AUTONOMA_SERVICE_SECRET)
+            : undefined;
+
     // Pipelines
     const previewPipeline = new PreviewPipeline({
         provider: githubProvider,
@@ -94,6 +101,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         secretStore,
         awsSecretsFetcher,
         registryUrl: env.REGISTRY_URL,
+        diffsClient,
     });
 
     const teardownPipeline = new TeardownPipeline({
