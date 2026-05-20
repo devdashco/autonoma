@@ -99,14 +99,6 @@ When the plan runs under a scenario, the database is seeded with that scenario's
 
 Use `{{token}}` placeholders only for values that genuinely vary between runs (auto-generated ids, timestamps the platform produces). Never write `{variableName}`, `e.g.`, `Dynamic:`, or "or".
 
-## Skill referencing
-
-When a step would duplicate a known reusable sub-flow, reference the skill by its exact slug, with any parameters the skill expects. The execution agent will resolve the skill and execute its steps. Example:
-
-> Run the `login-as-admin` skill with username "admin@example.com" and password "{{adminPassword}}".
-
-Do not re-write the skill's steps inline.
-
 ## Memory variables
 
 Mid-test values extracted with `read:` can be referenced later as `{{variableName}}`:
@@ -123,7 +115,6 @@ The plan body is consumed by an AI execution agent that drives a browser visuall
 
 - Sees a screenshot at each step and narrates what it sees before acting.
 - Decides element targeting from a natural-language description — give it the visible text or visual landmark.
-- Resolves skills on demand and executes their steps in line.
 - Stores variables extracted with `read:` and substitutes `{{token}}` references at runtime.
 - Stops itself when it detects a loop. Plans should not retry the same step; let the agent do that.
 - Falls back to URL navigation only as a last resort; plans should reach every page through clickable UI.

@@ -158,11 +158,10 @@ export class ResolutionAgent {
 }
 
 function buildPrompt(input: ResolutionAgentInput, flowIndex: FlowIndex, scenarioIndex: ScenarioIndex): string {
-    const { verdicts, step1Reasoning, testCandidates, existingSkills } = input;
+    const { verdicts, step1Reasoning, testCandidates } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         scenarios: scenarioIndex.listScenarios().map((s) => ({ id: s.id, name: s.name, description: s.description })),
-        skills: existingSkills.map((s) => ({ id: s.id, slug: s.slug, name: s.name, description: s.description })),
         flows: flowIndex.listFlows().map((f) => ({
             id: f.id,
             name: f.name,

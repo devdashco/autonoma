@@ -21,13 +21,6 @@ export interface ScenarioLookup {
     hasScenario(id: string): boolean;
 }
 
-export interface SkillSummary {
-    id: string;
-    slug: string;
-    name: string;
-    description: string;
-}
-
 export interface FlowSummary {
     id: string;
     name: string;
@@ -38,6 +31,5 @@ export interface FlowSummary {
 export interface PlanAuthoringContextInput {
     /** When omitted, the rendered section skips the Scenarios block (e.g. for agents that don't pick scenarios). */
     scenarios?: ScenarioSummary[];
-    skills: SkillSummary[];
     flows: FlowSummary[];
 }

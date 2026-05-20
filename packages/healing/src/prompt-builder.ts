@@ -11,7 +11,6 @@ export function buildHealingPrompt(input: HealingInput): string {
     sections.push(
         buildPlanAuthoringContext({
             scenarios: input.planAuthoring.scenarios.listScenarios(),
-            skills: input.planAuthoring.skills,
             flows: input.planAuthoring.flows,
         }),
     );

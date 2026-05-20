@@ -8,7 +8,6 @@ import {
     type PlanAuthoringInput,
     type ScenarioDetail,
     type ScenarioLookup,
-    type SkillSummary,
     healingActionSchema,
 } from "@autonoma/healing";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -254,12 +253,11 @@ async function loadPlanAuthoringInput({
     applicationId: string;
     snapshotId: string;
 }): Promise<PlanAuthoringInput> {
-    const [scenarios, skills, flows] = await Promise.all([
+    const [scenarios, flows] = await Promise.all([
         loadScenarioLookup(db, applicationId),
-        loadSkillSummaries(db, snapshotId),
         loadFlowSummaries(db, applicationId, snapshotId),
     ]);
-    return { scenarios, skills, flows };
+    return { scenarios, flows };
 }
 
 async function loadScenarioLookup(db: PrismaClient, applicationId: string): Promise<ScenarioLookup> {
@@ -306,21 +304,6 @@ async function loadScenarioLookup(db: PrismaClient, applicationId: string): Prom
         getScenario: (id) => byId.get(id),
         hasScenario: (id) => byId.has(id),
     };
-}
-
-async function loadSkillSummaries(db: PrismaClient, snapshotId: string): Promise<SkillSummary[]> {
-    const assignments = await db.skillAssignment.findMany({
-        where: { snapshotId },
-        select: {
-            skill: { select: { id: true, slug: true, name: true, description: true } },
-        },
-    });
-    return assignments.map((a) => ({
-        id: a.skill.id,
-        slug: a.skill.slug,
-        name: a.skill.name,
-        description: a.skill.description,
-    }));
 }
 
 async function loadFlowSummaries(db: PrismaClient, applicationId: string, snapshotId: string): Promise<FlowSummary[]> {

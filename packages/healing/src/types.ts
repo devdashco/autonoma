@@ -2,7 +2,7 @@ import type { Codebase } from "@autonoma/codebase";
 import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
 import type { ModelMessage } from "ai";
 import type { HealingAction } from "./actions";
-import type { FlowSummary, ScenarioLookup, SkillSummary } from "./plan-authoring/types";
+import type { FlowSummary, ScenarioLookup } from "./plan-authoring/types";
 
 export type { HealingAction } from "./actions";
 
@@ -59,7 +59,6 @@ export interface SnapshotInfo {
 
 export interface PlanAuthoringInput {
     scenarios: ScenarioLookup;
-    skills: SkillSummary[];
     flows: FlowSummary[];
 }
 

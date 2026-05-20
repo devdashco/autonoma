@@ -225,10 +225,9 @@ interface PromptInput {
 }
 
 function buildPrompt(input: PromptInput, flowIndex: FlowIndex): string {
-    const { analysis, existingSkills, merges, preClassifiedConflicts } = input;
+    const { analysis, merges, preClassifiedConflicts } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
-        skills: existingSkills.map((s) => ({ id: s.id, slug: s.slug, name: s.name, description: s.description })),
         flows: flowIndex.listFlows().map((f) => ({
             id: f.id,
             name: f.name,

@@ -27,6 +27,5 @@ export {
     type ScenarioDetail,
     type ScenarioLookup,
     type ScenarioSummary,
-    type SkillSummary,
 } from "./plan-authoring";
 export { buildScenarioTools } from "./tools/scenario-tools";
