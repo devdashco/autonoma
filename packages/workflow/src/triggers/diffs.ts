@@ -3,6 +3,7 @@ import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
+import type { WorkflowRef } from "../types";
 import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
 export interface TriggerDiffsJobParams {
@@ -27,6 +28,22 @@ export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<vo
     });
 
     logger.info("Diffs analysis workflow started", { workflowId, branchId, snapshotId });
+}
+
+export async function findLatestWorkflowBySnapshotId(snapshotId: string): Promise<WorkflowRef | undefined> {
+    const client = await getTemporalClient();
+    const handle = client.workflow.getHandle(`diffs-analysis-${snapshotId}`);
+
+    try {
+        const description = await handle.describe();
+        return {
+            workflowId: description.workflowId,
+            runId: description.runId,
+        };
+    } catch (error) {
+        logger.warn("Failed to query diffs workflow", { snapshotId, error });
+        return undefined;
+    }
 }
 
 /**

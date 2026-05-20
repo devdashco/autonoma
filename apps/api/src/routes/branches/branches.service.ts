@@ -6,6 +6,7 @@ import {
     fetchTestSuiteInfo,
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
+import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { Service } from "../service";
 
 export class BranchesService extends Service {
@@ -234,6 +235,13 @@ export class BranchesService extends Service {
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
         if (snapshot.diffsJob == null) throw new NotFoundError("Snapshot has no diffs job");
 
+        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = findLatestWorkflowBySnapshotId(
+            snapshotId,
+        ).catch((error) => {
+            this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
+            return undefined;
+        });
+
         const { prInfo, ...branchRest } = snapshot.branch;
         const { diffsJob, branch: _branch, testCaseAssignments, ...snapshotRest } = snapshot;
         const flatSnapshot = {
@@ -256,7 +264,10 @@ export class BranchesService extends Service {
                 bugId: a.quarantineIssue.bugId ?? undefined,
             }));
 
-        const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
+        const [changes, temporalWorkflow] = await Promise.all([
+            getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger),
+            temporalWorkflowPromise,
+        ]);
 
         const acceptedTestCaseIds = diffsJob.testCandidates
             .map((c) => c.acceptedTestCase?.id)
@@ -279,6 +290,7 @@ export class BranchesService extends Service {
 
         const diffsJobWithCandidateGens = {
             ...diffsJob,
+            temporalWorkflow,
             testCandidates: diffsJob.testCandidates.map((c) => ({
                 ...c,
                 generation:

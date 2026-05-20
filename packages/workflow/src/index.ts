@@ -3,7 +3,12 @@ export {
     type TriggerBatchGenerationParams,
     triggerBatchGeneration,
 } from "./triggers/batch-generation";
-export { cancelDiffsJob, type TriggerDiffsJobParams, triggerDiffsJob } from "./triggers/diffs";
+export {
+    cancelDiffsJob,
+    findLatestWorkflowBySnapshotId,
+    type TriggerDiffsJobParams,
+    triggerDiffsJob,
+} from "./triggers/diffs";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
 export { triggerGenerationReviewWorkflow } from "./triggers/generation-review";
 export { triggerReplayReviewWorkflow } from "./triggers/replay-review";
