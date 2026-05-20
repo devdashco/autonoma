@@ -21,7 +21,6 @@ export async function runDiffsAgent({ input, repoDir, flowIndex }: RunDiffsAgent
         model,
         workingDirectory: repoDir,
         flowIndex,
-        maxSteps: 50,
     });
 
     const startTime = Date.now();

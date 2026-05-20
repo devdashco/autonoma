@@ -1,6 +1,6 @@
 # @autonoma/codebase
 
-A small package that gives reviewers (and other AI agents) read access to the user's source tree at a specific commit, plus an AI SDK `ToolSet` for `read_file` / `grep` / `list_directory`.
+A small package that gives reviewers (and other AI agents) read access to the user's source tree at a specific commit, plus an AI SDK `ToolSet` for `read_files` / `grep` / `list_directory`.
 
 ## Why
 
@@ -23,7 +23,7 @@ This is a deliberate choice: sandboxing the read API would create real friction 
 | Export | Description |
 |--------|-------------|
 | `Codebase` | Class wrapping a directory; read API + `dispose` + `static clone(...)`. |
-| `buildCodebaseTools(codebase)` | AI SDK `ToolSet`: `read_file`, `grep`, `list_directory`. |
+| `buildCodebaseTools(codebase)` | AI SDK `ToolSet`: `read_files` (bulk), `grep`, `list_directory`. |
 | `ReadFileOptions`, `GrepOptions`, `GrepHit`, `DirectoryEntry` | Types. |
 
 ## Usage

@@ -4,27 +4,52 @@ import type { Codebase } from "./codebase";
 
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 
+const fileRequestSchema = z.object({
+    path: z.string().describe("Path relative to the repository root, e.g. 'src/components/Login.tsx'"),
+    startLine: z.number().int().min(1).optional(),
+    endLine: z.number().int().min(1).optional(),
+});
+
+type FileRequest = z.infer<typeof fileRequestSchema>;
+
+type FileResult = { ok: true; content: string } | { ok: false; error: string };
+
+async function readSingle(codebase: Codebase, req: FileRequest): Promise<FileResult> {
+    try {
+        const content = await codebase.readFile(req.path, { startLine: req.startLine, endLine: req.endLine });
+        return { ok: true, content: truncate(content) };
+    } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+    }
+}
+
 /**
  * AI SDK tools backed by a Codebase. Reviewers spread these into their tool
  * registry alongside the kernel's screenshot tools.
  */
 export function buildCodebaseTools(codebase: Codebase): ToolSet {
     return {
-        read_file: tool({
+        read_files: tool({
             description:
-                "Read a file from the application's source tree. Provide a path relative to the repository root. Optionally pass startLine/endLine (1-indexed, inclusive) to fetch a slice.",
+                "Read one or more files from the application's source tree in a single call. " +
+                "Pass every file you need in the `files` array - do not call this tool repeatedly for individual paths. " +
+                "Each entry takes a path relative to the repository root and optional startLine/endLine (1-indexed, inclusive) to fetch a slice. " +
+                "Returns a `results` object keyed by the requested path.",
             inputSchema: z.object({
-                path: z.string().describe("Path relative to the repository root, e.g. 'src/components/Login.tsx'"),
-                startLine: z.number().int().min(1).optional(),
-                endLine: z.number().int().min(1).optional(),
+                files: z
+                    .array(fileRequestSchema)
+                    .min(1)
+                    .describe("List of files to read. Batch every path you need into one call."),
             }),
-            execute: async ({ path, startLine, endLine }) => {
-                try {
-                    const content = await codebase.readFile(path, { startLine, endLine });
-                    return { ok: true as const, content: truncate(content) };
-                } catch (error) {
-                    return { ok: false as const, error: errorMessage(error) };
+            execute: async ({ files }) => {
+                const entries = await Promise.all(
+                    files.map(async (req) => [req.path, await readSingle(codebase, req)] as const),
+                );
+                const results: Record<string, FileResult> = {};
+                for (const [path, result] of entries) {
+                    results[path] = result;
                 }
+                return { results };
             },
         }),
 

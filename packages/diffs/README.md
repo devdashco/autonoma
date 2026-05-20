@@ -6,7 +6,7 @@ AI agent that analyzes code diffs on pull requests. It reviews changes, runs aff
 
 The `DiffsAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Given a diff summary, existing tests, and existing skills, it:
 
-1. Explores the actual patch using git commands (`bash`, `glob`, `grep`, `read_file`)
+1. Explores the actual patch using git commands (`bash`, `glob`, `grep`, `read_files`)
 2. Checks if any reusable skills (login, checkout, etc.) need updating
 3. Runs potentially affected tests via `run_test`
 4. Takes post-run actions per test: `modify_test`, `remove_test`, or `bug_found`
@@ -69,7 +69,6 @@ const agent = new DiffsAgent({
   model,              // Vercel AI SDK LanguageModel
   workingDirectory,   // repo checkout path
   callbacks,
-  maxSteps: 50,       // optional, default 50
 });
 
 // 3. Run analysis
@@ -105,7 +104,7 @@ The agent has two categories of tools:
 | `bash` | Shell commands (git diff, git show, etc.) scoped to the working directory |
 | `glob` | Find files by pattern |
 | `grep` | Search file contents |
-| `read_file` | Read file contents |
+| `read_files` | Read one or more files in a single call (batch all paths into one array) |
 | `subagent` | Spawn a focused research subagent for parallel investigation |
 
 ### Actions

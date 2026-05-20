@@ -28,7 +28,7 @@ export function buildCodebaseTools(model: LanguageModel, workingDirectory: strin
         bash: buildBashTool(workingDirectory),
         glob: buildGlobTool(workingDirectory),
         grep: buildGrepTool(workingDirectory),
-        read_file: buildReadFileTool(workingDirectory),
+        read_files: buildReadFileTool(workingDirectory),
         subagent: buildSubagentTool(model, workingDirectory),
     };
 }
@@ -54,7 +54,7 @@ export function buildTestInteractionTools(
     return {
         list_flows: buildListFlowsTool(flowIndex),
         list_tests: buildListTestsTool(flowIndex, tests),
-        read_test: buildReadTestTool(tests),
+        read_tests: buildReadTestTool(tests),
         read_skill: buildReadSkillTool(skills),
     };
 }

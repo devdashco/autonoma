@@ -11,12 +11,11 @@ export interface LocalDiffsRunnerParams {
     headSha: string;
     existingTests: ExistingTestInfo[];
     existingSkills: ExistingSkillInfo[];
-    maxSteps?: number;
 }
 
 export async function runDiffsAgentLocally(params: LocalDiffsRunnerParams): Promise<DiffsAgentResult> {
     const logger = rootLogger.child({ name: "runDiffsAgentLocally", repoDir: params.repoDir });
-    const { model, repoDir, baseSha, headSha, existingTests, existingSkills, maxSteps } = params;
+    const { model, repoDir, baseSha, headSha, existingTests, existingSkills } = params;
 
     logger.info("Starting DiffsAgent", {
         existingTests: existingTests.length,
@@ -35,7 +34,6 @@ export async function runDiffsAgentLocally(params: LocalDiffsRunnerParams): Prom
         model,
         workingDirectory: repoDir,
         flowIndex,
-        maxSteps,
     });
 
     const result = await agent.analyze({ headSha, baseSha, existingTests, existingSkills });

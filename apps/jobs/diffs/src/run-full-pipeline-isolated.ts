@@ -22,7 +22,6 @@
  *     [--branch <name>]          resolves base/head from branch
  *     [--base <ref>]             explicit base commit
  *     [--head <ref>]             explicit head commit
- *     [--max-steps <n>]          agent step limit per agent (default: 50)
  *     [--output <path>]          output directory (default: ./pipeline-output)
  *     [--headless]               run browser headless (default: true)
  *     [--skip-generations]       skip steps 5-6
@@ -142,7 +141,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             headSha,
             existingTests,
             existingSkills,
-            maxSteps: args.maxSteps,
         });
         logger.info("Step 1 complete", {
             elapsed: `${((Date.now() - startStep1) / 1000).toFixed(1)}s`,
@@ -232,7 +230,6 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             verdicts,
             step1Reasoning: step1Result.reasoning,
             testCandidates: step1Result.testCandidates,
-            maxSteps: args.maxSteps,
         });
         await writeJSON(join(outputDir, "step4-resolution/result.json"), step4Result);
 

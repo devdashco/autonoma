@@ -1,7 +1,7 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
 import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "@autonoma/healing";
 import { logger, type Logger } from "@autonoma/logger";
-import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
+import { type LanguageModel, ToolLoopAgent, hasToolCall } from "ai";
 import { buildDiffAnalysis } from "./diff-analysis";
 import type { FlowIndex } from "./flow-index";
 import { buildActionTools, buildCodebaseTools, buildTestInteractionTools } from "./tools/codebase-tools";
@@ -91,7 +91,6 @@ export interface DiffsAgentConfig {
     model: LanguageModel;
     workingDirectory: string;
     flowIndex: FlowIndex;
-    maxSteps?: number;
 }
 
 export class DiffsAgent {
@@ -140,7 +139,7 @@ export class DiffsAgent {
         existingTests: ExistingTestInfo[],
         existingSkills: ExistingSkillInfo[],
     ): Promise<DiffsAgentResult> {
-        const { model, workingDirectory, flowIndex, maxSteps = 50 } = this.config;
+        const { model, workingDirectory, flowIndex } = this.config;
 
         let result: DiffsAgentFinishOutput | undefined;
         const collector: ResultCollector = {
@@ -164,7 +163,7 @@ export class DiffsAgent {
                 ...buildActionTools(collector, validSlugs, validConflictSlugs, quarantinedSlugs),
                 finish: buildFinishTool((output) => (result = output), collector),
             },
-            stopWhen: [stepCountIs(maxSteps), hasToolCall("finish")],
+            stopWhen: [hasToolCall("finish")],
             onStepFinish: ({ content }) => {
                 this.logger.info("Agent step finished", {
                     text: content
@@ -267,8 +266,8 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
             "Each of these tests was modified on multiple sides of the merge and requires re-planning. They are " +
             "ALREADY marked as affected with `affectedReason: merge_conflict` - you do not need to (and must not) " +
             "call `mark_affected_test` for them. Instead, for each one, call `explain_merge_conflict` with a " +
-            "`reasoning` that explains how the plans diverge. Use `read_test` to inspect the current plan before " +
-            "writing the reasoning. The Resolution step will re-plan them using all the legs listed below.\n";
+            "`reasoning` that explains how the plans diverge. Use `read_tests` to inspect the current plans before " +
+            "writing the reasoning - pass every conflict slug in one call. The Resolution step will re-plan them using all the legs listed below.\n";
         for (const c of preClassifiedConflicts) {
             prompt += `\n- **${c.slug}** (${c.testName}) - PRs involved: ${c.involvedPrNumbers.join(", ")}`;
             for (const v of c.versions) {
@@ -280,7 +279,7 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
 
     if (flowIndex.listFlows().length > 0) {
         prompt +=
-            "\n\nFlows are listed in the Plan Authoring Context above. Use `list_tests` to see tests in a flow and `read_test` to inspect a specific test's instruction.";
+            "\n\nFlows are listed in the Plan Authoring Context above. Use `list_tests` to see tests in a flow and `read_tests` to inspect specific tests' instructions - always pass every slug you need to read in a single call.";
     }
 
     prompt += "\n\nAnalyze the diff and take appropriate actions using the available tools. When done, call `finish`.";
@@ -291,7 +290,7 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
 const SYSTEM_PROMPT = `You are a QA engineer that analyzes code diffs on pull requests. You have two responsibilities:
 
 ## 1. Test Impact Analysis
-Identify which existing tests MIGHT be affected by the code changes. Use \`list_tests\` to browse tests by flow and \`read_test\` to inspect test instructions. Use \`mark_affected_test\` for each test that could be impacted. Be thorough but not overly broad - only mark tests whose flows directly touch the changed code.
+Identify which existing tests MIGHT be affected by the code changes. Use \`list_tests\` to browse tests by flow and \`read_tests\` to inspect test instructions - always pass every slug you want to read in a single \`read_tests\` call rather than calling the tool once per slug. Use \`mark_affected_test\` for each test that could be impacted. Be thorough but not overly broad - only mark tests whose flows directly touch the changed code.
 
 \`mark_affected_test\` is ONLY for tests you identified yourself from the diff (they will be recorded with \`affectedReason: code_change\`).
 
@@ -309,7 +308,7 @@ Consider a test affected if the diff:
 Tests will be automatically run and reviewed after your analysis completes - you do not need to run them yourself.
 
 ### Quarantined tests
-A test is quarantined when its entry in \`list_tests\` or \`read_test\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests are known-broken (either an application bug or an engine limitation) and are suppressed from replay. Do NOT mark them affected, and do NOT suggest a new test that duplicates the flow a quarantined test already covers - that flow is considered claimed even though the test cannot run.
+A test is quarantined when its entry in \`list_tests\` or \`read_tests\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests are known-broken (either an application bug or an engine limitation) and are suppressed from replay. Do NOT mark them affected, and do NOT suggest a new test that duplicates the flow a quarantined test already covers - that flow is considered claimed even though the test cannot run.
 
 ## 2. Test Gap Detection
 Identify new functionality that has no test coverage. Use \`suggest_test\` for each new test that should be created. Focus on user-facing behavior introduced by the diff. These suggestions will be reviewed in a later step.
@@ -320,12 +319,12 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`bash\`: shell commands (git diff, git log, git show, etc.) and basic unix utilities
 - \`glob\`: find files by pattern
 - \`grep\`: search file contents
-- \`read_file\`: read file contents
+- \`read_files\`: read one or more files in a single call. Pass every path you need in the \`files\` array - do not call this tool once per path.
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
 - \`list_tests\`: list tests in a specific flow (folder) - returns slug, name, and quarantine status
-- \`read_test\`: read a test's full instruction by slug, including quarantine status when set
+- \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
 - \`read_skill\`: read a skill's full content by slug
 
 ### Actions
@@ -335,12 +334,12 @@ Identify new functionality that has no test coverage. Use \`suggest_test\` for e
 - \`finish\`: call when done with your analysis
 
 ## File System Layout
-Test files exist on disk at \`autonoma/qa-tests/{slug}.md\` and skills at \`autonoma/skills/{slug}.md\`. These files are for reference only - prefer using \`read_test\` and \`read_skill\` tools to inspect them. When calling tools, always use plain slug identifiers (e.g. \`login-flow\`), never file paths.
+Test files exist on disk at \`autonoma/qa-tests/{slug}.md\` and skills at \`autonoma/skills/{slug}.md\`. These files are for reference only - prefer using \`read_tests\` and \`read_skill\` tools to inspect them. When calling tools, always use plain slug identifiers (e.g. \`login-flow\`), never file paths.
 
 ## Workflow
 1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
-2. Read relevant source files to understand the changes in context
+2. Read relevant source files to understand the changes in context - batch every file you need to read into one \`read_files\` call
 3. Browse the test flows using \`list_tests\` to understand what tests exist
-4. Identify potentially affected tests using \`read_test\` to check instructions, then \`mark_affected_test\` for each affected one
+4. Identify potentially affected tests by passing every candidate slug to \`read_tests\` in one call, then \`mark_affected_test\` for each affected one
 5. Identify test gaps and suggest new tests with \`suggest_test\`
 6. Call \`finish\` with your overall reasoning - even if no actions were needed (e.g. pure refactors), explain why`;

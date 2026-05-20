@@ -28,7 +28,6 @@ export interface LocalResolutionRunnerParams {
      * fine for ad-hoc local runs but does not mirror production fidelity.
      */
     flowIndex?: FlowIndex;
-    maxSteps?: number;
 }
 
 export async function runResolutionAgentLocally(params: LocalResolutionRunnerParams): Promise<ResolutionAgentResult> {
@@ -43,7 +42,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         testCandidates,
         scenarios,
         flowIndex: providedFlowIndex,
-        maxSteps,
     } = params;
 
     logger.info("Starting ResolutionAgent", {
@@ -70,7 +68,6 @@ export async function runResolutionAgentLocally(params: LocalResolutionRunnerPar
         workingDirectory: repoDir,
         flowIndex,
         scenarioIndex: new ScenarioIndex(scenarios ?? []),
-        maxSteps,
     });
 
     const candidatesWithIds: TestCandidateInput[] = testCandidates.map((c) => ({

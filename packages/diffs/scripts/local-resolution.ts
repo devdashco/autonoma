@@ -180,7 +180,6 @@ async function main() {
         step1Reasoning: diffsJob.analysisReasoning ?? "",
         testCandidates: candidateInputs,
         flowIndex,
-        maxSteps: 60,
     });
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

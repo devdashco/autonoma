@@ -125,7 +125,6 @@ async function main() {
         model,
         workingDirectory: repoPath,
         flowIndex,
-        maxSteps: 60,
     });
 
     const result = await agent.analyze(input);

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, extractMessages } from "@autonoma/ai";
 import { buildCodebaseTools } from "@autonoma/codebase";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
+import { ToolLoopAgent, hasToolCall } from "ai";
 import { PLAN_AUTHORING_GUIDE } from "./plan-authoring";
 import { buildHealingPrompt } from "./prompt-builder";
 import { buildHealingActionTools, createHealingActionCollector } from "./tools/action-tools";
@@ -16,7 +16,6 @@ const SYSTEM_PROMPT = `${SYSTEM_PROMPT_BASE}\n\n${PLAN_AUTHORING_GUIDE}`;
 
 export interface HealingAgentConfig {
     model: LanguageModel;
-    maxSteps?: number;
 }
 
 /**
@@ -64,7 +63,7 @@ export class HealingAgent {
                 }),
                 finish: buildFinishTool(collector, failureKeys, onFinish),
             },
-            stopWhen: [stepCountIs(this.config.maxSteps ?? 60), hasToolCall("finish")],
+            stopWhen: [hasToolCall("finish")],
             onStepFinish: ({ content }) => {
                 this.logger.info("Healing agent step finished", {
                     toolCalls: content
@@ -78,15 +77,20 @@ export class HealingAgent {
         const generateResult = await agent.generate({ messages: [{ role: "user", content: userMessage }] });
         const conversation = extractMessages(generateResult);
 
-        const reasoning =
-            finishResult?.reasoning ??
-            "Healing agent did not call finish - max steps reached. Actions emitted before truncation are preserved.";
+        if (finishResult == null) {
+            this.logger.error("Healing agent finished without calling the finish tool", {
+                actionCount: collector.actions.length,
+            });
+            throw new Error(
+                "Healing agent did not call finish. Partial actions have been collected and logged, but the run is incomplete.",
+            );
+        }
 
         this.logger.info("Healing run completed", {
             actionCount: collector.actions.length,
-            reasoning: reasoning.slice(0, 300),
+            reasoning: finishResult.reasoning.slice(0, 300),
         });
 
-        return { actions: collector.actions, reasoning, conversation };
+        return { actions: collector.actions, reasoning: finishResult.reasoning, conversation };
     }
 }

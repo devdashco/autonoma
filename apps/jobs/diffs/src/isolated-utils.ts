@@ -31,7 +31,6 @@ export interface BaseCliArgs {
     branch?: string;
     base?: string;
     head?: string;
-    maxSteps: number;
 }
 
 type ExtraOptions = Record<string, { type: "string" | "boolean" }>;
@@ -46,7 +45,6 @@ export function parseBaseCliArgs<T extends ExtraOptions>(
             branch: { type: "string" },
             base: { type: "string" },
             head: { type: "string" },
-            "max-steps": { type: "string" },
             ...extraOptions,
         },
         strict: true,
@@ -62,7 +60,6 @@ export function parseBaseCliArgs<T extends ExtraOptions>(
         branch: values.branch,
         base: values.base,
         head: values.head,
-        maxSteps: values["max-steps"] != null ? parseInt(values["max-steps"], 10) : 50,
     };
 
     const extra: Record<string, string | boolean | undefined> = {};

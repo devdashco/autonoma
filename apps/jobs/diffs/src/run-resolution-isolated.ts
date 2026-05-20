@@ -12,7 +12,6 @@
  *     [--scenarios <path>]        path to JSON file with ScenarioInfo[] (enables list_scenarios / read_scenario)
  *     [--tests-dir <path>]        dir containing qa-tests/ and skills/ (defaults to fixtures/)
  *     [--branch <name>]           branch to check out in a local repo or clone from a remote
- *     [--max-steps <n>]           agent step limit (default: 50)
  *
  * Natural chaining with the analysis runner:
  *   pnpm isolated --repo /path/to/repo --branch feature-x > step1-result.json
@@ -101,7 +100,6 @@ async function run(args: CliArgs): Promise<void> {
         step1Result: args.step1Result,
         scenarios: args.scenarios,
         branch: args.branch,
-        maxSteps: args.maxSteps,
     });
 
     const { repoDir, tempDir } = await prepareRepo(args);
@@ -135,7 +133,6 @@ async function run(args: CliArgs): Promise<void> {
             step1Reasoning,
             testCandidates,
             scenarios,
-            maxSteps: args.maxSteps,
         });
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 

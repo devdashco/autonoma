@@ -13,7 +13,7 @@ export function buildListTestsTool(flowIndex: FlowIndex, tests: ExistingTestInfo
     return tool({
         description:
             "List all tests in a specific flow (folder). Returns the slug and name of each test. " +
-            "Use read_test to read the full instruction of a specific test.",
+            "Use read_tests (which accepts an array of slugs) to read the full instructions of one or more tests in a single call.",
         inputSchema: listTestsSchema,
         execute: async ({ flowName }) => {
             const slugs = flowIndex.getTestSlugs(flowName);

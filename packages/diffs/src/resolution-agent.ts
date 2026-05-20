@@ -1,7 +1,7 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
 import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "@autonoma/healing";
 import { logger, type Logger } from "@autonoma/logger";
-import { type LanguageModel, ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
+import { type LanguageModel, ToolLoopAgent, hasToolCall } from "ai";
 import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
 import type { FlowIndex } from "./flow-index";
 import type { ScenarioIndex } from "./scenario-index";
@@ -59,7 +59,6 @@ export interface ResolutionAgentConfig {
     workingDirectory: string;
     flowIndex: FlowIndex;
     scenarioIndex: ScenarioIndex;
-    maxSteps?: number;
 }
 
 export class ResolutionAgent {
@@ -84,7 +83,7 @@ export class ResolutionAgent {
         existingTests: ExistingTestInfo[],
         existingSkills: ExistingSkillInfo[],
     ): Promise<ResolutionAgentResult> {
-        const { model, workingDirectory, flowIndex, scenarioIndex, maxSteps = 50 } = this.config;
+        const { model, workingDirectory, flowIndex, scenarioIndex } = this.config;
 
         let result: ResolutionAgentFinishOutput | undefined;
         const collector: ResolutionResultCollector = {
@@ -105,7 +104,7 @@ export class ResolutionAgent {
                 ...buildResolutionActionTools(collector, failedSlugs, quarantinedSlugs, flowIndex, scenarioIndex),
                 finish: buildResolutionFinishTool((output) => (result = output), collector, failedSlugs),
             },
-            stopWhen: [stepCountIs(maxSteps), hasToolCall("finish")],
+            stopWhen: [hasToolCall("finish")],
             onStepFinish: ({ content }) => {
                 this.logger.info("Resolution agent step finished", {
                     text: content
@@ -238,7 +237,7 @@ You MUST handle every failed test before calling \`finish\`. For each failed tes
 
 Additionally:
 - Review test candidates from Step 1 and use \`add_test\` to create the ones you agree with
-- Use \`list_tests\`, \`read_test\`, and \`read_skill\` to explore existing tests and skills for context
+- Use \`list_tests\`, \`read_tests\`, and \`read_skill\` to explore existing tests and skills for context - always pass every slug you need to read in a single \`read_tests\` call
 
 Look for cross-cutting patterns - if multiple tests failed for the same underlying reason, explore the codebase once and apply that understanding across all affected tests.
 
@@ -248,7 +247,7 @@ When done, call \`finish\` with your overall reasoning.`;
 
 There are no test replay failures to resolve. Your job is to review the test candidates suggested by Step 1 and create the ones you agree with using \`add_test\`.
 
-- Use \`list_tests\`, \`read_test\`, and \`read_skill\` to explore existing tests and skills and avoid duplicating coverage.
+- Use \`list_tests\`, \`read_tests\`, and \`read_skill\` to explore existing tests and skills and avoid duplicating coverage. Always batch every slug you need to read into one \`read_tests\` call.
 - Do not invent failures or call \`modify_test\`, \`remove_test\`, or \`report_bug\` - there are no failed tests in this run.
 
 When done, call \`finish\` with your overall reasoning.`;
@@ -274,7 +273,7 @@ const SYSTEM_PROMPT = `You are a QA engineer resolving test failures after code 
 ## IMPORTANT: You MUST handle every failed test before calling \`finish\`. The finish tool will reject your call if any failed tests are unhandled. Each failed test must be addressed via \`modify_test\`, \`remove_test\`, or \`report_bug\`.
 
 ## Quarantined tests
-A test is quarantined when its entry in \`list_tests\` or \`read_test\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests were excluded from replay so they will not appear among the failed verdicts. Treat each one as still owning coverage of its flow: do NOT propose a new test that duplicates that coverage, and do NOT call \`modify_test\` on a quarantined slug. There is no tool to clear a quarantine - that happens via manual review.
+A test is quarantined when its entry in \`list_tests\` or \`read_tests\` carries a \`quarantine\` field (with \`reason\`, and a \`bugId\` or \`issueId\` link). Quarantined tests were excluded from replay so they will not appear among the failed verdicts. Treat each one as still owning coverage of its flow: do NOT propose a new test that duplicates that coverage, and do NOT call \`modify_test\` on a quarantined slug. There is no tool to clear a quarantine - that happens via manual review.
 
 ## Available Tools
 
@@ -282,12 +281,12 @@ A test is quarantined when its entry in \`list_tests\` or \`read_test\` carries 
 - \`bash\`: shell commands (git diff, git log, git show, etc.) and basic unix utilities
 - \`glob\`: find files by pattern
 - \`grep\`: search file contents
-- \`read_file\`: read file contents
+- \`read_files\`: read one or more files in a single call. Pass every path you need in the \`files\` array - do not call this tool once per path.
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
 - \`list_tests\`: list tests in a specific flow (folder); each entry includes quarantine status
-- \`read_test\`: read a test's full instruction by slug, including quarantine status when set
+- \`read_tests\`: read one or more tests' full instructions by slug, including quarantine status when set. Always pass every slug you need in a single \`slugs\` array.
 - \`read_skill\`: read a skill's full content by slug
 
 ### Scenarios

@@ -48,7 +48,6 @@ export async function runResolutionAgent({
         workingDirectory: repoDir,
         flowIndex,
         scenarioIndex,
-        maxSteps: 50,
     });
 
     const startTime = Date.now();

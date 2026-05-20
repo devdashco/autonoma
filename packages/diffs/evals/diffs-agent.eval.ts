@@ -36,7 +36,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -85,7 +84,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -132,7 +130,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 50,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -204,7 +201,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -254,7 +250,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -307,7 +302,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -360,7 +354,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -417,7 +410,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);
@@ -470,7 +462,6 @@ describe("diffs agent evals", () => {
                     model,
                     workingDirectory: fixture.repoDir,
                     callbacks,
-                    maxSteps: 40,
                 });
 
                 const result = await agent.analyze(fixture.input);

@@ -21,7 +21,7 @@ const subagentResultSchema = z.object({
 
 type SubagentResult = z.infer<typeof subagentResultSchema>;
 
-const SUBAGENT_SYSTEM_PROMPT = `You are a code research assistant. You have tools to explore a codebase: bash (shell commands, mainly git), glob (find files), grep (search content), and read_file (read files).
+const SUBAGENT_SYSTEM_PROMPT = `You are a code research assistant. You have tools to explore a codebase: bash (shell commands, mainly git), glob (find files), grep (search content), and read_files (read one or more files in a single call - always batch every path you need into one call).
 
 Follow the instruction you're given. Explore the codebase using the tools, then call \`finish\` with a summary of your findings.
 
@@ -36,7 +36,7 @@ function buildSubagentTools(workingDirectory: string) {
         bash: buildBashTool(workingDirectory),
         glob: buildGlobTool(workingDirectory),
         grep: buildGrepTool(workingDirectory),
-        read_file: buildReadFileTool(workingDirectory),
+        read_files: buildReadFileTool(workingDirectory),
     };
 }
 
@@ -45,7 +45,7 @@ export function buildSubagentTool(model: LanguageModel, workingDirectory: string
         description:
             "Spawn a subagent to research a specific part of the codebase in parallel. " +
             "Use this to parallelize investigation - e.g. one subagent per affected file or area. " +
-            "Each subagent has glob, grep, and read_file tools. " +
+            "Each subagent has glob, grep, and read_files tools. " +
             "Give each subagent a focused, specific instruction.",
         inputSchema: subagentInputSchema,
         execute: async (input) => {

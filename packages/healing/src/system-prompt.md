@@ -52,9 +52,11 @@ For each failure (and for any net-new test you decide to create), pick exactly o
 
 ## Tools available
 
-- **`bash`, `glob`, `grep`, `read_file`, `subagent`** - codebase exploration. In diffs mode,
-  reach for `git diff $BASE_SHA..$HEAD_SHA -- <path>` to read what changed in any file. In
-  refinement mode, the codebase is at the snapshot's head; there's no diff to query.
+- **`read_files`, `grep`, `list_directory`** - codebase exploration. `read_files` takes an
+  array of files in a single call - always batch every path you need into one call rather than
+  reading one file at a time. In diffs mode you can use `read_files` together with a `bash`-like
+  diff workflow to inspect what changed; in refinement mode the codebase is at the snapshot's
+  head with no diff to query.
 - **`screenshot`** - inspect screenshots from a failure's evidence list when you need to see
   what the engine saw.
 - **`list_scenarios`, `read_scenario`** - inspect the named test data environments available

@@ -55,7 +55,7 @@ export function buildBashTool(workingDirectory: string) {
             "Primarily intended for git operations (git diff, git log, git status, git show, etc.) " +
             "and basic unix utilities (wc, sort, head, tail, ls, find, diff). " +
             "Commands can be piped together (e.g. git log | head -n 10) but chaining with ; && || is not allowed. " +
-            "Do not use this for file reading (use read_file) or searching (use grep/glob).",
+            "Do not use this for file reading (use read_files) or searching (use grep/glob).",
         inputSchema: bashSchema,
         execute: async (input) => {
             const validationError = validateCommand(input.command);

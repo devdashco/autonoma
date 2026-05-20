@@ -11,7 +11,6 @@
  *     [--branch <name>]          resolves base = merge-base(main, branch), head = branch tip
  *     [--base <ref>]             explicit base commit (default: HEAD~1)
  *     [--head <ref>]             explicit head commit (default: HEAD)
- *     [--max-steps <n>]          agent step limit (default: 50)
  *     [--output <path>]          JSON result is written to this file
  *
  * Environment variables:
@@ -56,7 +55,6 @@ async function run(args: CliArgs): Promise<void> {
         branch: args.branch,
         base: args.base,
         head: args.head,
-        maxSteps: args.maxSteps,
     });
 
     const { repoDir, tempDir } = await prepareRepo(args);
@@ -82,7 +80,6 @@ async function run(args: CliArgs): Promise<void> {
             headSha,
             existingTests,
             existingSkills,
-            maxSteps: args.maxSteps,
         });
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
