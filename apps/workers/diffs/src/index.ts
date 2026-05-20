@@ -13,7 +13,7 @@ runWithSentry({ name: "worker-diffs", dsn: env.SENTRY_DSN_WORKER_DIFFS }, async 
         taskQueue: TaskQueue.DIFFS,
         activities,
         workflowsPath,
-        maxConcurrentActivityTaskExecutions: 3,
+        maxConcurrentActivityTaskExecutions: 1,
         interceptors: {
             activity: [sentryServiceInterceptor],
         },
