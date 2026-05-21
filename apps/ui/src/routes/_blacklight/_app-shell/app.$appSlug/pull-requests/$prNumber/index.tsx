@@ -2,15 +2,14 @@ import { Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/b
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { ensureBranchByPrData, useBranchByPr, useSnapshotHistory } from "lib/query/branches.queries";
-import { ensureDeploymentsByPrData } from "lib/query/deployments.queries";
+import { ensureDeploymentsByPrData, useDeploymentsByPr } from "lib/query/deployments.queries";
 import { usePullRequestFromGitHub } from "lib/query/github.queries";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { ActiveSnapshotHealthPanel } from "../-components/active-snapshot-health-panel";
 import { PRDetailHeader } from "../-components/pr-detail-header";
-import { PRHealthPanel } from "../-components/pr-health-panel";
-import { PRMainContent } from "../-components/pr-main-content";
-import { PRMetadataPanel } from "../-components/pr-metadata-panel";
-import { SnapshotList } from "../-components/snapshot-list";
+import { PRTestChanges } from "../-components/pr-test-changes";
+import { SnapshotTimeline } from "../-components/snapshot-timeline";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/")({
   loader: async ({ context, params: { appSlug, prNumber } }) => {
@@ -39,7 +38,9 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: snapshots } = useSnapshotHistory(branch.id);
   const pr = usePullRequestFromGitHub(app.id, prNumber);
+  const { data: deployments } = useDeploymentsByPr(app.id, prNumber);
   const activeSnapshot = snapshots.find((s) => s.status === "active") ?? snapshots[0];
+  const currentDeploymentUrl = deployments[0]?.url;
 
   return (
     <>
@@ -49,20 +50,25 @@ function PullRequestDetailContent({ prNumber }: { prNumber: number }) {
         branchName={branch.name}
         pr={pr.data ?? undefined}
         prPending={pr.isPending}
+        deploymentUrl={currentDeploymentUrl}
       />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)_minmax(0,300px)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,280px)]">
         <aside className="flex flex-col gap-6">
-          <SnapshotList branchId={branch.id} applicationId={app.id} prNumber={prNumber} />
-          <PRMetadataPanel pr={pr.data ?? undefined} prPending={pr.isPending} snapshotCount={snapshots.length} />
+          <SnapshotTimeline
+            branchId={branch.id}
+            applicationId={app.id}
+            activeSnapshotId={activeSnapshot?.id}
+            prNumber={prNumber}
+          />
         </aside>
 
         <div className="min-w-0">
-          <PRMainContent applicationId={app.id} prNumber={prNumber} pr={pr.data ?? undefined} />
+          <PRTestChanges branchId={branch.id} prNumber={prNumber} />
         </div>
 
         <aside className="flex flex-col gap-6">
           {activeSnapshot != null ? (
-            <PRHealthPanel applicationId={app.id} snapshot={activeSnapshot} />
+            <ActiveSnapshotHealthPanel applicationId={app.id} snapshot={activeSnapshot} />
           ) : (
             <EmptyHealthPanel />
           )}
@@ -76,7 +82,7 @@ function EmptyHealthPanel() {
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Health</PanelTitle>
+        <PanelTitle>Active snapshot health</PanelTitle>
       </PanelHeader>
       <PanelBody>
         <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-text-tertiary">
@@ -92,7 +98,7 @@ function PageSkeleton() {
   return (
     <>
       <Skeleton className="h-8 w-80" />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)_minmax(0,300px)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,280px)]">
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-64 w-full" />

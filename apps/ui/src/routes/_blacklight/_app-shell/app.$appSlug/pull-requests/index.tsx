@@ -27,6 +27,7 @@ type PullRequestRow = {
   activeSnapshot: {
     status: string;
     _count: { testCaseAssignments: number };
+    health: "healthy" | "critical" | "running" | "unknown";
   } | null;
 };
 

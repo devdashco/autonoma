@@ -314,6 +314,7 @@ export class RunsService extends Service {
                     shortId: run.id.slice(0, 8),
                     status: run.status,
                     name: run.assignment.testCase.name,
+                    testCaseId: run.assignment.testCase.id,
                     tags: run.assignment.testCase.tags.map((tt) => tt.tag.name),
                     startedAt: run.startedAt ?? null,
                     duration: computeDuration(run.startedAt, run.completedAt),

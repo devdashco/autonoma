@@ -8,6 +8,14 @@ import {
 } from "@autonoma/test-updates";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { Service } from "../service";
+import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
+
+export interface TestSuiteChangeRow {
+    testCase: { id: string; name: string; slug: string };
+    latestSnapshotId: string;
+    latestSnapshotShortSha: string;
+    quarantined: boolean;
+}
 
 export class BranchesService extends Service {
     constructor(private readonly db: PrismaClient) {
@@ -35,9 +43,25 @@ export class BranchesService extends Service {
             orderBy: { createdAt: "desc" },
         });
 
-        return branches.map(({ prInfo, ...branch }) => ({
+        const activeSnapshots = branches
+            .map((b) => b.activeSnapshot)
+            .filter((s): s is NonNullable<typeof s> => s != null)
+            .map((s) => ({ id: s.id, status: s.status }));
+
+        const healthBySnapshot = await aggregateSnapshotHealth(this.db, activeSnapshots, this.logger);
+
+        return branches.map(({ prInfo, activeSnapshot, ...branch }) => ({
             ...branch,
             prNumber: prInfo!.prNumber,
+            activeSnapshot:
+                activeSnapshot != null
+                    ? {
+                          id: activeSnapshot.id,
+                          status: activeSnapshot.status,
+                          _count: { testCaseAssignments: activeSnapshot._count.testCaseAssignments },
+                          health: healthBySnapshot.get(activeSnapshot.id)?.health ?? "unknown",
+                      }
+                    : null,
         }));
     }
 
@@ -298,7 +322,30 @@ export class BranchesService extends Service {
             })),
         };
 
-        return { snapshot: flatSnapshot, changes, diffsJob: diffsJobWithCandidateGens, quarantinedTests };
+        const healthMap = await aggregateSnapshotHealth(
+            this.db,
+            [{ id: snapshot.id, status: snapshot.status }],
+            this.logger,
+        );
+        const healthEntry = healthMap.get(snapshot.id);
+        const counts = healthEntry?.counts ?? {
+            failing: 0,
+            passing: 0,
+            running: 0,
+            quarantined: 0,
+            notAffected: 0,
+            totalTests: 0,
+        };
+        const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, counts);
+
+        return {
+            snapshot: flatSnapshot,
+            changes,
+            diffsJob: diffsJobWithCandidateGens,
+            quarantinedTests,
+            health,
+            healthCounts: counts,
+        };
     }
 
     async getActiveSnapshot(branchId: string, organizationId: string) {
@@ -342,6 +389,193 @@ export class BranchesService extends Service {
             changes,
             branch: { id: branch.id, name: branch.name, prNumber: branch.prInfo?.prNumber },
         };
+    }
+
+    async getTestSuiteChangesByPr(branchId: string, organizationId: string) {
+        this.logger.info("Getting PR-wide test suite changes", { branchId });
+
+        const snapshotSelect = {
+            id: true,
+            headSha: true,
+            createdAt: true,
+            prevSnapshotId: true,
+            testCaseAssignments: {
+                select: {
+                    testCaseId: true,
+                    planId: true,
+                    quarantineIssueId: true,
+                    testCase: { select: { id: true, name: true, slug: true } },
+                },
+            },
+        } as const;
+
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId, organizationId },
+            select: {
+                id: true,
+                activeSnapshotId: true,
+                snapshots: {
+                    select: snapshotSelect,
+                    orderBy: { createdAt: "asc" },
+                },
+            },
+        });
+
+        if (branch == null) throw new NotFoundError("Branch not found");
+
+        const emptyResult: {
+            added: TestSuiteChangeRow[];
+            modified: TestSuiteChangeRow[];
+            removed: TestSuiteChangeRow[];
+            newlyQuarantined: TestSuiteChangeRow[];
+        } = { added: [], modified: [], removed: [], newlyQuarantined: [] };
+
+        const prSnapshots = branch.snapshots;
+        if (prSnapshots.length === 0) {
+            this.logger.warn("Branch has no snapshots", { branchId });
+            return emptyResult;
+        }
+
+        // Pick the latest PR snapshot as the rollup target. Don't depend on branch.activeSnapshotId
+        // being in sync - the rollup should reflect what the user sees as the latest snapshot.
+        const activeSnap = prSnapshots[prSnapshots.length - 1]!;
+
+        // The baseline is the earliest PR snapshot's prevSnapshotId (the divergence point on main).
+        const baseSnapshotId = prSnapshots[0]?.prevSnapshotId ?? null;
+        if (baseSnapshotId == null) {
+            this.logger.warn("Earliest PR snapshot has no prevSnapshotId", {
+                branchId,
+                earliestSnapshotId: prSnapshots[0]?.id,
+            });
+            return emptyResult;
+        }
+
+        const baseSnap = await this.db.branchSnapshot.findUnique({
+            where: { id: baseSnapshotId },
+            select: snapshotSelect,
+        });
+        if (baseSnap == null) {
+            this.logger.warn("Base snapshot not found", { branchId, baseSnapshotId });
+            return emptyResult;
+        }
+
+        this.logger.info("Computing PR-wide changes", {
+            branchId,
+            prSnapshotCount: prSnapshots.length,
+            activeSnapshotId: activeSnap.id,
+            baseSnapshotId,
+            baseAssignmentCount: baseSnap.testCaseAssignments.length,
+            activeAssignmentCount: activeSnap.testCaseAssignments.length,
+        });
+
+        type Assignment = (typeof prSnapshots)[number]["testCaseAssignments"][number];
+        type SnapshotEntry = (typeof prSnapshots)[number];
+
+        function indexByTestCase(snap: SnapshotEntry): Map<string, Assignment> {
+            return new Map(snap.testCaseAssignments.map((a) => [a.testCaseId, a]));
+        }
+
+        function shortShaOf(snap: SnapshotEntry): string {
+            return snap.headSha != null ? snap.headSha.slice(0, 8) : "?";
+        }
+
+        const baseMap = indexByTestCase(baseSnap);
+        const activeMap = indexByTestCase(activeSnap);
+        const prIndex: Map<string, Assignment>[] = prSnapshots.map((s) => indexByTestCase(s));
+
+        function prevAssignmentFor(testCaseId: string, prIdx: number): Assignment | undefined {
+            const prevIndex = prIdx === 0 ? baseMap : prIndex[prIdx - 1];
+            return prevIndex?.get(testCaseId);
+        }
+
+        function findLatestPlanChange(testCaseId: string): SnapshotEntry {
+            for (let i = prSnapshots.length - 1; i >= 0; i -= 1) {
+                const snap = prSnapshots[i];
+                if (snap == null) continue;
+                const cur = prIndex[i]?.get(testCaseId);
+                const prev = prevAssignmentFor(testCaseId, i);
+                if ((cur?.planId ?? null) !== (prev?.planId ?? null)) return snap;
+            }
+            return activeSnap;
+        }
+
+        function findLatestQuarantine(testCaseId: string): SnapshotEntry {
+            for (let i = prSnapshots.length - 1; i >= 0; i -= 1) {
+                const snap = prSnapshots[i];
+                if (snap == null) continue;
+                const cur = prIndex[i]?.get(testCaseId);
+                const prev = prevAssignmentFor(testCaseId, i);
+                const curQ = cur?.quarantineIssueId ?? null;
+                const prevQ = prev?.quarantineIssueId ?? null;
+                if (curQ != null && curQ !== prevQ) return snap;
+            }
+            return activeSnap;
+        }
+
+        const added: TestSuiteChangeRow[] = [];
+        const modified: TestSuiteChangeRow[] = [];
+        const removed: TestSuiteChangeRow[] = [];
+        const newlyQuarantined: TestSuiteChangeRow[] = [];
+
+        for (const [testCaseId, ass] of activeMap) {
+            const baseAss = baseMap.get(testCaseId);
+            const isQuarantined = ass.quarantineIssueId != null;
+            const wasQuarantined = baseAss?.quarantineIssueId != null;
+
+            if (baseAss == null) {
+                const snap = findLatestPlanChange(testCaseId);
+                added.push({
+                    testCase: ass.testCase,
+                    latestSnapshotId: snap.id,
+                    latestSnapshotShortSha: shortShaOf(snap),
+                    quarantined: isQuarantined,
+                });
+                continue;
+            }
+
+            if (baseAss.planId !== ass.planId) {
+                const snap = findLatestPlanChange(testCaseId);
+                modified.push({
+                    testCase: ass.testCase,
+                    latestSnapshotId: snap.id,
+                    latestSnapshotShortSha: shortShaOf(snap),
+                    quarantined: isQuarantined,
+                });
+                continue;
+            }
+
+            // Not structurally changed by this PR, but newly quarantined - usually surfaced by replay.
+            if (isQuarantined && !wasQuarantined) {
+                const snap = findLatestQuarantine(testCaseId);
+                newlyQuarantined.push({
+                    testCase: ass.testCase,
+                    latestSnapshotId: snap.id,
+                    latestSnapshotShortSha: shortShaOf(snap),
+                    quarantined: true,
+                });
+            }
+        }
+
+        for (const [testCaseId, baseAss] of baseMap) {
+            if (activeMap.has(testCaseId)) continue;
+            const snap = findLatestPlanChange(testCaseId);
+            removed.push({
+                testCase: baseAss.testCase,
+                latestSnapshotId: snap.id,
+                latestSnapshotShortSha: shortShaOf(snap),
+                quarantined: false,
+            });
+        }
+
+        this.logger.info("PR-wide test suite changes computed", {
+            branchId,
+            added: added.length,
+            modified: modified.length,
+            removed: removed.length,
+            newlyQuarantined: newlyQuarantined.length,
+        });
+
+        return { added, modified, removed, newlyQuarantined };
     }
 
     async deleteBranch(branchId: string, organizationId: string) {

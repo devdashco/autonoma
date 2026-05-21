@@ -1,14 +1,15 @@
+type HealthTone = "healthy" | "critical" | "running" | "unknown";
+
 interface HealthCellProps {
   activeSnapshot: {
     status: string;
     _count: { testCaseAssignments: number };
+    health: HealthTone;
   } | null;
 }
 
-type HealthTone = "healthy" | "critical" | "running" | "unknown";
-
 export function PRHealthCell({ activeSnapshot }: HealthCellProps) {
-  const tone = computeTone(activeSnapshot);
+  const tone: HealthTone = activeSnapshot?.health ?? "unknown";
   const label = describeTone(tone, activeSnapshot);
 
   return (
@@ -19,14 +20,6 @@ export function PRHealthCell({ activeSnapshot }: HealthCellProps) {
       {label}
     </span>
   );
-}
-
-function computeTone(activeSnapshot: HealthCellProps["activeSnapshot"]): HealthTone {
-  if (activeSnapshot == null) return "unknown";
-  if (activeSnapshot.status === "failed") return "critical";
-  if (activeSnapshot.status === "processing") return "running";
-  if (activeSnapshot.status === "active") return "healthy";
-  return "unknown";
 }
 
 function describeTone(tone: HealthTone, activeSnapshot: HealthCellProps["activeSnapshot"]): string {

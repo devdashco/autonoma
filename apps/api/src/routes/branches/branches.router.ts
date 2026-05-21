@@ -44,6 +44,12 @@ export const branchesRouter = router({
             services.branches.getActiveSnapshot(input.branchId, organizationId),
         ),
 
+    testSuiteChangesByPr: protectedProcedure
+        .input(z.object({ branchId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getTestSuiteChangesByPr(input.branchId, organizationId),
+        ),
+
     delete: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>

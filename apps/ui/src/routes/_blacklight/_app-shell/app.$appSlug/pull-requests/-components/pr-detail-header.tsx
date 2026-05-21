@@ -4,6 +4,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { ListChecksIcon } from "@phosphor-icons/react/ListChecks";
+import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -18,12 +19,14 @@ export function PRDetailHeader({
   branchName,
   pr,
   prPending,
+  deploymentUrl,
 }: {
   applicationId: string;
   prNumber: number;
   branchName: string;
   pr: PullRequest | undefined;
   prPending: boolean;
+  deploymentUrl?: string;
 }) {
   const title = pr?.title ?? branchName;
 
@@ -68,10 +71,24 @@ export function PRDetailHeader({
               View active suite
             </Button>
           </AppLink>
-          {pr?.url != null && (
+          {pr?.url != null ? (
             <a href={pr.url} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm">
                 View on GitHub
+                <ArrowSquareOutIcon size={12} />
+              </Button>
+            </a>
+          ) : (
+            <Button variant="outline" size="sm" disabled>
+              View on GitHub
+              <ArrowSquareOutIcon size={12} />
+            </Button>
+          )}
+          {deploymentUrl != null && (
+            <a href={deploymentUrl} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm">
+                <RocketLaunchIcon size={14} />
+                View deployment
                 <ArrowSquareOutIcon size={12} />
               </Button>
             </a>
