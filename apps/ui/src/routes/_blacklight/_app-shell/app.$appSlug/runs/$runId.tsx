@@ -118,7 +118,8 @@ function RunDetailPage() {
     ? `${env.VITE_SENTRY_URL}/explore/logs/?logsFields=timestamp&logsFields=message&logsQuery=run_id%3A${run.id}&logsSortBys=-timestamp&statsPeriod=1h`
     : undefined;
 
-  const testUrl = `/app/${currentApp.slug}/tests/${run.testCaseSlug}`;
+  const testCaseSlug = run.testCaseSlug;
+  const testUrl = `/app/${currentApp.slug}/tests/${testCaseSlug}`;
 
   const lightboxSteps: NavigableStep[] = steps
     .filter((step) => (step.screenshotBefore ?? step.screenshotAfter) != null)
@@ -146,7 +147,7 @@ function RunDetailPage() {
   }
 
   function handleDeleteSuccess() {
-    void navigate({ to: "/app/$appSlug/runs" });
+    void navigate({ to: "/app/$appSlug/tests/$testSlug", params: { testSlug: testCaseSlug } });
   }
 
   return (
@@ -155,11 +156,11 @@ function RunDetailPage() {
       <div className="shrink-0 space-y-4 px-6 pt-6">
         <section className="flex items-center justify-between">
           <a
-            href={`/app/${currentApp.slug}/runs`}
+            href={testUrl}
             className="inline-flex items-center gap-1.5 text-sm text-text-tertiary transition-colors hover:text-text-primary"
           >
             <ArrowLeft size={14} />
-            Runs
+            {run.name}
           </a>
           <div className="hidden items-center gap-2 font-mono text-2xs text-text-tertiary sm:flex">
             <span>{run.shortId}</span>

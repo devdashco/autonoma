@@ -2,15 +2,14 @@ import { Badge, Button, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } fr
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { createFileRoute } from "@tanstack/react-router";
-import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureGenerationsListData, useGenerations } from "lib/query/generations.queries";
 import { useState } from "react";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
 import { AppLink } from "../../-app-link";
-import { DeleteGenerationDialog } from "./-delete-generation-dialog";
+import { DeleteGenerationDialog } from "../generations/-delete-generation-dialog";
 
-export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/generations/")({
+export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin/generations")({
   loader: ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) return;
@@ -23,7 +22,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/gener
 const TH = "px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary";
 
 function GenerationsTable() {
-  const { isAdmin } = useAuth();
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | undefined>(undefined);
   const { data: generations } = useGenerations();
 
@@ -32,8 +30,6 @@ function GenerationsTable() {
     e.stopPropagation();
     setDeleteTarget({ id, name });
   }
-
-  const colSpan = isAdmin ? 5 : 4;
 
   return (
     <Panel>
@@ -50,15 +46,15 @@ function GenerationsTable() {
               <th className={`${TH} w-5/12`}>Test name</th>
               <th className={`${TH} w-2/12`}>Status</th>
               <th className={`${TH} w-2/12`}>Steps</th>
-              <th className={`${TH} ${isAdmin ? "w-2/12" : "w-3/12"}`}>Created</th>
-              {isAdmin && <th className={`${TH} w-1/12`} />}
+              <th className={`${TH} w-2/12`}>Created</th>
+              <th className={`${TH} w-1/12`} />
             </tr>
           </thead>
           <tbody>
             {generations.length === 0 && (
               <tr>
-                <td colSpan={colSpan} className="px-4 py-10 text-center text-sm text-text-tertiary">
-                  No generations yet - run your first one!
+                <td colSpan={5} className="px-4 py-10 text-center text-sm text-text-tertiary">
+                  No generations yet.
                 </td>
               </tr>
             )}
@@ -92,13 +88,11 @@ function GenerationsTable() {
                 <td className="px-4 py-2.5 align-middle">
                   <span className="text-sm text-text-secondary whitespace-nowrap">{formatDate(gen.createdAt)}</span>
                 </td>
-                {isAdmin && (
-                  <td className="px-4 py-2.5 align-middle text-right">
-                    <Button variant="ghost" size="icon-xs" onClick={(e) => handleDeleteClick(e, gen.id, gen.testName)}>
-                      <TrashIcon size={14} className="text-text-tertiary" />
-                    </Button>
-                  </td>
-                )}
+                <td className="px-4 py-2.5 align-middle text-right">
+                  <Button variant="ghost" size="icon-xs" onClick={(e) => handleDeleteClick(e, gen.id, gen.testName)}>
+                    <TrashIcon size={14} className="text-text-tertiary" />
+                  </Button>
+                </td>
               </AppLink>
             ))}
           </tbody>
@@ -139,10 +133,10 @@ function TableSkeleton() {
 
 function GenerationsPage() {
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 p-6 lg:p-8">
       <header>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">Generations</h1>
-        <p className="mt-1 font-mono text-xs text-text-secondary">View and manage all test generations</p>
+        <p className="mt-1 font-mono text-xs text-text-secondary">Admin-only: every generation for this app.</p>
       </header>
 
       <GenerationsTable />

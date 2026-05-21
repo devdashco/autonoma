@@ -71,7 +71,7 @@ export function useMilestones(): Milestone[] {
     install_agent: base,
     configure_tests: base,
     ci: `${base}/settings`,
-    first_run: `${base}/runs`,
+    first_run: `${base}/tests`,
     first_bug: `${base}/bugs`,
   };
 

@@ -80,11 +80,12 @@ function IssueDetailPage() {
       <div className="shrink-0 space-y-4 px-6 pt-6">
         <section className="flex items-center justify-between">
           <AppLink
-            to="/app/$appSlug/issues"
+            to="/app/$appSlug/tests/$testSlug"
+            params={{ testSlug: issue.testCase.slug }}
             className="inline-flex items-center gap-1.5 text-sm text-text-tertiary transition-colors hover:text-text-primary"
           >
             <ArrowLeftIcon size={14} />
-            Issues
+            {issue.testCase.name}
           </AppLink>
           <div className="hidden items-center gap-2 font-mono text-2xs text-text-tertiary sm:flex">
             <span>{issue.id.slice(0, 8)}</span>

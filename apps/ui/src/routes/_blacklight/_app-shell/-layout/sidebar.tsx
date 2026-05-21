@@ -9,11 +9,8 @@ import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { GridFourIcon } from "@phosphor-icons/react/GridFour";
 import type { Icon } from "@phosphor-icons/react/lib";
-import { LightningIcon } from "@phosphor-icons/react/Lightning";
-import { PlayIcon } from "@phosphor-icons/react/Play";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
@@ -57,6 +54,7 @@ function useSidebarCollapsed() {
 function useAppNav() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const params = useParams({ strict: false }) as { appSlug?: string };
+  const { isAdmin } = useAuth();
 
   if (params.appSlug == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
 
@@ -67,15 +65,16 @@ function useAppNav() {
 
   const items: NavItem[] = [
     { icon: GridFourIcon, label: "Home", href: base, exact: true },
-    { icon: LightningIcon, label: "Generations", href: `${base}/generations` },
-    { icon: WarningIcon, label: "Issues", href: `${base}/issues` },
     { icon: BugBeetleIcon, label: "Bugs", href: `${base}/bugs` },
-    { icon: PlayIcon, label: "Runs", href: `${base}/runs` },
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
     { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
   ];
 
   const tools: NavItem[] = [{ icon: GearSixIcon, label: "Settings", href: `${base}/settings` }];
+
+  if (isAdmin) {
+    tools.push({ icon: ShieldCheckIcon, label: "App admin", href: `${base}/admin` });
+  }
 
   return { items, tools };
 }

@@ -10,7 +10,6 @@ import {
   stepInstruction as getStepInstruction,
   getStepOverlayPoints,
 } from "@autonoma/blacklight";
-import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
@@ -97,14 +96,7 @@ function GenerationDetailPage() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="shrink-0 space-y-4 px-6 pt-6">
-        <section className="flex items-center justify-between">
-          <AppLink
-            to="/app/$appSlug/generations"
-            className="inline-flex items-center gap-1.5 text-sm text-text-tertiary transition-colors hover:text-text-primary"
-          >
-            <ArrowLeftIcon size={14} />
-            Generations
-          </AppLink>
+        <section className="flex items-center justify-end">
           <div className="hidden items-center gap-2 font-mono text-2xs text-text-tertiary sm:flex">
             <span>{generation.shortId}</span>
             <CaretRightIcon size={12} />

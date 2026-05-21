@@ -101,7 +101,7 @@ export function useBranchActivity(): BranchActivity {
                     count: activeRuns.length,
                     label: `Running ${activeRuns.length} test${activeRuns.length !== 1 ? "s" : ""}...`,
                     colorClass: "text-sky-400",
-                    href: `${base}/runs`,
+                    href: `${base}/tests`,
                 });
             }
         }
