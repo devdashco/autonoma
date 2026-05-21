@@ -2,7 +2,7 @@ import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@aut
 import { Image } from "@phosphor-icons/react/Image";
 import { Play } from "@phosphor-icons/react/Play";
 import { formatDate } from "lib/format";
-import { useRuns } from "lib/query/runs.queries";
+import { useRunsPolling } from "lib/query/runs.queries";
 import { AppLink } from "../../-app-link";
 
 type RunStatus = "pending" | "running" | "success" | "failed";
@@ -36,7 +36,7 @@ function toRunStatusLabel(status: RunStatus) {
 const TH = "px-4 py-2.5 text-left font-mono text-2xs font-medium uppercase tracking-widest text-text-tertiary";
 
 export function RecentRunsTable() {
-  const { data: runs } = useRuns();
+  const { data: runs } = useRunsPolling();
 
   const recent = runs.slice(0, 5);
 

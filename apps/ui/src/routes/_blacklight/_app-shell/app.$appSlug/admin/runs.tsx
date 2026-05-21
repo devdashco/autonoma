@@ -12,7 +12,7 @@ import { Image } from "@phosphor-icons/react/Image";
 import { Play } from "@phosphor-icons/react/Play";
 import { createFileRoute } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
-import { useRuns } from "lib/query/runs.queries";
+import { useRunsPolling } from "lib/query/runs.queries";
 import { Suspense, useMemo } from "react";
 import { AppLink } from "../../-app-link";
 
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin
 });
 
 type RunStatus = "pending" | "running" | "success" | "failed";
-type RunItem = ReturnType<typeof useRuns>["data"][number];
+type RunItem = ReturnType<typeof useRunsPolling>["data"][number];
 
 function toRunBadgeVariant(status: RunStatus) {
   switch (status) {
@@ -50,7 +50,7 @@ function toRunStatusLabel(status: RunStatus) {
 }
 
 function RunsContent() {
-  const { data: runs } = useRuns();
+  const { data: runs } = useRunsPolling();
 
   const columns = useMemo<ColumnDef<RunItem, unknown>[]>(
     () => [

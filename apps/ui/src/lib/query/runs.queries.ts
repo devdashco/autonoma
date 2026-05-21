@@ -5,6 +5,11 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 
 export function useRuns() {
     const currentApp = useCurrentApplication();
+    return useSuspenseQuery(trpc.runs.list.queryOptions({ applicationId: currentApp.id }));
+}
+
+export function useRunsPolling() {
+    const currentApp = useCurrentApplication();
     return useSuspenseQuery(
         trpc.runs.list.queryOptions(
             { applicationId: currentApp.id },
