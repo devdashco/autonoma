@@ -356,7 +356,6 @@ describe("EnvInjector", () => {
 
             const resolved = injector.resolve(
                 configEnv,
-                {},
                 apps,
                 services,
                 "preview-ns",
@@ -378,7 +377,7 @@ describe("EnvInjector", () => {
         it("throws when an addon output key is missing", () => {
             const configEnv = { DATABASE_URL: "{{neondb.notARealKey}}" };
             expect(() =>
-                injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {
+                injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {
                     neondb: { connectionString: "postgres://..." },
                 }),
             ).toThrow(/has no output named "notARealKey"/);
@@ -392,7 +391,6 @@ describe("EnvInjector", () => {
             const configEnv = { URL: "{{api.host}}" };
             const resolved = injector.resolve(
                 configEnv,
-                {},
                 apps,
                 services,
                 "preview-ns",
@@ -406,7 +404,7 @@ describe("EnvInjector", () => {
         it("apps + services constrained to host/port/url even with addons present", () => {
             const configEnv = { OOPS: "{{api.connectionString}}" };
             expect(() =>
-                injector.resolve(configEnv, {}, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {}),
+                injector.resolve(configEnv, apps, services, "preview-ns", defaultContext, defaultPublicUrlInfo, {}),
             ).toThrow(/only host\/port\/url are supported for apps and services/);
         });
 
