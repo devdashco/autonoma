@@ -9,7 +9,7 @@ import { OnboardingApplicationNotFoundError, OnboardingState } from "./onboardin
  * typical cold-start latency.
  */
 const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
-    timeoutMs: 30_000,
+    timeoutMs: 90_000,
     maxRetries: 1,
 };
 

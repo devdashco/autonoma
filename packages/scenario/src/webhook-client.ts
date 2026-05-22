@@ -60,7 +60,7 @@ export class WebhookClient {
             body: { action: "discover" },
             responseSchema: DiscoverResponseSchema,
             maxRetries: options?.maxRetries ?? 2,
-            timeoutMs: options?.timeoutMs ?? 30_000,
+            timeoutMs: options?.timeoutMs ?? 90_000,
         });
     }
 
@@ -71,7 +71,7 @@ export class WebhookClient {
             body: { action: "up", create, testRunId: instanceId },
             responseSchema: UpResponseSchema,
             maxRetries: options?.maxRetries ?? 2,
-            timeoutMs: options?.timeoutMs ?? 30_000,
+            timeoutMs: options?.timeoutMs ?? 90_000,
         });
     }
 

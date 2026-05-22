@@ -3,7 +3,7 @@ import { DryRunSubject } from "../dry-run-subject";
 import { OnboardingState, type ScenarioDryRunResult } from "./onboarding-state";
 
 const DRY_RUN_WEBHOOK_OPTIONS: WebhookCallOptions = {
-    timeoutMs: 30_000,
+    timeoutMs: 90_000,
     maxRetries: 1,
 };
 
