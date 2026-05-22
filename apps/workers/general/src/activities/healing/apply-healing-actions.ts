@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { BugMatcher } from "@autonoma/healing";
+import { BugMatcher } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";

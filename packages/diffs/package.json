@@ -5,6 +5,7 @@
     "types": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts",
+        "./env": "./src/env.ts",
         "./prepare-runs": "./src/callbacks/trigger-tests.ts",
         "./run-diffs-locally": "./src/run-diffs-locally.ts",
         "./run-resolution-locally": "./src/run-resolution-locally.ts"
@@ -18,16 +19,21 @@
         "build": "tsc",
         "typecheck": "tsc --noEmit",
         "local-diff-analysis": "tsx --env-file=../../.env scripts/local-diff-analysis.ts",
-        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts"
+        "local-resolution": "tsx --env-file=../../.env scripts/local-resolution.ts",
+        "review:generation": "tsx --env-file=../../.env src/review/generation/run-generation-review.ts",
+        "review:replay": "tsx --env-file=../../.env src/review/replay/run-replay-review.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
-        "@autonoma/healing": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
+        "@autonoma/types": "workspace:*",
+        "@google/genai": "^1.42.0",
+        "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "glob": "^11.0.0",
         "zod": "catalog:"
@@ -37,6 +43,7 @@
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
+        "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }

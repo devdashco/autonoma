@@ -8,7 +8,7 @@ Background jobs that run as standalone processes, orchestrated as Temporal activ
 |-----|-------------|---------|
 | **diffs** | `@autonoma/job-diffs` | Analyzes code diffs on a branch, runs an AI agent to determine test impacts (new tests, updates, bug reports), and queues pending generations. |
 | **scenario** | `@autonoma/job-scenario` | Manages test scenario lifecycle - "up" provisions a scenario instance before a run/generation, "down" tears it down afterward. |
-| **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/review`; production review runs as a Temporal activity in `apps/workers/general`. |
+| **reviewer** | (legacy) | Build artifact only - no source files. Reviewer logic now lives in `@autonoma/diffs`; production review runs as a Temporal activity in `apps/workers/general`. |
 | **notifier** | (legacy) | Build artifact only - no source files. Previously handled SNS/SQS notifications. |
 
 ## Tech Stack
@@ -46,7 +46,7 @@ cd apps/jobs/scenario
 pnpm test:scenario  # runs: tsx --env-file=../../../.env src/test-scenario.ts
 ```
 
-For local generation/replay reviewer inspection, see `@autonoma/review` (`pnpm --filter @autonoma/review review:generation <generationId>` / `review:replay <runId>`).
+For local generation/replay reviewer inspection, see `@autonoma/diffs` (`pnpm --filter @autonoma/diffs review:generation <generationId>` / `review:replay <runId>`).
 
 ## Environment Variables
 
@@ -99,7 +99,7 @@ All jobs use `createEnv` from `@t3-oss/env-core` for validated environment confi
 
 ## Architecture Notes
 
-- **Each job is a separate Docker image.** Jobs never share images. They share logic through workspace packages (`@autonoma/ai`, `@autonoma/db`, `@autonoma/review`, etc.).
+- **Each job is a separate Docker image.** Jobs never share images. They share logic through workspace packages (`@autonoma/ai`, `@autonoma/db`, `@autonoma/diffs`, etc.).
 - **Run-once semantics.** Jobs execute a `main()` function wrapped in `runWithSentry()` and exit. They are not long-running services.
 - **Error handling follows the `fx` pattern** from `@autonoma/try` - Go-style error tuples with `fx.runAsync` / `fx.run`.
 - **Scenario job has two entry points:** `up.ts` (provision before test) and `down.ts` (teardown after test), each with their own env validation.

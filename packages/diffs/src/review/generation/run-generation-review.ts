@@ -1,6 +1,5 @@
 import { MODEL_ENTRIES, ModelRegistry, VideoProcessor } from "@autonoma/ai";
 import { env as aiEnv } from "@autonoma/ai/env";
-import { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
 import { base64PrivateKey } from "@autonoma/github/schemas";
@@ -11,8 +10,9 @@ import { env as storageEnv } from "@autonoma/storage/env";
 import { GoogleGenAI } from "@google/genai";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
-import { RunContextLoader } from "./context-loader";
-import { ReplayReviewer } from "./replay-reviewer";
+import { Codebase } from "../../codebase";
+import { GenerationContextLoader } from "./context-loader";
+import { GenerationReviewer } from "./generation-reviewer";
 
 const env = createEnv({
     extends: [loggerEnv, storageEnv, aiEnv],
@@ -27,27 +27,17 @@ const env = createEnv({
     skipValidation: process.env.TESTING === "true",
 });
 
-const runIdArg = process.argv[2];
-if (runIdArg == null) {
-    console.error("Usage: review:replay <runId>");
+const generationIdArg = process.argv[2];
+if (generationIdArg == null) {
+    console.error("Usage: review:generation <generationId>");
     process.exit(1);
 }
-const runId: string = runIdArg;
+const generationId: string = generationIdArg;
 
-logger.info("Local replay reviewer (read-only - no DB writes)");
-
-const run = await db.run.findUniqueOrThrow({
-    where: { id: runId },
-    select: { status: true },
-});
-
-if (run.status !== "failed") {
-    logger.info("Run is not failed - replay reviewer is failure-only", { runId, status: run.status });
-    process.exit(0);
-}
+logger.info("Local generation reviewer (read-only - no DB writes)");
 
 const storage = S3Storage.createFromEnv();
-const contextLoader = new RunContextLoader(db, storage);
+const contextLoader = new GenerationContextLoader(db, storage);
 
 const registry = new ModelRegistry({
     models: { GEMINI_3_FLASH_PREVIEW: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
@@ -58,8 +48,8 @@ const videoProcessor = new VideoProcessor(new GoogleGenAI({ apiKey: process.env.
 const codebase = await cloneCodebase();
 
 try {
-    const context = await contextLoader.load(runId);
-    const reviewer = new ReplayReviewer({
+    const context = await contextLoader.load(generationId);
+    const reviewer = new GenerationReviewer({
         model,
         evidenceLoader: contextLoader,
         videoProcessor,
@@ -75,27 +65,23 @@ try {
     printVerdict(verdict);
     process.exit(0);
 } catch (error) {
-    logger.fatal("Local replay reviewer failed", error);
+    logger.fatal("Local generation reviewer failed", error);
     process.exit(1);
 } finally {
     await codebase.dispose();
 }
 
 async function cloneCodebase(): Promise<Codebase> {
-    const dbRun = await db.run.findUniqueOrThrow({
-        where: { id: runId },
+    const generation = await db.testGeneration.findUniqueOrThrow({
+        where: { id: generationId },
         select: {
-            assignment: {
+            snapshot: {
                 select: {
-                    snapshot: {
+                    headSha: true,
+                    branch: {
                         select: {
-                            headSha: true,
-                            branch: {
-                                select: {
-                                    application: {
-                                        select: { organizationId: true, githubRepositoryId: true },
-                                    },
-                                },
+                            application: {
+                                select: { organizationId: true, githubRepositoryId: true },
                             },
                         },
                     },
@@ -103,11 +89,11 @@ async function cloneCodebase(): Promise<Codebase> {
             },
         },
     });
-    const { headSha } = dbRun.assignment.snapshot;
-    const { organizationId, githubRepositoryId } = dbRun.assignment.snapshot.branch.application;
-    if (headSha == null) throw new Error(`Run ${runId} snapshot has no headSha`);
+    const { headSha } = generation.snapshot;
+    const { organizationId, githubRepositoryId } = generation.snapshot.branch.application;
+    if (headSha == null) throw new Error(`Generation ${generationId} snapshot has no headSha`);
     if (githubRepositoryId == null) {
-        throw new Error(`Run ${runId} application has no githubRepositoryId`);
+        throw new Error(`Generation ${generationId} application has no githubRepositoryId`);
     }
 
     const installation = await db.gitHubInstallation.findUniqueOrThrow({ where: { organizationId } });
@@ -121,7 +107,7 @@ async function cloneCodebase(): Promise<Codebase> {
     const githubClient = await githubApp.getInstallationClient(installation.installationId);
     const repo = await githubClient.getRepository(githubRepositoryId);
 
-    return Codebase.clone(githubClient, `/tmp/codebase/cli-run-${runId}`, {
+    return Codebase.clone(githubClient, `/tmp/codebase/cli-gen-${generationId}`, {
         repoName: repo.fullName,
         commitSha: headSha,
     });
@@ -135,7 +121,7 @@ function printVerdict(verdict: {
     severity: string;
 }) {
     process.stdout.write(`\n${"=".repeat(60)}\n`);
-    process.stdout.write("RunReview (local, read-only)\n");
+    process.stdout.write("GenerationReview (local, read-only)\n");
     process.stdout.write(`${"=".repeat(60)}\n`);
     process.stdout.write(`Verdict:    ${verdict.verdict}\n`);
     process.stdout.write(`Confidence: ${verdict.confidence}\n`);

@@ -61,3 +61,85 @@ export {
     type LocalResolutionRunnerParams,
     type LocalTestCandidateInput,
 } from "./run-resolution-locally";
+
+export {
+    Codebase,
+    buildRepoTools,
+    type DirectoryEntry,
+    type GrepHit,
+    type GrepOptions,
+    type ReadFileOptions,
+} from "./codebase";
+
+export { HealingAgent, type HealingAgentConfig } from "./healing/healing-agent";
+export type {
+    HealingInput,
+    HealingResult,
+    FailureRecord,
+    DiffsContext,
+    SnapshotInfo,
+    PlanAuthoringInput,
+} from "./healing/types";
+export {
+    healingActionSchema,
+    type HealingAction,
+    type UpdatePlanAction,
+    type AddTestAction,
+    type ReportBugAction,
+    type ReportEngineLimitationAction,
+    type RemoveTestAction,
+    type HealingEvidenceItem,
+} from "./healing/actions";
+export { BugMatcher, type BugCandidate } from "./healing/bug-matcher";
+export {
+    PLAN_AUTHORING_GUIDE,
+    buildPlanAuthoringContext,
+    type FlowSummary,
+    type PlanAuthoringContextInput,
+    type ScenarioDetail,
+    type ScenarioSummary,
+} from "./healing/plan-authoring";
+
+export {
+    extractVerdict,
+    tryUploadVideo,
+    buildScreenshotTools,
+    buildVerdictTool,
+    runReviewAgent,
+    MessageBuilder,
+    sanitizeConversation,
+    type VideoDownloader,
+    type ScreenshotLoader,
+    type ReviewStepScreenshots,
+    type BuildScreenshotToolsParams,
+    type ReviewAgentResult,
+    type RunReviewAgentParams,
+} from "./review/kernel";
+export {
+    GenerationContextLoader,
+    GenerationReviewer,
+    GenerationReviewPersister,
+    buildGenerationReviewMessages,
+    runGenerationReview,
+    type GenerationReviewerDeps,
+    type GenerationReviewResult,
+    type PersistGenerationReviewParams,
+    type RunGenerationReviewDeps,
+    type RunGenerationReviewResult,
+    type GenerationContext,
+    type GenerationStepData,
+} from "./review/generation";
+export {
+    RunContextLoader,
+    ReplayReviewer,
+    RunReviewPersister,
+    buildReplayReviewMessages,
+    runReplayReview,
+    type ReplayReviewerDeps,
+    type ReplayReviewResult,
+    type PersistRunReviewParams,
+    type RunReplayReviewDeps,
+    type RunReplayReviewResult,
+    type RunContext,
+    type RunStepData,
+} from "./review/replay";

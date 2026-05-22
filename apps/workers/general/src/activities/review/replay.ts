@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
+import { runReplayReview } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
-import { runReplayReview } from "@autonoma/review";
 import type { ReviewReplayInput, ReviewReplayOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { withCodebaseForRun } from "../../codebase/resolve";

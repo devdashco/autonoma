@@ -201,7 +201,7 @@ export interface PersistedHealingAction {
     /**
      * The action payload as the agent emitted it. Discriminator carries the kind.
      * Kept as a typed JSON-shaped union to keep activities loosely coupled to the
-     * @autonoma/healing package.
+     * @autonoma/diffs package.
      */
     action:
         | { kind: "update_plan"; planId: string; testCaseId: string; newPrompt: string; reasoning: string }

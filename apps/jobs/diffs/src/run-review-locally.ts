@@ -1,5 +1,5 @@
 import type { LanguageModel } from "@autonoma/ai";
-import { ReplayReviewer, type RunContext, type RunStepData } from "@autonoma/review";
+import { ReplayReviewer, type RunContext, type RunStepData } from "@autonoma/diffs";
 import { LocalStorageProvider } from "@autonoma/storage/local";
 import type { ReplayVerdict } from "@autonoma/types";
 

@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LanguageModel, VideoProcessor } from "@autonoma/ai";
-import { buildCodebaseTools, type Codebase } from "@autonoma/codebase";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type GenerationVerdict, generationVerdictSchema } from "@autonoma/types";
 import type { ToolSet } from "ai";
+import { buildRepoTools, type Codebase } from "../../codebase";
 import {
     buildScreenshotTools,
     buildVerdictTool,
@@ -83,7 +83,7 @@ export class GenerationReviewer {
         };
 
         if (this.deps.codebase != null) {
-            Object.assign(tools, buildCodebaseTools(this.deps.codebase));
+            Object.assign(tools, buildRepoTools(this.deps.codebase));
         }
 
         return tools;

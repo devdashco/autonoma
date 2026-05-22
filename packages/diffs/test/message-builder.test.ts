@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { MessageBuilder, sanitizeConversation } from "../src/kernel/message-builder";
+import { MessageBuilder, sanitizeConversation } from "../src/review/kernel/message-builder";
 
 describe("MessageBuilder", () => {
     it("groups text and video parts into a single user message, then appends extras", () => {

@@ -1,8 +1,9 @@
-import type { Codebase } from "@autonoma/codebase";
 import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
 import type { ModelMessage } from "ai";
+import type { Codebase } from "../codebase";
+import type { ScenarioIndex } from "../scenario-index";
 import type { HealingAction } from "./actions";
-import type { FlowSummary, ScenarioLookup } from "./plan-authoring/types";
+import type { FlowSummary } from "./plan-authoring/types";
 
 export type { HealingAction } from "./actions";
 
@@ -58,7 +59,7 @@ export interface SnapshotInfo {
 }
 
 export interface PlanAuthoringInput {
-    scenarios: ScenarioLookup;
+    scenarios: ScenarioIndex;
     flows: FlowSummary[];
     /** Free-text guidelines from the application owner about what to / not to test. */
     testScopeGuidelines?: string;

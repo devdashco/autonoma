@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
+import { runGenerationReview } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
-import { runGenerationReview } from "@autonoma/review";
 import type { ReviewGenerationInput, ReviewGenerationOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { withCodebaseForGeneration } from "../../codebase/resolve";

@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AI_REQUEST_TIMEOUT_MS, type LanguageModel, extractMessages } from "@autonoma/ai";
-import { buildCodebaseTools } from "@autonoma/codebase";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { ToolLoopAgent, hasToolCall } from "ai";
+import { buildRepoTools } from "../codebase";
+import { buildScenarioTools } from "../tools/codebase-tools";
 import { PLAN_AUTHORING_GUIDE } from "./plan-authoring";
 import { buildHealingPrompt } from "./prompt-builder";
 import { buildHealingActionTools, createHealingActionCollector } from "./tools/action-tools";
 import { buildFinishTool } from "./tools/finish-tool";
-import { buildScenarioTools } from "./tools/scenario-tools";
 import type { HealingInput, HealingResult } from "./types";
 
 const SYSTEM_PROMPT_BASE = readFileSync(join(import.meta.dirname, "system-prompt.md"), "utf-8");
@@ -56,7 +56,7 @@ export class HealingAgent {
             instructions: SYSTEM_PROMPT,
             timeout: AI_REQUEST_TIMEOUT_MS,
             tools: {
-                ...buildCodebaseTools(input.codebase),
+                ...buildRepoTools(input.codebase),
                 ...buildScenarioTools(input.planAuthoring.scenarios),
                 ...buildHealingActionTools(collector, failureKeysByTestCaseId, {
                     allowAddTest: input.mode === "diffs",

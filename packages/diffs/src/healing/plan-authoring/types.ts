@@ -9,18 +9,6 @@ export interface ScenarioDetail extends ScenarioSummary {
     sampleMetadata?: unknown;
 }
 
-/**
- * Structural interface over an index of scenarios. Satisfied by
- * `ScenarioIndex` from `@autonoma/diffs`. Defined here so the healing package
- * (which builds the scenario tools) doesn't have to import from `@autonoma/diffs`
- * and create a dependency cycle.
- */
-export interface ScenarioLookup {
-    listScenarios(): ScenarioSummary[];
-    getScenario(id: string): ScenarioDetail | undefined;
-    hasScenario(id: string): boolean;
-}
-
 export interface FlowSummary {
     id: string;
     name: string;

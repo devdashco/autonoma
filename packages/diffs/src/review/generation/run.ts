@@ -1,10 +1,10 @@
 import type { LanguageModel, VideoProcessor } from "@autonoma/ai";
 import { CostCollector, MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import type { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { GenerationVerdict } from "@autonoma/types";
+import type { Codebase } from "../../codebase";
 import { GenerationContextLoader } from "./context-loader";
 import { GenerationReviewer } from "./generation-reviewer";
 import { GenerationReviewPersister } from "./persister";

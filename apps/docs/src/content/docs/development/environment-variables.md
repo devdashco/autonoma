@@ -274,9 +274,9 @@ The mobile engine extends the AI, database, logger, and storage environments. Al
 
 ### Review Jobs (Generation Reviewer, Replay Reviewer)
 
-**Source:** `packages/review/src/env.ts`
+**Source:** `packages/diffs/src/env.ts`
 
-Both the generation reviewer and replay reviewer jobs re-export from `@autonoma/review/env`, which extends the AI, logger, and storage environments. No additional variables beyond those from the AI, logger, and storage sections.
+Both the generation reviewer and replay reviewer jobs re-export from `@autonoma/diffs/env`, which extends the AI, logger, and storage environments. No additional variables beyond those from the AI, logger, and storage sections.
 
 ---
 

@@ -27,7 +27,7 @@ async function readSingle(codebase: Codebase, req: FileRequest): Promise<FileRes
  * AI SDK tools backed by a Codebase. Reviewers spread these into their tool
  * registry alongside the kernel's screenshot tools.
  */
-export function buildCodebaseTools(codebase: Codebase): ToolSet {
+export function buildRepoTools(codebase: Codebase): ToolSet {
     return {
         read_files: tool({
             description:

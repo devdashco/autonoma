@@ -1,5 +1,5 @@
-import { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
+import { Codebase } from "@autonoma/diffs";
 import { type GitHubApp, type GitHubInstallationClient, OctokitGitHubApp } from "@autonoma/github";
 import { env } from "../env";
 

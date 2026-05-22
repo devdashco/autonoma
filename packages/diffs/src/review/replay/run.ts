@@ -1,9 +1,9 @@
 import { CostCollector, type LanguageModel, MODEL_ENTRIES, ModelRegistry, type VideoProcessor } from "@autonoma/ai";
-import type { Codebase } from "@autonoma/codebase";
 import { db } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
+import type { Codebase } from "../../codebase";
 import { RunContextLoader } from "./context-loader";
 import { RunReviewPersister } from "./persister";
 import { ReplayReviewer } from "./replay-reviewer";

@@ -1,9 +1,9 @@
 import { AI_REQUEST_TIMEOUT_MS, extractMessages } from "@autonoma/ai";
-import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "@autonoma/healing";
 import { logger, type Logger } from "@autonoma/logger";
 import { type LanguageModel, ToolLoopAgent, hasToolCall } from "ai";
 import type { ExistingSkillInfo, ExistingTestInfo } from "./diffs-agent";
 import type { FlowIndex } from "./flow-index";
+import { PLAN_AUTHORING_GUIDE, buildPlanAuthoringContext } from "./healing/plan-authoring";
 import type { ScenarioIndex } from "./scenario-index";
 import {
     buildCodebaseTools,

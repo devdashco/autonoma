@@ -6,10 +6,9 @@ import {
     type FlowSummary,
     type HealingAction,
     type PlanAuthoringInput,
-    type ScenarioDetail,
-    type ScenarioLookup,
+    ScenarioIndex,
     healingActionSchema,
-} from "@autonoma/healing";
+} from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
@@ -249,7 +248,7 @@ async function loadPlanAuthoringInput({
     snapshotId: string;
 }): Promise<PlanAuthoringInput> {
     const [scenarios, flows, application] = await Promise.all([
-        loadScenarioLookup(db, applicationId),
+        loadScenarioIndex(db, applicationId),
         loadFlowSummaries(db, applicationId, snapshotId),
         db.application.findUniqueOrThrow({
             where: { id: applicationId },
@@ -263,7 +262,7 @@ async function loadPlanAuthoringInput({
     };
 }
 
-async function loadScenarioLookup(db: PrismaClient, applicationId: string): Promise<ScenarioLookup> {
+async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
     const scenarios = await db.scenario.findMany({
         where: { applicationId, isDisabled: false },
         select: {
@@ -282,7 +281,7 @@ async function loadScenarioLookup(db: PrismaClient, applicationId: string): Prom
         },
     });
 
-    const details: ScenarioDetail[] = scenarios.map((s) => {
+    const details = scenarios.map((s) => {
         const sample = s.instances.find((i) => i.metadata != null);
         return {
             id: s.id,
@@ -300,13 +299,7 @@ async function loadScenarioLookup(db: PrismaClient, applicationId: string): Prom
         };
     });
 
-    const byId = new Map(details.map((d) => [d.id, d]));
-
-    return {
-        listScenarios: () => details.map((d) => ({ id: d.id, name: d.name, description: d.description })),
-        getScenario: (id) => byId.get(id),
-        hasScenario: (id) => byId.has(id),
-    };
+    return new ScenarioIndex(details);
 }
 
 async function loadFlowSummaries(db: PrismaClient, applicationId: string, snapshotId: string): Promise<FlowSummary[]> {
