@@ -11,7 +11,6 @@ import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
-import { DiffsClient } from "./diffs/diffs-client";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
@@ -127,12 +126,6 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         awsExternalSecretManager,
     );
 
-    // Diffs client
-    const diffsClient =
-        env.AUTONOMA_API_URL != null && env.AUTONOMA_SERVICE_SECRET != null
-            ? new DiffsClient(env.AUTONOMA_API_URL, env.AUTONOMA_SERVICE_SECRET)
-            : undefined;
-
     // Addon plugin registry + manager. Built-in providers are registered
     // here; new providers (PlanetScale, Upstash, ...) just append to this
     // list. The OrgSecretResolver shares the AwsSecretsFetcher with the
@@ -151,7 +144,6 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         awsSecretsFetcher,
         addonManager,
         registryUrl: env.REGISTRY_URL,
-        diffsClient,
     });
 
     const teardownPipeline = new TeardownPipeline({

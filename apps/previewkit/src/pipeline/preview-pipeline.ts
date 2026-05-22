@@ -19,7 +19,6 @@ import type { AppDeployOutcome, Deployer } from "../deployer/deployer";
 import { type DeployResult } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { execInDeploymentPod } from "../deployer/pod-exec";
-import type { DiffsClient } from "../diffs/diffs-client";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -77,7 +76,6 @@ interface PreviewPipelineOptions {
     awsSecretsFetcher: AwsSecretsFetcher;
     addonManager: AddonManager;
     registryUrl: string;
-    diffsClient?: DiffsClient;
 }
 
 export class PreviewPipeline {
@@ -87,7 +85,6 @@ export class PreviewPipeline {
     private readonly awsSecretsFetcher: AwsSecretsFetcher;
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
-    private readonly diffsClient?: DiffsClient;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -96,7 +93,6 @@ export class PreviewPipeline {
         this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
-        this.diffsClient = options.diffsClient;
     }
 
     async deploy(event: PullRequestEvent): Promise<void> {
@@ -390,11 +386,12 @@ export class PreviewPipeline {
                 );
             }
 
+            const allReady = readyCount === totalCount;
+
             // 15. Single global commit status. Success only when every app
             //     came up; otherwise failure with an "N/M ready" description.
             //     Per-app contexts (`previewkit/<app>`) are a Stage B follow-up.
             if (feedbackEnabled) {
-                const allReady = readyCount === totalCount;
                 const firstReadyUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
                 await this.provider.setCommitStatus(
                     repoFullName,
@@ -405,31 +402,33 @@ export class PreviewPipeline {
                 );
             }
 
-            // 15. Trigger diffs analysis
-            const diffsClient = this.diffsClient;
-            if (diffsClient != null) {
+            // 16. Create GitHub Deployment so trigger-diffs.yml fires and runs diffs analysis.
+            try {
                 const primaryUrl = resolvePrimaryUrl(primaryConfig.apps, result.urls);
-                if (primaryUrl != null) {
-                    await diffsClient
-                        .triggerPrDiffs({
-                            organizationId,
-                            repoId: githubRepositoryId,
-                            prNumber,
-                            url: primaryUrl,
-                        })
-                        .catch((err) => {
-                            logger.fatal("Failed to trigger diffs analysis", err, {
-                                repo: repoFullName,
-                                pr: prNumber,
-                            });
-                        });
-                } else {
-                    logger.fatal("No primary URL resolved for diffs trigger", {
+                if (primaryUrl == null) {
+                    logger.warn("No primary URL resolved; deployment status will have no environment_url", {
                         repo: repoFullName,
                         pr: prNumber,
-                        availableUrls: Object.keys(result.urls),
                     });
                 }
+                const deploymentId = await this.provider.createDeployment(
+                    repoFullName,
+                    event.headRef,
+                    "preview",
+                    result.urls,
+                );
+                await this.provider.createDeploymentStatus(
+                    repoFullName,
+                    deploymentId,
+                    allReady ? "success" : "failure",
+                    primaryUrl,
+                    allReady ? "Preview environment ready" : `${readyCount}/${totalCount} apps ready`,
+                );
+            } catch (err) {
+                logger.fatal("Failed to create GitHub deployment for diffs trigger", err, {
+                    repo: repoFullName,
+                    pr: prNumber,
+                });
             }
 
             logger.info("Preview deployment complete", {

@@ -39,4 +39,20 @@ export interface GitProvider {
         description: string,
         targetUrl?: string,
     ): Promise<void>;
+
+    createDeployment(
+        repoFullName: string,
+        ref: string,
+        environment: string,
+        payload: Record<string, string>,
+    ): Promise<number>;
+
+    createDeploymentStatus(
+        repoFullName: string,
+        deploymentId: number,
+        state: "success" | "failure" | "in_progress" | "error",
+        targetUrl?: string,
+        description?: string,
+    ): Promise<void>;
 }
+

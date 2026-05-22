@@ -145,4 +145,56 @@ export class GitHubProvider implements GitProvider {
 
         logger.info("Set commit status", { repoFullName, sha, state });
     }
+
+    async createDeployment(
+        repoFullName: string,
+        ref: string,
+        environment: string,
+        payload: Record<string, string>,
+    ): Promise<number> {
+        const { owner, repo } = parseRepo(repoFullName);
+        const octokit = await this.getInstallationOctokit(repoFullName);
+
+        const { data } = await octokit.request("POST /repos/{owner}/{repo}/deployments", {
+            owner,
+            repo,
+            ref,
+            environment,
+            auto_merge: false,
+            required_contexts: [],
+            transient_environment: true,
+            payload: payload as Record<string, unknown>,
+        });
+
+        if (!("id" in data)) {
+            throw new Error(`GitHub deployment blocked: ${data.message ?? "unknown reason"}`);
+        }
+
+        logger.info("Created GitHub deployment", { repoFullName, deploymentId: data.id, environment });
+
+        return data.id;
+    }
+
+    async createDeploymentStatus(
+        repoFullName: string,
+        deploymentId: number,
+        state: "success" | "failure" | "in_progress" | "error",
+        targetUrl?: string,
+        description?: string,
+    ): Promise<void> {
+        const { owner, repo } = parseRepo(repoFullName);
+        const octokit = await this.getInstallationOctokit(repoFullName);
+
+        await octokit.request("POST /repos/{owner}/{repo}/deployments/{deployment_id}/statuses", {
+            owner,
+            repo,
+            deployment_id: deploymentId,
+            state,
+            target_url: targetUrl,
+            environment_url: targetUrl,
+            description,
+        });
+
+        logger.info("Created GitHub deployment status", { repoFullName, deploymentId, state });
+    }
 }
