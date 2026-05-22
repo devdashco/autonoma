@@ -55,4 +55,3 @@ export interface GitProvider {
         description?: string,
     ): Promise<void>;
 }
-

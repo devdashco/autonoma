@@ -12,14 +12,6 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId)),
 
-    startConfigure: protectedProcedure
-        .input(applicationIdInput)
-        .mutation(({ ctx, input }) => ctx.services.onboarding.startConfigure(input.applicationId)),
-
-    startScenarioDryRun: protectedProcedure
-        .input(applicationIdInput)
-        .mutation(({ ctx, input }) => ctx.services.onboarding.startScenarioDryRun(input.applicationId)),
-
     setUrl: protectedProcedure
         .input(z.object({ applicationId: z.string(), productionUrl: z.string().url() }))
         .mutation(({ ctx, input }) => ctx.services.onboarding.setUrl(input.applicationId, input.productionUrl)),

@@ -88,7 +88,7 @@ export function buildServices({
     cancelDiffsJob,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
-    const onboardingManager = new OnboardingManager(conn, generationProvider, scenarioManager, encryptionHelper);
+    const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper);
     const githubService = new GitHubInstallationService(conn, githubApp);
 
     return {

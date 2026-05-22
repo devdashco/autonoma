@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { authClient } from "lib/auth";
 import { ensureOrgStatusData, ensureOrganizationsData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
 import { AppShellLayout } from "./-layout/app-shell-layout";
@@ -24,8 +25,12 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext) {
 
   const activeOrganization =
     organizations.find((org) => org.id === activeOrganizationId) ??
-    (await queryClient.fetchQuery({ ...trpc.auth.activeOrg.queryOptions(), staleTime: 0 }));
-  if (activeOrganization == null) throw new Error("No active organization found");
+    (await queryClient.fetchQuery({ ...trpc.auth.activeOrg.queryOptions(), staleTime: 0 }).catch(() => undefined));
+  if (activeOrganization == null) {
+    await authClient.signOut();
+    queryClient.clear();
+    throw redirect({ to: "/login", search: { error: undefined } });
+  }
 
   const orgStatus = await ensureOrgStatusData(queryClient);
   if (orgStatus === "pending" && !isAdmin) throw redirect({ to: "/pending" });
@@ -34,7 +39,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext) {
   const applications = await queryClient.fetchQuery(trpc.applications.list.queryOptions());
 
   if (applications.length === 0) {
-    throw redirect({ to: "/onboarding", search: { step: "intro-welcome", appId: undefined } });
+    throw redirect({ to: "/onboarding", search: { step: "cli-setup", appId: undefined } });
   }
 
   return { user, organizations, activeOrganization, applications };

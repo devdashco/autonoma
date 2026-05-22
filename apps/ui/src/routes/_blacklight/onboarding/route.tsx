@@ -9,23 +9,23 @@ import { ensureSessionData } from "lib/query/auth.queries";
 import { trpc } from "lib/trpc";
 import { useState } from "react";
 import { StepProgress } from "./-components/step-progress";
+import { CliSetupPage } from "./cli-setup";
 import { CompletePage } from "./complete";
 import { GitHubPage } from "./github";
-import { InstallPage } from "./install";
-import { IntroKeyConceptsPage } from "./intro-key-concepts";
-import { IntroPlatformTourPage } from "./intro-platform-tour";
-import { IntroWelcomePage } from "./intro-welcome";
 import { DeployPage } from "./scenario-dry-run";
-import { WorkingPage } from "./working";
 
 function mapBackendStepToViewStep(step: string | undefined): OnboardingStep {
-  if (step === "working") return "working";
-  if (step === "scenario_dry_run" || step === "url") return "scenario-dry-run";
+  if (
+    step === "webhook_configuring" ||
+    step === "discovering" ||
+    step === "discovered" ||
+    step === "dry_run_passed" ||
+    step === "url"
+  )
+    return "scenario-dry-run";
   if (step === "github") return "github";
   if (step === "completed") return "complete";
-  // New users with no backend state should see the intro
-  if (step == null || step === "install") return "intro-welcome";
-  return "intro-welcome";
+  return "cli-setup";
 }
 
 export const Route = createFileRoute("/_blacklight/onboarding")({
@@ -40,26 +40,20 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     if (session == null) throw Route.redirect({ to: "/login", search: { error: undefined } });
     const applicationId = (location.search as { appId?: string }).appId;
     if (applicationId == null) {
-      return { backendStep: "install" };
+      return { backendStep: undefined };
     }
     try {
       const state = await queryClient.ensureQueryData(trpc.onboarding.getState.queryOptions({ applicationId }));
       return { backendStep: state.step };
     } catch {
-      return { backendStep: "install" };
+      return { backendStep: undefined };
     }
   },
 });
 
-function resolveViewStep(requestedStep: OnboardingStep | undefined, backendStep: string): OnboardingStep {
-  if (requestedStep != null && requestedStep.startsWith("intro-")) {
-    return requestedStep;
-  }
+function resolveViewStep(requestedStep: OnboardingStep | undefined, backendStep: string | undefined): OnboardingStep {
   const backendViewStep = mapBackendStepToViewStep(backendStep);
   if (requestedStep == null) return backendViewStep;
-  // Always trust the requested step - the UI navigates forward when the backend
-  // operation succeeds, but the route loader may re-fetch before the backend
-  // state has fully transitioned (e.g. working -> scenario_dry_run).
   return requestedStep;
 }
 
@@ -88,17 +82,13 @@ function OnboardingLayout() {
 
   function handleReset() {
     setIsResetting(true);
-    void navigate({ to: "/onboarding", search: { step: "intro-welcome", appId: undefined } });
+    void navigate({ to: "/onboarding", search: { step: "cli-setup", appId: undefined } });
     setConfirmReset(false);
     setIsResetting(false);
   }
 
   function renderStep() {
-    if (currentStepId === "intro-welcome") return <IntroWelcomePage />;
-    if (currentStepId === "intro-key-concepts") return <IntroKeyConceptsPage />;
-    if (currentStepId === "intro-platform-tour") return <IntroPlatformTourPage />;
-    if (currentStepId === "install") return <InstallPage appId={appId} />;
-    if (currentStepId === "working") return <WorkingPage appId={appId} />;
+    if (currentStepId === "cli-setup") return <CliSetupPage appId={appId} />;
     if (currentStepId === "scenario-dry-run") return <DeployPage appId={appId} />;
     if (currentStepId === "github") return <GitHubPage appId={appId} />;
     return <CompletePage />;
@@ -108,7 +98,6 @@ function OnboardingLayout() {
     <div className="relative flex h-full overflow-hidden bg-surface-void">
       <GridBackground />
 
-      {/* Top nav */}
       <div className="fixed left-0 right-0 top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
         <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
         <div className="flex items-center gap-2">
@@ -129,7 +118,6 @@ function OnboardingLayout() {
         </div>
       </div>
 
-      {/* Sidebar */}
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-tertiary">New Application</h3>
@@ -140,7 +128,6 @@ function OnboardingLayout() {
           <TalkToSupport />
         </div>
 
-        {/* Reset section */}
         <div className="border-t border-border-dim p-6">
           {confirmReset ? (
             <div className="space-y-3">
@@ -168,7 +155,6 @@ function OnboardingLayout() {
         </div>
       </aside>
 
-      {/* Main content */}
       <main
         className="relative z-10 mt-14 flex-1 overflow-y-auto"
         style={{

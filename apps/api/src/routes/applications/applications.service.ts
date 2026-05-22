@@ -324,13 +324,18 @@ export class ApplicationsService extends Service {
 
         const app = await this.db.application.findFirst({
             where: { id, organizationId, disabled: false },
-            select: { id: true },
+            select: { id: true, slug: true, name: true },
         });
         if (app == null) throw new NotFoundError();
 
+        const suffix = `deleted-${crypto.randomUUID().slice(0, 8)}`;
         await this.db.application.update({
             where: { id },
-            data: { disabled: true },
+            data: {
+                disabled: true,
+                slug: `${suffix}-${app.slug}`,
+                name: `${suffix}-${app.name}`,
+            },
         });
 
         this.logger.info("Application disabled", { applicationId: id });

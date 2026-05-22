@@ -20,7 +20,7 @@ import {
   useLinkRepository,
 } from "lib/query/github.queries";
 import { useCompleteGithub } from "lib/query/onboarding.queries";
-import { Suspense, useState } from "react";
+import { Component, Suspense, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
@@ -88,9 +88,11 @@ export function GitHubPage({ appId }: { appId?: string }) {
         </div>
       )}
 
-      <Suspense fallback={<GitHubContentSkeleton />}>
-        <GitHubContent appId={applicationId} />
-      </Suspense>
+      <GitHubErrorBoundary>
+        <Suspense fallback={<GitHubContentSkeleton />}>
+          <GitHubContent appId={applicationId} />
+        </Suspense>
+      </GitHubErrorBoundary>
     </>
   );
 }
@@ -102,6 +104,29 @@ function GitHubContentSkeleton() {
       <Skeleton className="h-10 w-48" />
     </div>
   );
+}
+
+class GitHubErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
+  override state: { error?: Error } = {};
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  override render() {
+    if (this.state.error != null) {
+      return (
+        <div className="flex items-start gap-3 rounded border border-status-critical/30 bg-status-critical/5 px-5 py-4">
+          <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
+          <div>
+            <p className="text-sm font-medium text-text-primary">Failed to load GitHub configuration</p>
+            <p className="mt-1 font-mono text-3xs text-text-tertiary">{this.state.error.message}</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function GitHubContent({ appId }: { appId: string }) {

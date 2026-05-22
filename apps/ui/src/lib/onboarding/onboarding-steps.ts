@@ -1,13 +1,4 @@
-export const ONBOARDING_STEPS = [
-    "intro-welcome",
-    "intro-key-concepts",
-    "intro-platform-tour",
-    "install",
-    "working",
-    "scenario-dry-run",
-    "github",
-    "complete",
-] as const;
+export const ONBOARDING_STEPS = ["cli-setup", "scenario-dry-run", "github", "complete"] as const;
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 

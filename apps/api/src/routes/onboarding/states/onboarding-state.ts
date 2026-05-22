@@ -44,10 +44,10 @@ export interface ScenarioDryRunResult {
 /**
  * Base class for the onboarding state machine (State pattern).
  *
- * Each step in the onboarding flow (install -> configure -> working ->
- * scenario_dry_run -> url -> github -> completed) is represented by a concrete subclass that
- * overrides only the transitions valid for that step. All other transitions
- * throw {@link InvalidOnboardingStepError}.
+ * Each step in the onboarding flow (webhook_configuring -> discovered ->
+ * dry_run_passed -> url -> github -> completed) is represented by a concrete
+ * subclass that overrides only the transitions valid for that step. All other
+ * transitions throw {@link InvalidOnboardingStepError}.
  *
  * The {@link OnboardingManager} loads the appropriate subclass based on the
  * persisted step and delegates all mutations to it.
@@ -62,21 +62,6 @@ export abstract class OnboardingState {
         protected readonly deps: OnboardingStateDeps,
     ) {
         this.logger = logger.child({ name: this.constructor.name, applicationId });
-    }
-
-    /** Transition from `install` to `configure`. */
-    startConfigure(): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "start configure");
-    }
-
-    /** Transition from `configure` to `working` after the agent connects. */
-    markAgentConnected(): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "mark agent connected");
-    }
-
-    /** Transition from `working` to `webhook_configuring`. */
-    startScenarioDryRun(): Promise<void> {
-        throw new InvalidOnboardingStepError(this.step, "start scenario dry run");
     }
 
     /**
@@ -118,13 +103,12 @@ export abstract class OnboardingState {
         throw new InvalidOnboardingStepError(this.step, "complete github");
     }
 
-    /** Reset onboarding back to `install`, clearing all progress. Available from any step. */
     async reset(): Promise<void> {
         this.logger.info("Resetting onboarding");
         await this.db.onboardingState.update({
             where: { applicationId: this.applicationId },
             data: {
-                step: "install",
+                step: "webhook_configuring",
                 agentConnectedAt: null,
                 agentLogs: [],
                 productionUrl: null,

@@ -14,18 +14,6 @@ export class OnboardingService extends Service {
         return this.manager.getLogs(applicationId);
     }
 
-    async startConfigure(applicationId: string) {
-        return this.manager.startConfigure(applicationId);
-    }
-
-    async markAgentConnected(applicationId: string) {
-        return this.manager.markAgentConnected(applicationId);
-    }
-
-    async startScenarioDryRun(applicationId: string) {
-        return this.manager.startScenarioDryRun(applicationId);
-    }
-
     async setUrl(applicationId: string, productionUrl: string) {
         return this.manager.setUrl(applicationId, productionUrl);
     }

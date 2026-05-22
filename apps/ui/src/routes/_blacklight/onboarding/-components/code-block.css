@@ -1,4 +1,0 @@
-@keyframes heartbeat-border {
-  0%, 100% { box-shadow: 0 0 0 0 var(--primary-ink); }
-  50% { box-shadow: 0 0 10px 0 var(--primary-ink); }
-}

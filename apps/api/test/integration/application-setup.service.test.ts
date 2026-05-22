@@ -32,7 +32,7 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
 apiTestSuite({
     name: "application-setup-service",
     cases: (test) => {
-        test("createSetup moves onboarding from install to working", async ({ harness }) => {
+        test("createSetup creates a setup record with totalSteps", async ({ harness }) => {
             const app = await harness.services.applications.createApplication({
                 name: "Onboarding Progress Test",
                 organizationId: harness.organizationId,
@@ -52,16 +52,12 @@ apiTestSuite({
 
             await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
 
-            const onboarding = await harness.db.onboardingState.findUnique({
-                where: { applicationId: app.id },
-            });
             const setup = await harness.db.applicationSetup.findFirstOrThrow({
                 where: { applicationId: app.id },
-                select: { totalSteps: true },
+                select: { totalSteps: true, status: true },
             });
-            expect(onboarding?.step).toBe("working");
-            expect(onboarding?.agentConnectedAt).not.toBeNull();
             expect(setup.totalSteps).toBe(TOTAL_SETUP_STEPS);
+            expect(setup.status).toBe("running");
         });
 
         test("final step completion marks setup complete and advances onboarding", async ({ harness }) => {
@@ -108,8 +104,8 @@ apiTestSuite({
             expect(onboarding.step).toBe("webhook_configuring");
         });
 
-        test("partial_failure update keeps setup on working without completion timestamp", async ({ harness }) => {
-            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Partial Failure");
+        test("partial_failure update marks setup without completion timestamp", async ({ harness }) => {
+            const { setupId, service } = await createSetupFixture(harness, "Application Setup Partial Failure");
 
             await service.updateSetup(setupId, harness.organizationId, {
                 status: "partial_failure",
@@ -120,15 +116,10 @@ apiTestSuite({
                 where: { id: setupId },
                 select: { status: true, completedAt: true, errorMessage: true },
             });
-            const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
-                where: { applicationId: app.id },
-                select: { step: true },
-            });
 
             expect(setup.status).toBe("partial_failure");
             expect(setup.completedAt).toBeNull();
             expect(setup.errorMessage).toBe("Scenario validation failed during recipe preflight");
-            expect(onboarding.step).toBe("working");
         });
 
         test("error event still marks setup failed", async ({ harness }) => {

@@ -169,7 +169,7 @@ enum OnboardingStep {
 model OnboardingState {
   id                   String         @id @default(cuid())
   applicationId        String         @unique @map("application_id")
-  step                 OnboardingStep @default(install) @map("step")
+  step                 OnboardingStep @default(webhook_configuring) @map("step")
   agentConnectedAt     DateTime?      @map("agent_connected_at")
   /// [AgentLogEntry]
   agentLogs            Json           @default("[]") @map("agent_logs")

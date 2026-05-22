@@ -141,8 +141,9 @@ apiTestSuite({
             expect(unlinkedRepo?.applicationId).toBeUndefined();
         });
 
-        test("listRepositories throws NotFoundError when no installation", async ({ harness }) => {
-            await expect(harness.services.github.listRepositories("nonexistent-org-id")).rejects.toThrow(NotFoundError);
+        test("listRepositories returns empty array when no installation", async ({ harness }) => {
+            const repos = await harness.services.github.listRepositories("nonexistent-org-id");
+            expect(repos).toEqual([]);
         });
 
         test("linkRepository sets githubRepositoryId on application", async ({

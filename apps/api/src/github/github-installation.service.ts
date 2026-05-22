@@ -1,5 +1,6 @@
 import type { GitHubWebhookEventType, PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { Prisma } from "@autonoma/db";
+import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type { Commit, GitHubApp, PullRequest, PullRequestCommit, Repository } from "@autonoma/github";
 import { Service } from "../routes/service";
 
@@ -210,7 +211,22 @@ export class GitHubInstallationService extends Service {
     async listRepositories(orgId: string): Promise<ListedRepository[]> {
         this.logger.info("Listing repositories", { orgId });
 
-        const client = await this.getOrgInstallationClient(orgId);
+        const installation = await this.db.gitHubInstallation.findUnique({
+            where: { organizationId: orgId },
+        });
+        if (installation == null) return [];
+
+        let client;
+        try {
+            client = await this.githubApp.getInstallationClient(installation.installationId);
+        } catch (err) {
+            this.logger.warn("Failed to get installation client - installation may be stale", {
+                installationId: installation.installationId,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            return [];
+        }
+
         const repos = await client.listInstallationRepos();
 
         const linkedApps = await this.db.application.findMany({
@@ -246,10 +262,17 @@ export class GitHubInstallationService extends Service {
 
         await client.getRepository(githubRepoId);
 
-        await this.db.application.update({
-            where: { id: applicationId },
-            data: { githubRepositoryId: githubRepoId },
-        });
+        try {
+            await this.db.application.update({
+                where: { id: applicationId },
+                data: { githubRepositoryId: githubRepoId },
+            });
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+                throw new ConflictError("This repository is already linked to another application");
+            }
+            throw error;
+        }
 
         this.logger.info("Repository linked to application", { applicationId, githubRepoId });
     }

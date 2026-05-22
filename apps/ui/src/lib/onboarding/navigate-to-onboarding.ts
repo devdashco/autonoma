@@ -2,9 +2,9 @@ import type { NavigateFn } from "@tanstack/react-router";
 import type { OnboardingStep } from "./onboarding-steps";
 
 const STEP_ROUTES: Record<string, OnboardingStep> = {
-    install: "install",
-    configure: "install",
-    working: "working",
+    install: "cli-setup",
+    configure: "cli-setup",
+    working: "cli-setup",
     webhook_configuring: "scenario-dry-run",
     discovering: "scenario-dry-run",
     discovered: "scenario-dry-run",
@@ -14,11 +14,7 @@ const STEP_ROUTES: Record<string, OnboardingStep> = {
     completed: "complete",
 };
 
-/**
- * Navigate to the onboarding step that corresponds to the application's current state.
- * The applicationId is passed via search params so each page can read it.
- */
 export function navigateToOnboarding(applicationId: string, step: string | undefined, navigate: NavigateFn) {
-    const resolvedStep: OnboardingStep = STEP_ROUTES[step ?? "install"] ?? "intro-welcome";
+    const resolvedStep: OnboardingStep = STEP_ROUTES[step ?? "webhook_configuring"] ?? "cli-setup";
     void navigate({ to: "/onboarding", search: { step: resolvedStep, appId: applicationId } });
 }

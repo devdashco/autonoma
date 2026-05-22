@@ -21,7 +21,6 @@ import {
 import { toSlug } from "@autonoma/utils";
 import matter from "gray-matter";
 import type { OnboardingManager } from "../routes/onboarding/onboarding-manager";
-import { InvalidOnboardingStepError } from "../routes/onboarding/states/onboarding-state";
 
 const log = logger.child({ name: "ApplicationSetupService" });
 
@@ -74,43 +73,8 @@ export class ApplicationSetupService {
             });
         });
 
-        await this.advanceOnboardingForAgentConnection(applicationId);
-
         log.info("Created application setup", { setupId: setup.id, applicationId });
         return { id: setup.id, applicationId };
-    }
-
-    private async advanceOnboardingForAgentConnection(applicationId: string) {
-        const onboarding = await this.onboardingManager.getState(applicationId);
-
-        if (onboarding.step === "install") {
-            await this.onboardingManager.startConfigure(applicationId);
-        }
-
-        try {
-            await this.onboardingManager.markAgentConnected(applicationId);
-        } catch (err) {
-            if (err instanceof InvalidOnboardingStepError) {
-                const latest = await this.onboardingManager.getState(applicationId);
-                if (
-                    latest.step === "working" ||
-                    latest.step === "webhook_configuring" ||
-                    latest.step === "discovering" ||
-                    latest.step === "discovered" ||
-                    latest.step === "dry_run_passed" ||
-                    latest.step === "url" ||
-                    latest.step === "github" ||
-                    latest.step === "completed"
-                ) {
-                    log.info("Agent connected - onboarding already at or past working step", {
-                        applicationId,
-                        step: latest.step,
-                    });
-                    return;
-                }
-            }
-            throw err;
-        }
     }
 
     private async resolveUniqueName(
@@ -176,7 +140,6 @@ export class ApplicationSetupService {
             return found;
         });
 
-        // Advance onboarding after the transaction commits so there's no deadlock
         if (setupCompleted && applicationId != null) {
             const onboardingState = await this.onboardingManager.getState(applicationId);
             if (onboardingState.step === "completed") {
@@ -185,20 +148,6 @@ export class ApplicationSetupService {
                     setupId,
                     applicationId,
                 });
-            } else {
-                try {
-                    await this.onboardingManager.startScenarioDryRun(applicationId);
-                    log.info("Advanced onboarding to scenario_dry_run after setup completion", {
-                        setupId,
-                        applicationId,
-                    });
-                } catch (err) {
-                    if (err instanceof InvalidOnboardingStepError) {
-                        log.info("Onboarding already past working step", { applicationId });
-                    } else {
-                        throw err;
-                    }
-                }
             }
         }
 

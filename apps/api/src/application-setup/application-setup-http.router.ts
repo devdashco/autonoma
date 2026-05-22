@@ -23,7 +23,7 @@ export const applicationSetupHttpRouter = new Hono<{ Variables: UserAuthVariable
 applicationSetupHttpRouter.use("*", cors({ origin: "*" }));
 applicationSetupHttpRouter.use("*", requireApiKey({ db }));
 
-const onboardingManager = new OnboardingManager(db, generationProvider, scenarioManager, encryptionHelper);
+const onboardingManager = new OnboardingManager(db, scenarioManager, encryptionHelper);
 const service = new ApplicationSetupService(db, generationProvider, onboardingManager, scenarioManager);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
