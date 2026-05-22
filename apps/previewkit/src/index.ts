@@ -8,6 +8,7 @@ import { NeonProvider } from "./addons/providers/neon";
 import { AddonProviderRegistry } from "./addons/registry";
 import { createApp } from "./app";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
+import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { Deployer } from "./deployer/deployer";
 import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
 import { DiffsClient } from "./diffs/diffs-client";
@@ -47,6 +48,23 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         }
     }
 
+    // Local cluster kubeconfig (cluster A - same cluster previewkit itself
+    // runs in). `kc` above points at the preview cluster (B) and is used by
+    // the Deployer; `localKc` is used by the BuildKitJobManager to spawn
+    // ephemeral buildkitd Jobs alongside previewkit.
+    //
+    // In production, EKS_CLUSTER_NAME is set and `kc` is for cluster B; here
+    // we mount the pod's in-cluster ServiceAccount token to reach the control
+    // plane. In local dev there's only one cluster, so the same kc serves
+    // both roles.
+    let localKc: k8s.KubeConfig;
+    if (env.EKS_CLUSTER_NAME != null) {
+        localKc = new k8s.KubeConfig();
+        localKc.loadFromCluster();
+    } else {
+        localKc = kc;
+    }
+
     // Git provider
     const githubProvider = new GitHubProvider({
         appId: env.GITHUB_APP_ID,
@@ -56,10 +74,22 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
     const storage = S3Storage.createFromEnv();
 
+    // Per-build buildkitd lifecycle. The manager spins up an ephemeral Job +
+    // Service per app build in cluster A, and the builder dials it via
+    // in-cluster DNS. `activeDeadlineSeconds` is a K8s-level kill switch in
+    // case previewkit crashes mid-build; we set it to BUILD_TIMEOUT_MS + 60s
+    // so it never fires before the buildctl-level timeout.
+    const buildkitJobManager = new BuildKitJobManager({
+        kc: localKc,
+        namespace: env.BUILDKIT_BUILD_NAMESPACE,
+        image: env.BUILDKIT_IMAGE,
+        activeDeadlineSeconds: Math.ceil(env.BUILD_TIMEOUT_MS / 1000) + 60,
+    });
+
     // Builder. The BuildKit layer cache shares the storage bucket with build logs;
     // each writes under a distinct top-level key prefix so they can coexist.
     const builder = new BuildKitBuilder({
-        buildkitHost: env.BUILDKIT_HOST,
+        jobManager: buildkitJobManager,
         buildTimeoutMs: env.BUILD_TIMEOUT_MS,
         storage,
     });

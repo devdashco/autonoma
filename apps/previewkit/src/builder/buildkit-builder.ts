@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
 import { BuildError, type Builder, type BuildRequest, type BuildResult } from "./builder";
+import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
 
 const LOG_KEY_PREFIX = "buildctl/logs";
@@ -15,8 +16,32 @@ const BUILDKIT_RETRY_DELAY_MS = 5000;
 // 8 KB is enough for any error string without buffering the full build log.
 const TAIL_SIZE = 8192;
 
+/**
+ * Substrings that, when found in buildctl's stdout/stderr tail, indicate the
+ * remote buildkitd disappeared mid-build rather than the build itself
+ * failing. Most of these surface when the buildkitd pod is evicted by
+ * kubelet (node pressure, spot interruption), OOMKilled, or otherwise
+ * terminated by the cluster - all cases where retrying on a fresh Job is
+ * the right move. False positives here just burn one retry attempt, so we
+ * lean inclusive.
+ */
+const TRANSIENT_NETWORK_PATTERNS: readonly RegExp[] = [
+    /graceful_stop/,
+    /connection refused/,
+    /connection reset/,
+    /broken pipe/,
+    /unexpected EOF/,
+    /rpc error.*code = Unavailable/,
+    /transport.*error while dialing/,
+    /transport is closing/,
+    /no such host/,
+];
+
 interface BuildKitBuilderOptions {
-    buildkitHost: string;
+    /** Per-build buildkitd lifecycle. The builder calls
+     *  `jobManager.provision()` at the start of each build, uses the returned
+     *  `host` as buildctl's `--addr`, and calls `release()` in `finally`. */
+    jobManager: BuildKitJobManager;
     buildTimeoutMs: number;
     storage: S3Storage;
 }
@@ -35,13 +60,13 @@ interface BuildKitBuilderOptions {
  * the captured logs.
  */
 export class BuildKitBuilder implements Builder {
-    private readonly buildkitHost: string;
+    private readonly jobManager: BuildKitJobManager;
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
     private readonly storage: S3Storage;
 
     constructor(options: BuildKitBuilderOptions) {
-        this.buildkitHost = options.buildkitHost;
+        this.jobManager = options.jobManager;
         this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
@@ -67,9 +92,14 @@ export class BuildKitBuilder implements Builder {
             const isLastAttempt = attempt === BUILD_MAX_RETRIES;
             const logPath = this.buildLogPath(request.imageTag);
             const logStream = createWriteStream(logPath, { flags: "a" });
+            // Fresh buildkitd per attempt: a transient failure usually means the
+            // previous buildkit Job's pod is in a bad state (evicted, gracefully
+            // stopped, etc.), so retrying against the same pod is pointless.
+            let instance: BuildKitInstance | undefined;
 
             try {
-                const imageTag = await this.dispatchBuild(request, logStream);
+                instance = await this.jobManager.provision();
+                const imageTag = await this.dispatchBuild(request, instance.host, logStream);
                 const logUrl = await this.closeAndUploadLog(logStream, logPath, request.imageTag);
                 const durationMs = Date.now() - start;
                 logger.info("Build complete", { app: request.appName, imageTag, durationMs, logUrl });
@@ -84,6 +114,16 @@ export class BuildKitBuilder implements Builder {
                 }
                 throw err;
             } finally {
+                const toRelease = instance;
+                if (toRelease != null) {
+                    await this.jobManager.release(toRelease).catch((releaseErr) => {
+                        logger.fatal("Failed to release buildkit Job", {
+                            app: request.appName,
+                            name: toRelease.name,
+                            releaseErr,
+                        });
+                    });
+                }
                 await rm(logPath, { force: true }).catch(() => {});
             }
         }
@@ -91,12 +131,12 @@ export class BuildKitBuilder implements Builder {
         throw new BuildError("buildkit build loop exited without returning");
     }
 
-    private dispatchBuild(request: BuildRequest, logStream: WriteStream): Promise<string> {
+    private dispatchBuild(request: BuildRequest, buildkitHost: string, logStream: WriteStream): Promise<string> {
         const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
         if (dockerfilePath != null) {
-            return this.buildWithBuildctl(request, dockerfilePath, logStream);
+            return this.buildWithBuildctl(request, dockerfilePath, buildkitHost, logStream);
         }
-        return this.buildWithRailpack(request, logStream);
+        return this.buildWithRailpack(request, buildkitHost, logStream);
     }
 
     private async onTransientError(
@@ -164,6 +204,7 @@ export class BuildKitBuilder implements Builder {
     private async buildWithBuildctl(
         request: BuildRequest,
         dockerfilePath: string,
+        buildkitHost: string,
         logStream: WriteStream,
     ): Promise<string> {
         const dockerfileDir = dirname(dockerfilePath);
@@ -173,6 +214,7 @@ export class BuildKitBuilder implements Builder {
             app: request.appName,
             dockerfile: dockerfilePath,
             imageTag: request.imageTag,
+            buildkitHost,
         });
 
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
@@ -181,7 +223,7 @@ export class BuildKitBuilder implements Builder {
         try {
             const args = [
                 "--addr",
-                this.buildkitHost,
+                buildkitHost,
                 "build",
                 "--progress",
                 "plain",
@@ -218,11 +260,16 @@ export class BuildKitBuilder implements Builder {
         }
     }
 
-    private async buildWithRailpack(request: BuildRequest, logStream: WriteStream): Promise<string> {
+    private async buildWithRailpack(
+        request: BuildRequest,
+        buildkitHost: string,
+        logStream: WriteStream,
+    ): Promise<string> {
         logger.info("Building with railpack (auto-detect)", {
             app: request.appName,
             contextPath: request.contextPath,
             imageTag: request.imageTag,
+            buildkitHost,
         });
 
         const ecrAuth = await this.ecr.getAuth(request.imageTag);
@@ -241,7 +288,7 @@ export class BuildKitBuilder implements Builder {
 
             const args = [
                 "--addr",
-                this.buildkitHost,
+                buildkitHost,
                 "build",
                 "--progress",
                 "plain",
@@ -323,7 +370,7 @@ export class BuildKitBuilder implements Builder {
                     resolvePromise();
                 } else {
                     const combined = stdoutTail + stderrTail;
-                    const isTransient = combined.includes("graceful_stop") || combined.includes("connection refused");
+                    const isTransient = TRANSIENT_NETWORK_PATTERNS.some((p) => p.test(combined));
                     reject(new BuildError(`${command} exited with code ${code}`, { isTransient }));
                 }
             });

@@ -18,6 +18,7 @@ const apps: AppConfig[] = [
         env: {},
         replicas: 1,
         resources: { cpu: "250m", memory: "256Mi" },
+        build_secrets: [],
     },
     {
         name: "api",
@@ -27,6 +28,7 @@ const apps: AppConfig[] = [
         env: {},
         replicas: 1,
         resources: { cpu: "250m", memory: "256Mi" },
+        build_secrets: [],
     },
 ];
 
@@ -36,12 +38,14 @@ const services: ServiceConfig[] = [
         recipe: "postgres",
         env: {},
         resources: { cpu: "250m", memory: "256Mi" },
+        options: undefined,
     },
     {
         name: "cache",
         recipe: "redis",
         env: {},
         resources: { cpu: "250m", memory: "256Mi" },
+        options: undefined,
     },
 ];
 
@@ -196,6 +200,7 @@ describe("EnvInjector", () => {
                 recipe: "temporal",
                 env: {},
                 resources: { cpu: "250m", memory: "256Mi" },
+                options: undefined,
             },
         ];
 

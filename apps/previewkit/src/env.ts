@@ -18,8 +18,12 @@ export const env = createEnv({
         // Container registry
         REGISTRY_URL: z.string().default("registry.previewkit.svc.cluster.local:5000"),
 
-        // BuildKit
-        BUILDKIT_HOST: z.string().default("tcp://buildkitd.previewkit.svc.cluster.local:1234"),
+        // BuildKit: a fresh buildkitd Job is spawned per build in
+        // BUILDKIT_BUILD_NAMESPACE using BUILDKIT_IMAGE. The Job runs in
+        // the same cluster as previewkit; previewkit connects to it by
+        // in-cluster DNS, so no static endpoint is configured here.
+        BUILDKIT_BUILD_NAMESPACE: z.string().default("previewkit-builds"),
+        BUILDKIT_IMAGE: z.string().default("moby/buildkit:v0.21.1"),
         BUILD_TIMEOUT_MS: z.coerce.number().default(1_800_000), // 30 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
