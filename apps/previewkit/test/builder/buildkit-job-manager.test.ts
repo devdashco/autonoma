@@ -174,6 +174,21 @@ describe("BuildKitJobManager", () => {
         expect(job.spec?.template.spec?.tolerations).toEqual([
             { key: "pool", operator: "Equal", value: "buildkit", effect: "NoSchedule" },
         ]);
+        // buildkitd.toml (ECR PTC mirror + GC policy) is mounted from the
+        // shared ConfigMap. Without --config + the volume mount, every build
+        // hits Docker Hub directly and trips the anonymous rate limit.
+        expect(job.spec?.template.spec?.containers[0]?.args).toEqual([
+            "--addr",
+            "tcp://0.0.0.0:1234",
+            "--config",
+            "/etc/buildkit/buildkitd.toml",
+        ]);
+        expect(job.spec?.template.spec?.containers[0]?.volumeMounts).toEqual([
+            { name: "buildkitd-config", mountPath: "/etc/buildkit", readOnly: true },
+        ]);
+        expect(job.spec?.template.spec?.volumes).toEqual([
+            { name: "buildkitd-config", configMap: { name: "buildkitd-config" } },
+        ]);
         // Soft anti-affinity so one build pod per node where possible.
         const antiAffinity =
             job.spec?.template.spec?.affinity?.podAntiAffinity?.preferredDuringSchedulingIgnoredDuringExecution;

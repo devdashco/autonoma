@@ -47,6 +47,7 @@ interface AppBuildContext {
     config: PreviewConfig;
     appRepoDirs: Map<string, string>;
     arnByApp: Map<string, string>;
+    applicationId: string;
     envInjector: EnvInjector;
     namespace: string;
     templateContext: { pr: string; namespace: string; owner: string };
@@ -290,6 +291,12 @@ export class PreviewPipeline {
             for (const s of application.previewkitSecrets) {
                 if (s.appName != null) arnByApp.set(s.appName, s.awsSecretArn);
             }
+            logger.info("Resolved Application for build", {
+                repo: repoFullName,
+                pr: prNumber,
+                applicationId: application.id,
+                registeredSecretApps: [...arnByApp.keys()].sort(),
+            });
             const appBuilds = await this.buildAllApps(
                 mergedConfig,
                 appRepoDirs,
@@ -297,6 +304,7 @@ export class PreviewPipeline {
                 prNumber,
                 shortSha,
                 arnByApp,
+                application.id,
                 addonOutputs,
             );
             const buildDurationMs = Date.now() - buildStart;
@@ -532,6 +540,7 @@ export class PreviewPipeline {
         prNumber: number,
         shortSha: string,
         arnByApp: Map<string, string>,
+        applicationId: string,
         addonOutputs: AddonOutputs,
     ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
@@ -563,6 +572,7 @@ export class PreviewPipeline {
                     config,
                     appRepoDirs,
                     arnByApp,
+                    applicationId,
                     envInjector,
                     namespace,
                     templateContext,
@@ -593,9 +603,10 @@ export class PreviewPipeline {
                 const registered = [...ctx.arnByApp.keys()].sort();
                 const registeredList = registered.length > 0 ? registered.join(", ") : "(none)";
                 throw new Error(
-                    `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it in the registry. ` +
+                    `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it under applicationId=${ctx.applicationId}. ` +
                         `Registered appNames for this Application: ${registeredList}. ` +
-                        `Upsert a secret via PUT /v1/secrets/<applicationId>/${app.name} (or the autonoma dashboard) so the AWS Secrets Manager bundle is linked to this appName.`,
+                        `If your secrets are attached to a different Application row (e.g. one without a github_repository_id), point them at ${ctx.applicationId} instead - that's the Application linked to this GitHub repo. ` +
+                        `Otherwise upsert a secret via PUT /v1/secrets/${ctx.applicationId}/${app.name}.`,
                 );
             }
 

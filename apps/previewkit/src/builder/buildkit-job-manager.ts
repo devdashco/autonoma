@@ -12,6 +12,10 @@ const LABEL_BUILD_ID = "previewkit.dev/build-id";
 const BUILDKIT_PORT = 1234;
 const BUILD_ID_BYTES = 8;
 const BUILD_NODE_POOL = "buildkit";
+const BUILDKITD_CONFIG_CONFIGMAP = "buildkitd-config";
+const BUILDKITD_CONFIG_VOLUME = "buildkitd-config";
+const BUILDKITD_CONFIG_MOUNT_PATH = "/etc/buildkit";
+const BUILDKITD_CONFIG_FILE = "/etc/buildkit/buildkitd.toml";
 const READINESS_POLL_INTERVAL_MS = 500;
 const DEFAULT_READINESS_TIMEOUT_MS = 90_000;
 const DIAL_TIMEOUT_MS = 2_000;
@@ -252,7 +256,7 @@ export class BuildKitJobManager {
                             {
                                 name: "buildkitd",
                                 image: this.options.image,
-                                args: ["--addr", `tcp://0.0.0.0:${BUILDKIT_PORT}`],
+                                args: ["--addr", `tcp://0.0.0.0:${BUILDKIT_PORT}`, "--config", BUILDKITD_CONFIG_FILE],
                                 ports: [{ containerPort: BUILDKIT_PORT, name: "buildkit" }],
                                 // Privileged is required for buildkitd's overlayfs
                                 // worker on a stock kernel. Rootless mode is a v2
@@ -269,6 +273,19 @@ export class BuildKitJobManager {
                                     requests: { cpu: "1", memory: "2Gi" },
                                     limits: { cpu: "4", memory: "8Gi" },
                                 },
+                                volumeMounts: [
+                                    {
+                                        name: BUILDKITD_CONFIG_VOLUME,
+                                        mountPath: BUILDKITD_CONFIG_MOUNT_PATH,
+                                        readOnly: true,
+                                    },
+                                ],
+                            },
+                        ],
+                        volumes: [
+                            {
+                                name: BUILDKITD_CONFIG_VOLUME,
+                                configMap: { name: BUILDKITD_CONFIG_CONFIGMAP },
                             },
                         ],
                     },
