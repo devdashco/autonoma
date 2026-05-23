@@ -270,8 +270,7 @@ export class BuildKitJobManager {
                                     failureThreshold: 30,
                                 },
                                 resources: {
-                                    requests: { cpu: "1", memory: "2Gi" },
-                                    limits: { cpu: "4", memory: "8Gi" },
+                                    requests: { cpu: "4", memory: "8Gi" },
                                 },
                                 volumeMounts: [
                                     {
