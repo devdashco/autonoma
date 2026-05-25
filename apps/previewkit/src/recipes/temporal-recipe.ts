@@ -1,6 +1,6 @@
 import type * as k8s from "@kubernetes/client-node";
 import type { ServiceConfig } from "../config/schema";
-import type { Recipe, RecipeConnectionInfo, RecipeResources } from "./recipe";
+import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 // IMPORTANT: this repo's tag namespace is the Temporal *CLI* version
 // (currently 1.7.x on Docker Hub), NOT the Temporal Server version (1.27.x).
@@ -11,14 +11,15 @@ const DEFAULT_VERSION = "1.7.0";
 const GRPC_PORT = 7233;
 const UI_PORT = 8233;
 
-export class TemporalRecipe implements Recipe {
+export class TemporalRecipe extends BaseRecipe {
     readonly name = "temporal";
+    readonly schema = passthroughOptionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
         return { host: config.name, port: GRPC_PORT };
     }
 
-    generate(config: ServiceConfig, namespace: string): RecipeResources {
+    typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
         const version = config.version ?? DEFAULT_VERSION;
         const image = `temporalio/temporal:${version}`;
         const labels = {

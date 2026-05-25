@@ -1,7 +1,7 @@
 import type * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import type { ServiceConfig } from "../config/schema";
-import type { Recipe, RecipeConnectionInfo, RecipeResources } from "./recipe";
+import { BaseRecipe, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 const DEFAULT_VERSION = "1.27-alpine";
 const PORT = 80;
@@ -24,17 +24,18 @@ const optionsSchema = z.object({
     client_max_body_size: z.string().default("10m"),
 });
 
-type ApiGatewayOptions = z.infer<typeof optionsSchema>;
+export type ApiGatewayOptions = z.infer<typeof optionsSchema>;
 
-export class ApiGatewayRecipe implements Recipe {
+export class ApiGatewayRecipe extends BaseRecipe<ApiGatewayOptions> {
     readonly name = "api-gateway";
+    readonly schema = optionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
         return { host: config.name, port: PORT };
     }
 
-    generate(config: ServiceConfig, namespace: string): RecipeResources {
-        const options = optionsSchema.parse(config.options);
+    typedGenerate(config: ServiceConfig<ApiGatewayOptions>, namespace: string): RecipeResources {
+        const options = config.options;
         const version = config.version ?? DEFAULT_VERSION;
         const image = `nginx:${version}`;
         const labels = {

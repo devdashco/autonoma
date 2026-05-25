@@ -114,7 +114,7 @@ hooks:
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | Yes | | Name used in `{{name.host}}` templates |
-| `recipe` | Yes | | One of: `postgres`, `redis` |
+| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `docker-image` |
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
 | `resources.cpu` | No | `250m` | CPU request |
@@ -244,6 +244,43 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 |--------|-------|------|-------|
 | `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default user/password/db: `preview` |
 | `redis` | `redis:{version}-alpine` | 6379 | Deployment, no persistence |
+| `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence |
+| `temporal` | `temporalio/temporal:{version}` | 7233 (gRPC), 8233 (UI) | Deployment, `start-dev` mode |
+| `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
+
+### `docker-image`
+
+Use `docker-image` to deploy any container without writing a dedicated recipe. The image, port, command, and readiness probe are configured via `options`.
+
+```yaml
+services:
+  - name: sandbar
+    recipe: docker-image
+    options:
+      image: ghcr.io/permify/permify:latest
+      port: 3476
+      command: ["serve"]
+      args: ["--database-engine=memory"]
+      readiness:
+        tcp: {}            # or: http: { path: "/health" }, or: exec: { command: ["..."] }
+    resources:
+      cpu: "100m"
+      memory: "256Mi"
+```
+
+**`options` fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `image` | Yes | Full image reference (e.g. `ghcr.io/org/app:tag`) |
+| `port` | No | Primary container port. Omit for workers / jobs that don't need a Service |
+| `command` | No | Container `command` (entrypoint override) |
+| `args` | No | Container `args` |
+| `env` | No | Extra env vars merged on top of the service-level `env:` (options wins on collision) |
+| `additional_ports` | No | Extra named ports exposed by the Service: `[{ name, port }]` |
+| `readiness` | No | Exactly one of `http`, `exec`, `tcp`. Omit for instant readiness |
+
+For `readiness.http` and `readiness.tcp`, the probe port defaults to `options.port` if not set. `readiness` also accepts optional `initial_delay_seconds` and `period_seconds`.
 
 ## Kubernetes Resources
 

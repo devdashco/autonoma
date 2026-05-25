@@ -1,18 +1,19 @@
 import type * as k8s from "@kubernetes/client-node";
 import type { ServiceConfig } from "../config/schema";
-import type { Recipe, RecipeResources, RecipeConnectionInfo } from "./recipe";
+import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 const DEFAULT_VERSION = "16-alpine";
 const PORT = 5432;
 
-export class PostgresRecipe implements Recipe {
+export class PostgresRecipe extends BaseRecipe {
     readonly name = "postgres";
+    readonly schema = passthroughOptionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
         return { host: config.name, port: PORT };
     }
 
-    generate(config: ServiceConfig, namespace: string): RecipeResources {
+    typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
         const version = config.version ?? DEFAULT_VERSION;
         const image = `postgres:${version}`;
         const labels = {

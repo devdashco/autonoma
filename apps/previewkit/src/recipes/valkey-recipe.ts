@@ -1,76 +1,34 @@
-import type * as k8s from "@kubernetes/client-node";
 import type { ServiceConfig } from "../config/schema";
-import type { Recipe, RecipeConnectionInfo, RecipeResources } from "./recipe";
+import { type DockerImageOptions, DockerImageRecipe, dockerImageOptionsSchema } from "./docker-image-recipe";
+import { BaseRecipe, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 const DEFAULT_VERSION = "8-alpine";
 const PORT = 6379;
 
-export class ValkeyRecipe implements Recipe {
+export class ValkeyRecipe extends BaseRecipe<DockerImageOptions> {
     readonly name = "valkey";
+    readonly schema = dockerImageOptionsSchema;
+    private readonly base = new DockerImageRecipe();
+
+    override parseOptions(config: ServiceConfig): DockerImageOptions {
+        const version = config.version ?? DEFAULT_VERSION;
+        return {
+            image: `valkey/valkey:${version}`,
+            port_definition: { port: PORT },
+            additional_ports: [],
+            readiness: {
+                exec: { command: ["valkey-cli", "ping"] },
+                initial_delay_seconds: 3,
+                period_seconds: 5,
+            },
+        };
+    }
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
         return { host: config.name, port: PORT };
     }
 
-    generate(config: ServiceConfig, namespace: string): RecipeResources {
-        const version = config.version ?? DEFAULT_VERSION;
-        const image = `valkey/valkey:${version}`;
-        const labels = {
-            "previewkit.dev/managed-by": "previewkit",
-            "previewkit.dev/service": config.name,
-        };
-
-        const deployment: k8s.V1Deployment = {
-            apiVersion: "apps/v1",
-            kind: "Deployment",
-            metadata: { name: config.name, namespace, labels },
-            spec: {
-                replicas: 1,
-                selector: { matchLabels: { app: config.name } },
-                template: {
-                    metadata: { labels: { app: config.name, ...labels } },
-                    spec: {
-                        containers: [
-                            {
-                                name: config.name,
-                                image,
-                                ports: [{ containerPort: PORT }],
-                                env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
-                                resources: {
-                                    requests: {
-                                        cpu: config.resources.cpu,
-                                        memory: config.resources.memory,
-                                    },
-                                    limits: { memory: config.resources.memory },
-                                },
-                                readinessProbe: {
-                                    exec: { command: ["valkey-cli", "ping"] },
-                                    initialDelaySeconds: 3,
-                                    periodSeconds: 5,
-                                },
-                            },
-                        ],
-                    },
-                },
-            },
-        };
-
-        const service: k8s.V1Service = {
-            apiVersion: "v1",
-            kind: "Service",
-            metadata: { name: config.name, namespace, labels },
-            spec: {
-                selector: { app: config.name },
-                ports: [{ port: PORT, targetPort: PORT }],
-            },
-        };
-
-        return {
-            deployments: [deployment],
-            statefulSets: [],
-            services: [service],
-            configMaps: [],
-            persistentVolumeClaims: [],
-        };
+    typedGenerate(config: ServiceConfig<DockerImageOptions>, namespace: string): RecipeResources {
+        return this.base.typedGenerate(config, namespace);
     }
 }

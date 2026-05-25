@@ -1,7 +1,7 @@
 import type * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import type { ServiceConfig } from "../config/schema";
-import type { Recipe, RecipeConnectionInfo, RecipeResources } from "./recipe";
+import { BaseRecipe, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
 const DEFAULT_VERSION = "latest";
 const PORT = 4566;
@@ -11,15 +11,18 @@ const optionsSchema = z.object({
     buckets: z.array(z.string()).default([]),
 });
 
-export class AwsRecipe implements Recipe {
+export type AwsOptions = z.infer<typeof optionsSchema>;
+
+export class AwsRecipe extends BaseRecipe<AwsOptions> {
     readonly name = "aws";
+    readonly schema = optionsSchema;
 
     connectionInfo(config: ServiceConfig): RecipeConnectionInfo {
         return { host: config.name, port: PORT };
     }
 
-    generate(config: ServiceConfig, namespace: string): RecipeResources {
-        const options = optionsSchema.parse(config.options);
+    typedGenerate(config: ServiceConfig<AwsOptions>, namespace: string): RecipeResources {
+        const options = config.options;
         const enabledServices = buildServicesList(config);
         const version = config.version ?? DEFAULT_VERSION;
         const image = `ministackorg/ministack:${version}`;
@@ -131,7 +134,7 @@ export class AwsRecipe implements Recipe {
     }
 }
 
-function buildInitScript(options: z.infer<typeof optionsSchema>): string {
+function buildInitScript(options: AwsOptions): string {
     const lines = ["#!/bin/bash", "set -e", ""];
 
     for (const queue of options.queues) {

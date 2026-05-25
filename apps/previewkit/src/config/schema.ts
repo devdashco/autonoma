@@ -127,9 +127,9 @@ export const previewConfigSchema = z
 
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = z.infer<typeof appSchema>;
-export type ServiceConfig = z.infer<typeof serviceSchema>;
+export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<z.infer<typeof serviceSchema>, "options"> & {
+    options: TOptions;
+};
 export type AddonConfig = z.infer<typeof addonSchema>;
-export type HookStep = z.infer<typeof hookStepSchema>;
 export type BranchConvention = z.infer<typeof branchConventionSchema>;
 export type RepoDependency = z.infer<typeof repoDependencySchema>;
-export type MultirepoConfig = z.infer<typeof multirepoConfigSchema>;
