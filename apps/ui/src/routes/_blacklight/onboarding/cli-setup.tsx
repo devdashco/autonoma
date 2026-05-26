@@ -173,24 +173,17 @@ function SetupStep({ applicationId }: { applicationId: string }) {
         (f) => f.name === "AUTONOMA.md" || f.name === "scenarios.md" || f.name === "entity-audit.md",
       );
 
-      const artifactsBody: Record<string, { name: string; content: string; folder?: string }[]> = {};
-      if (testCases.length > 0) {
-        artifactsBody.testCases = testCases.map((f) => ({
-          name: f.name,
-          content: f.content,
-          folder: f.folder,
-        }));
-      }
-      if (skills.length > 0) {
-        artifactsBody.skills = skills.map((f) => ({ name: f.name, content: f.content }));
-      }
-      if (artifacts.length > 0) {
-        artifactsBody.artifacts = artifacts.map((f) => ({ name: f.name, content: f.content }));
-      }
+      const testCaseUploads = testCases.map((f) => ({ name: f.name, content: f.content, folder: f.folder }));
+      const skillUploads = skills.map((f) => ({ name: f.name, content: f.content }));
+      const artifactUploads = artifacts.map((f) => ({ name: f.name, content: f.content }));
 
-      if (Object.keys(artifactsBody).length > 0) {
-        await postToSetup(`/setups/${setupId}/artifacts`, apiKey, artifactsBody);
-      }
+      // CloudFront/WAF rejects large request bodies (>~8KB on managed rules, up to a few MB total).
+      // Chunk the artifacts upload into batches that stay well under any reasonable limit.
+      await uploadArtifactsInChunks(setupId, apiKey, {
+        testCases: testCaseUploads,
+        skills: skillUploads,
+        artifacts: artifactUploads,
+      });
 
       setUploadState("done");
     } catch (err) {
@@ -403,6 +396,64 @@ async function readAllFiles(fileList: FileList): Promise<ParsedFile[]> {
   }
 
   return results;
+}
+
+interface UploadFile {
+  name: string;
+  content: string;
+  folder?: string;
+}
+
+interface ArtifactUploads {
+  testCases: UploadFile[];
+  skills: UploadFile[];
+  artifacts: UploadFile[];
+}
+
+// Target ~200KB per request body. WAF on CloudFront commonly inspects/blocks bodies
+// far smaller than the raw CloudFront limit, so stay conservative.
+const MAX_CHUNK_BYTES = 200_000;
+
+async function uploadArtifactsInChunks(setupId: string, apiKey: string, uploads: ArtifactUploads): Promise<void> {
+  const allBatches: Array<{ testCases?: UploadFile[]; skills?: UploadFile[]; artifacts?: UploadFile[] }> = [
+    ...chunkBySize(uploads.testCases).map((batch) => ({ testCases: batch })),
+    ...chunkBySize(uploads.skills).map((batch) => ({ skills: batch })),
+    ...chunkBySize(uploads.artifacts).map((batch) => ({ artifacts: batch })),
+  ];
+
+  if (allBatches.length === 0) return;
+
+  for (const batch of allBatches) {
+    await postToSetup(`/setups/${setupId}/artifacts`, apiKey, batch);
+  }
+}
+
+function chunkBySize(files: UploadFile[]): UploadFile[][] {
+  if (files.length === 0) return [];
+
+  const batches: UploadFile[][] = [];
+  let current: UploadFile[] = [];
+  let currentBytes = 0;
+
+  for (const file of files) {
+    const fileBytes = estimateFileBytes(file);
+    const wouldOverflow = currentBytes + fileBytes > MAX_CHUNK_BYTES;
+    if (wouldOverflow && current.length > 0) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(file);
+    currentBytes += fileBytes;
+  }
+
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function estimateFileBytes(file: UploadFile): number {
+  // Rough JSON byte estimate: content + name + folder + JSON syntax overhead.
+  return file.content.length + file.name.length + (file.folder?.length ?? 0) + 32;
 }
 
 async function postToSetup(path: string, token: string, body: unknown): Promise<void> {
