@@ -56,6 +56,9 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
         name,
         value,
     }));
+    if (!resolvedEnv.PORT) {
+        envVars.push({ name: "PORT", value: String(app.port) });
+    }
 
     const envFrom: k8s.V1EnvFromSource[] = awsSecretName != null ? [{ secretRef: { name: awsSecretName } }] : [];
 
