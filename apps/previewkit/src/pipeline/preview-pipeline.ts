@@ -672,7 +672,16 @@ export class PreviewPipeline {
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
             const contextPath = path.resolve(dir, app.path);
-            const buildContext = app.build_context != null ? path.resolve(dir, app.build_context) : undefined;
+            // Resolve buildContext from explicit override first, then fall back
+            // to the cloned repo root when the app declares a monorepo tool.
+            // Without an explicit override, a `monorepo: turbo` app must build
+            // from the repo root so railpack sees the workspace lockfile.
+            const buildContext =
+                app.build_context != null
+                    ? path.resolve(dir, app.build_context)
+                    : app.monorepo != null
+                      ? dir
+                      : undefined;
             const cacheKey = `${ctx.org}/${ctx.repo}/${app.name}`;
 
             const appArn = ctx.arnByApp.get(app.name);
@@ -705,6 +714,7 @@ export class PreviewPipeline {
                 buildArgs: resolvedBuildArgs,
                 imageTag,
                 cacheKey,
+                ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
             });
 
             return { status: "ok", imageTag: result.imageTag, durationMs: result.durationMs, logUrl: result.logUrl };

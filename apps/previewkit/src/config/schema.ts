@@ -14,6 +14,21 @@ const appSchema = z.object({
     path: z.string().default("."),
     build_context: z.string().optional(),
     dockerfile: z.string().optional(),
+    // Names the workspace build tool when this app lives in a monorepo. When
+    // set, the build runs from the repo root (not `path`) so railpack finds
+    // the workspace lockfile, then invokes the tool with a filter for this
+    // app. Currently supports "turbo" (bun/pnpm/yarn/npm + turbo).
+    //
+    // This is an enum rather than a boolean on purpose: "monorepo" is too
+    // coarse a signal. A turbo+pnpm workspace, an nx workspace, a bazel
+    // build, an sbt multi-project and a Cargo workspace are all "monorepos"
+    // but each needs a completely different build invocation (turbo run
+    // build --filter=... vs nx run-many vs bazel build //... vs sbt
+    // <project>/compile). Encoding the tool in the value lets the dispatcher
+    // route to a tool-specific build path without inventing a second field.
+    // Adding "nx" / "bazel" later is a one-line enum extension plus a new
+    // build method - existing configs are untouched.
+    monorepo: z.enum(["turbo"]).optional(),
     build_args: z.record(z.string(), z.string()).default({}),
     build_secrets: z.array(z.string()).default([]),
     port: z.number().int().positive(),

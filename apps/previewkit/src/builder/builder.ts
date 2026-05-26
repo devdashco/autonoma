@@ -4,14 +4,27 @@ export interface BuildRequest {
     contextPath: string;
     /**
      * Docker build context root. Defaults to `contextPath` when omitted.
-     * Set to the monorepo root when the app has workspace dependencies that
-     * need to be visible during `bun install` inside the container build.
+     *
+     * Two callers set this:
+     *   1. Dockerfile/auto-detect builds whose Dockerfile needs to see files
+     *      outside the per-app dir (workspace deps visible during `bun
+     *      install` inside the container build). Override only.
+     *   2. Monorepo builds (`monorepoTool` set) - this is the monorepo root,
+     *      so `railpack prepare` finds the workspace lockfile and `<pm> run
+     *      turbo run build --filter=...` resolves the app correctly.
      */
     buildContext?: string;
     dockerfile?: string;
     buildArgs: Record<string, string>;
     imageTag: string;
     cacheKey: string;
+    // Names the workspace build tool. Dispatched by the builder to select a
+    // tool-specific build path (turbo+pnpm, nx, bazel, sbt, ... all need
+    // different build invocations - a single boolean can't carry that
+    // signal). Currently only "turbo" is implemented; adding more is a
+    // case branch in the dispatcher plus a new build method. Requires
+    // `buildContext` to be set (the monorepo root).
+    monorepoTool?: "turbo";
 }
 
 export interface BuildResult {

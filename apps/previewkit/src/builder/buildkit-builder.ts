@@ -9,6 +9,7 @@ import { logger } from "../logger";
 import { BuildError, type Builder, type BuildRequest, type BuildResult } from "./builder";
 import type { BuildKitInstance, BuildKitJobManager } from "./buildkit-job-manager";
 import { EcrRegistryClient } from "./ecr-client";
+import { detectNonNodeRootManifests, planTurboMonorepoBuild, provisionRailpackNodeOverride } from "./turbo-monorepo";
 
 const LOG_KEY_PREFIX = "buildctl/logs";
 const BUILD_MAX_RETRIES = 3;
@@ -135,6 +136,14 @@ export class BuildKitBuilder implements Builder {
         const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
         if (dockerfilePath != null) {
             return this.buildWithBuildctl(request, dockerfilePath, buildkitHost, logStream);
+        }
+        if (request.monorepoTool != null && request.buildContext != null) {
+            switch (request.monorepoTool) {
+                case "turbo":
+                    return this.buildWithTurboMonorepo(request, request.buildContext, buildkitHost, logStream);
+                default:
+                    throw new Error(`There's no monorepoTool called ${request.monorepoTool}`);
+            }
         }
         return this.buildWithRailpack(request, buildkitHost, logStream);
     }
@@ -326,6 +335,114 @@ export class BuildKitBuilder implements Builder {
             await rm(planDir, { recursive: true }).catch(() => {});
             if (dockerConfigDir != null) {
                 await rm(dockerConfigDir, { recursive: true }).catch(() => {});
+            }
+        }
+    }
+
+    /**
+     * Build path for turbo-based JS/TS monorepos (bun/pnpm/yarn/npm + turbo).
+     * Runs railpack from the monorepo root so it picks up the workspace
+     * lockfile, then invokes `<pm> run turbo run build --filter=<app>`.
+     * Forces `provider: node` to prevent mis-detection on repos that also
+     * contain a `Cargo.toml` / `Gemfile` / etc. at the root.
+     */
+    private async buildWithTurboMonorepo(
+        request: BuildRequest,
+        buildContext: string,
+        buildkitHost: string,
+        logStream: WriteStream,
+    ): Promise<string> {
+        const plan = planTurboMonorepoBuild({
+            buildContext,
+            contextPath: request.contextPath,
+            buildArgs: request.buildArgs,
+        });
+
+        logger.info("Building turbo monorepo app with railpack", {
+            app: request.appName,
+            buildContext,
+            relAppDir: plan.relAppDir,
+            packageManager: plan.pm,
+            filterArg: plan.filterArg,
+            imageTag: request.imageTag,
+            buildkitHost,
+        });
+
+        const nonNodeManifests = detectNonNodeRootManifests(buildContext);
+        if (nonNodeManifests.length > 0) {
+            logger.info("Non-Node manifests detected at monorepo root - forcing railpack provider=node", {
+                app: request.appName,
+                buildContext,
+                manifests: nonNodeManifests,
+            });
+        }
+
+        const ecrAuth = await this.ecr.getAuth(request.imageTag);
+        const dockerConfigDir = ecrAuth != null ? await this.ecr.writeDockerConfig(ecrAuth) : undefined;
+        const planDir = join(tmpdir(), `previewkit-monorepo-plan-${Date.now()}`);
+        await mkdir(planDir, { recursive: true });
+        const cleanupRailpackConfig = await provisionRailpackNodeOverride(buildContext);
+
+        try {
+            await this.exec(
+                "railpack",
+                [
+                    "prepare",
+                    buildContext,
+                    "--build-cmd",
+                    plan.buildCmd,
+                    "--start-cmd",
+                    plan.startCmd,
+                    "--plan-out",
+                    join(planDir, "railpack-plan.json"),
+                ],
+                {},
+                logStream,
+            );
+
+            const args = [
+                "--addr",
+                buildkitHost,
+                "build",
+                "--progress",
+                "plain",
+                "--frontend",
+                "gateway.v0",
+                "--opt",
+                "source=ghcr.io/railwayapp/railpack-frontend",
+                "--local",
+                `context=${buildContext}`,
+                "--local",
+                `dockerfile=${planDir}`,
+                "--opt",
+                "platform=linux/amd64",
+                "--output",
+                `type=image,name=${request.imageTag},push=true`,
+                ...this.buildCacheArgs(request.cacheKey),
+            ];
+
+            const buildSecretEnv: Record<string, string> = {};
+            for (const [key, value] of Object.entries(request.buildArgs)) {
+                args.push("--secret", `id=${key},env=${key}`);
+                buildSecretEnv[key] = value;
+            }
+
+            const extraEnv: Record<string, string> = { ...buildSecretEnv };
+            if (dockerConfigDir != null) {
+                extraEnv["DOCKER_CONFIG"] = dockerConfigDir;
+            }
+
+            await this.exec("buildctl", args, extraEnv, logStream);
+            return request.imageTag;
+        } finally {
+            await rm(planDir, { recursive: true }).catch((err) => {
+                logger.warn("Failed to clean up railpack plan dir", { planDir, err });
+            });
+            await cleanupRailpackConfig();
+            if (dockerConfigDir != null) {
+                await rm(dockerConfigDir, { recursive: true }).catch((err) => {
+                    logger.warn("Failed to clean up docker config dir", { dockerConfigDir, err });
+                });
             }
         }
     }

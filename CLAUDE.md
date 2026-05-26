@@ -253,6 +253,45 @@ if (isTrialExpired && hasNoPaymentMethod) { ... }
 if (subscription.status === "trial" && subscription.endsAt < now && user.paymentMethods.length === 0) { ... }
 ```
 
+### Never Swallow Errors in Empty Catches
+
+**Never write an empty `catch` block.** A bare `catch {}` (or a catch whose only content is a comment) silently swallows every error and makes future debugging nearly impossible - when the surrounding logic mysteriously stops working, there is no breadcrumb to follow. Every catch must at minimum log the error so it shows up in Sentry and in local logs.
+
+The minimum acceptable catch logs the error at an appropriate level and includes enough context to identify which call site swallowed it. `debug` is fine for expected/benign failures (feature detection, optional cleanup); `warn` or `error` for anything the operator might need to act on. This applies to `try/catch`, `.catch(handler)`, and async iterator catches alike.
+
+```ts
+// BAD - silently swallows
+try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    return pkg.name;
+} catch {
+    return undefined;
+}
+
+// BAD - comment is not a log
+try {
+    riskyThing();
+} catch {
+    // ignore, not critical
+}
+
+// GOOD - logs with enough context to find later
+try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    return pkg.name;
+} catch (err) {
+    logger.debug("Failed to parse package.json, falling back", { pkgPath, err });
+    return undefined;
+}
+
+// GOOD - promise catch with context
+await rm(planDir, { recursive: true }).catch((err) => {
+    logger.warn("Failed to clean up plan dir", { planDir, err });
+});
+```
+
+The one narrow exception is best-effort cleanup in test code, where a console-level log (`console.warn`) is acceptable when the package logger is not available.
+
 ### Logging - Sentry
 
 **Always use Sentry for logging and error tracking.** All backend services must initialize Sentry and use it for:
