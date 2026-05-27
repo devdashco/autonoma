@@ -1,10 +1,10 @@
-import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import { extendObservabilityContext, logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
+import { rimraf } from "rimraf";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData } from "./load-context";
 import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
@@ -114,7 +114,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
         const branchData = await loadBranchData(branchId, githubApp);
         const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
-        await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
+        await rimraf("/tmp/repo-resolution");
 
         try {
             const repoDir = await githubClient.cloneRepository({
@@ -156,7 +156,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             acceptedCandidates = agentResult.accepted;
             resolutionConversation = agentResult.conversation;
         } finally {
-            await fs.rm("/tmp/repo-resolution", { recursive: true, force: true });
+            await rimraf("/tmp/repo-resolution");
         }
     }
 

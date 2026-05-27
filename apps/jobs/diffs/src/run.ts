@@ -1,8 +1,8 @@
-import fs from "fs/promises";
 import { db } from "@autonoma/db";
 import type { AffectedTest, DiffsAgentResult } from "@autonoma/diffs";
 import { extendObservabilityContext, logger, withObservabilityContext } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
+import { rimraf } from "rimraf";
 import { createDiffsServices } from "./create-services";
 import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runMergeFlow } from "./merge-flow";
@@ -52,7 +52,7 @@ async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisR
     const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
     // Clean up any existing repo directory before cloning
-    await fs.rm("/tmp/repo", { recursive: true, force: true });
+    await rimraf("/tmp/repo");
 
     try {
         const repoDir = await githubClient.cloneRepository({
@@ -109,7 +109,7 @@ async function runDiffsAnalysisInner(snapshotId: string): Promise<DiffsAnalysisR
         };
     } finally {
         // Clean up the repo directory after analysis
-        await fs.rm("/tmp/repo", { recursive: true, force: true });
+        await rimraf("/tmp/repo");
     }
 }
 
