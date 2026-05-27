@@ -64,8 +64,9 @@ interface AppDeployContext {
     namespace: string;
     prNumber: number;
     owner: string;
-    repoSlug: string;
+    repoFullName: string;
     domain: string;
+    secret: string;
     config: PreviewConfig;
     imageTags: Record<string, string>;
     awsSecretsByApp: Map<string, string>;
@@ -99,6 +100,7 @@ export class Deployer {
         private kc: k8s.KubeConfig,
         private domain: string,
         private gateway: GatewayRef,
+        private secret: string,
         private gatewaySubnetCidrs: string[] = [],
         private awsExternalSecretManager?: AwsExternalSecretManager,
     ) {
@@ -191,7 +193,6 @@ export class Deployer {
         const domain = config.domain ?? this.domain;
 
         const owner = repoFullName.split("/")[0]!;
-        const repoSlug = this.buildRepoSlug(repoFullName);
         const urls: Record<string, string> = {};
         const appOutcomes: Record<string, AppDeployOutcome> = {};
 
@@ -199,8 +200,9 @@ export class Deployer {
             namespace,
             prNumber,
             owner,
-            repoSlug,
+            repoFullName,
             domain,
+            secret: this.secret,
             config,
             imageTags,
             awsSecretsByApp,
@@ -222,7 +224,7 @@ export class Deployer {
                         namespace,
                         app: app.name,
                     });
-                    const url = `https://${buildAppHostname(app.name, prNumber, repoSlug, domain)}`;
+                    const url = `https://${buildAppHostname(app.name, prNumber, repoFullName, domain, this.secret)}`;
                     appOutcomes[app.name] = {
                         status: "failed",
                         url,
@@ -262,7 +264,7 @@ export class Deployer {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             logger.error("App deploy failed", err, { namespace: ctx.namespace, app: app.name });
-            const url = `https://${buildAppHostname(app.name, ctx.prNumber, ctx.repoSlug, ctx.domain)}`;
+            const url = `https://${buildAppHostname(app.name, ctx.prNumber, ctx.repoFullName, ctx.domain, ctx.secret)}`;
             const crashLoopBackOff = message.includes("CrashLoopBackOff");
             return { status: "failed", url, error: message, crashLoopBackOff };
         }
@@ -321,18 +323,6 @@ export class Deployer {
         }
     }
 
-    public buildRepoSlug(repoFullName: string): string {
-        // `owner/repo` -> `owner-repo`, sanitized + truncated so the full
-        // hostname stays under the 63-char DNS label limit even with long
-        // app names and PR numbers.
-        return repoFullName
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, "-")
-            .replace(/-+/g, "-")
-            .slice(0, 20)
-            .replace(/^-+|-+$/g, "");
-    }
-
     async teardown(repoFullName: string, prNumber: number): Promise<void> {
         const namespace = this.namespaceManager.buildNamespaceName(repoFullName, prNumber);
         await this.namespaceManager.delete(namespace);
@@ -351,6 +341,12 @@ export class Deployer {
      *  priority used internally before computing public URLs. */
     getDomain(): string {
         return this.domain;
+    }
+
+    /** HMAC key for URL generation. Exposed so the pipeline can build
+     *  PublicUrlInfo for build_args templating before any deployer call. */
+    getSecret(): string {
+        return this.secret;
     }
 
     /** Exposed so the pipeline can template `build_args` (which run BEFORE
@@ -391,7 +387,18 @@ export class Deployer {
     }
 
     private async deployApp(app: AppConfig, opts: AppDeployContext): Promise<{ name: string; url: string }> {
-        const { namespace, prNumber, owner, repoSlug, domain, config, imageTags, awsSecretsByApp, addonOutputs } = opts;
+        const {
+            namespace,
+            prNumber,
+            owner,
+            repoFullName,
+            domain,
+            secret,
+            config,
+            imageTags,
+            awsSecretsByApp,
+            addonOutputs,
+        } = opts;
 
         const imageTag = imageTags[app.name];
         if (imageTag == null) {
@@ -399,7 +406,7 @@ export class Deployer {
         }
 
         const templateContext = { pr: String(prNumber), namespace, owner };
-        const publicUrlInfo = { domain, repoSlug, prNumber };
+        const publicUrlInfo = { domain, repoFullName, prNumber, secret };
         const resolvedEnv = this.envInjector.resolve(
             app.env,
             config.apps,
@@ -419,7 +426,7 @@ export class Deployer {
             awsSecretName: awsSecretsByApp.get(app.name),
         });
         const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
-        const routeOpts = { app, namespace, prNumber, repoSlug, domain, gateway: this.gateway };
+        const routeOpts = { app, namespace, prNumber, repoFullName, domain, secret, gateway: this.gateway };
         const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);
         const httpRoute = buildAppHttpRoute(routeOpts);
 
@@ -432,7 +439,7 @@ export class Deployer {
 
         await this.waitForDeploymentReady(namespace, app.name);
 
-        const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
+        const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
         const url = `https://${host}`;
         logger.info("Deployed app", { app: app.name, url, namespace });
         return { name: app.name, url };

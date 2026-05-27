@@ -123,6 +123,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         kc,
         env.PREVIEW_DOMAIN,
         { name: env.GATEWAY_NAME, namespace: env.GATEWAY_NAMESPACE, listener: env.GATEWAY_LISTENER },
+        env.PREVIEW_URL_SECRET,
         gatewaySubnetCidrs,
         awsExternalSecretManager,
     );

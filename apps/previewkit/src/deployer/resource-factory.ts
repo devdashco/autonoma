@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
 
@@ -20,8 +21,9 @@ interface AppRouteOptions {
     app: AppConfig;
     namespace: string;
     prNumber: number;
-    repoSlug: string;
+    repoFullName: string;
     domain: string;
+    secret: string;
     gateway: GatewayRef;
 }
 
@@ -39,9 +41,20 @@ export const TARGET_GROUP_CONFIG_VERSION = "v1beta1";
 export const TARGET_GROUP_CONFIG_PLURAL = "targetgroupconfigurations";
 export const TARGET_GROUP_CONFIG_API_VERSION = `${TARGET_GROUP_CONFIG_GROUP}/${TARGET_GROUP_CONFIG_VERSION}`;
 
-export function buildAppHostname(appName: string, prNumber: number, repoSlug: string, domain: string): string {
-    // Single leftmost label so a wildcard ACM cert (*.domain) matches.
-    return `${appName}-pr-${prNumber}-${repoSlug}.${domain}`;
+export function buildAppHostname(
+    appName: string,
+    prNumber: number,
+    repoFullName: string,
+    domain: string,
+    secret: string,
+): string {
+    // HMAC-SHA256 keyed on secret: deterministic per (app, PR, repo) but
+    // unguessable without the key.
+    const hash = createHmac("sha256", secret)
+        .update(`${appName}:${prNumber}:${repoFullName}`)
+        .digest("hex")
+        .slice(0, 12);
+    return `${hash}.${domain}`;
 }
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
@@ -142,8 +155,8 @@ export function buildAppService(opts: AppResourceOptions): k8s.V1Service {
 }
 
 export function buildAppHttpRoute(opts: AppRouteOptions): HttpRoute {
-    const { app, namespace, prNumber, repoSlug, domain, gateway } = opts;
-    const host = buildAppHostname(app.name, prNumber, repoSlug, domain);
+    const { app, namespace, prNumber, repoFullName, domain, secret, gateway } = opts;
+    const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
 
     return {
         apiVersion: HTTP_ROUTE_API_VERSION,

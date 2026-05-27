@@ -210,17 +210,17 @@ GET    /health                            Health check
 
 ## Preview URL Format
 
-Each app in a preview gets its own URL:
+Each app gets an opaque URL whose subdomain is a deterministic hash of the service name, PR number, and repo. This keeps URLs stable across re-deploys while not leaking any of those values in the address.
 
 ```
-https://pr-{N}.{app-name}.{PREVIEW_DOMAIN}
+https://{12-char-hex}.{PREVIEW_DOMAIN}
 ```
 
 For example, PR #42 with apps `web` and `api`:
 
 ```
-https://pr-42.web.preview.example.com
-https://pr-42.api.preview.example.com
+https://a3f8b21c4d9e.preview.example.com
+https://7c902ef1ab34.preview.example.com
 ```
 
 Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress controller.

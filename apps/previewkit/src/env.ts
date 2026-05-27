@@ -34,9 +34,13 @@ export const env = createEnv({
         BUILD_TIMEOUT_MS: z.coerce.number().default(1_800_000), // 30 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
-        // ACM wildcard certs only match a single leftmost label, so hostnames
-        // are flattened to `{app}-pr-{N}-{slug}.{PREVIEW_DOMAIN}`.
+        // ACM wildcard certs only match a single leftmost label; hostnames are
+        // a 12-char HMAC-SHA256 hex label keyed on PREVIEW_URL_SECRET.
         PREVIEW_DOMAIN: z.string().default("preview.autonoma.app"),
+
+        // HMAC key for preview URL generation. Makes hostnames deterministic
+        // per (app, PR, repo) but unguessable without this secret.
+        PREVIEW_URL_SECRET: z.string().min(1),
 
         // Shared Gateway that every HTTPRoute attaches to. One Gateway = one ALB
         // for the whole cluster; routes come and go with per-PR namespaces.

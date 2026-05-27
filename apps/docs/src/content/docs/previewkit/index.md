@@ -12,7 +12,7 @@ Once the Previewkit GitHub App is installed on your repository, every `pull_requ
 1. **Opened / synchronized / reopened** — Previewkit fetches the head commit, builds each app, provisions service recipes (Postgres, Redis, etc.), deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
 2. **Closed** — Previewkit deletes the namespace and all resources tied to that PR, then updates the comment.
 
-Each preview lives at `https://<app>-pr-<N>-<repo-slug>.preview.autonoma.app`. One PR may expose many apps under one preview — each app gets its own hostname.
+Each preview gets a unique, opaque URL — a short deterministic hash derived from the service name, PR number, and repo. One PR may expose many apps under one preview — each app gets its own hostname under `preview.autonoma.app`.
 
 ## What you author
 

@@ -51,7 +51,7 @@ apps:
 
 | Field          | Type                 | Default     | Notes |
 |----------------|----------------------|-------------|-------|
-| `name`         | string               | required    | Kubernetes-style name (lowercase letters, digits, hyphens). Also the leftmost label of the hostname. |
+| `name`         | string               | required    | Kubernetes-style name (lowercase letters, digits, hyphens). Used as the Kubernetes resource name and as an input to the URL hash. |
 | `path`         | string               | `"."`       | Path to the build context, relative to the repo root. |
 | `dockerfile`   | string               | autodetect  | Path to a Dockerfile (relative to repo root). If omitted, Previewkit looks for `Dockerfile` inside `path`; if none is found, [Railpack](https://railpack.com) auto-detects the framework. |
 | `build_args`   | map<string, string>  | `{}`        | Build-time `--build-arg` values. |
@@ -65,13 +65,13 @@ apps:
 
 ### Resulting URL
 
-For an app named `web` in PR #42 of `acme-corp/storefront`, the URL is:
+Each app gets an opaque URL whose subdomain is a short deterministic hash of the service name, PR number, and repo. For example:
 
 ```
-https://web-pr-42-acme-corp-storefront.preview.autonoma.app
+https://a3f8b21c4d9e.preview.autonoma.app
 ```
 
-(Repo slugs are sanitized to fit DNS-label limits — long owner/repo names are truncated.)
+The hash is stable — the same app/PR/repo always produces the same URL — but does not expose any of those values in the address.
 
 ## Services
 

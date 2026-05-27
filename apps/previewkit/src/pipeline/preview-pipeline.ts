@@ -608,12 +608,13 @@ export class PreviewPipeline {
         // and now `{{addonName.<key>}}` for successfully provisioned addons —
         // same grammar the deployer applies to runtime env. The URL form is
         // what makes Vite-baked VITE_*_URL vars point at this PR's specific
-        // services (e.g. `https://anvil-pr-42-acme-foo.preview.autonoma.app`).
+        // services (opaque hashed hostname, e.g. `https://a3f8b21c4d9e.preview.autonoma.app`).
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         const templateContext = { pr: String(prNumber), namespace, owner: org };
         const publicUrlInfo = {
             domain: config.domain ?? this.deployer.getDomain(),
-            repoSlug: this.deployer.buildRepoSlug(repoFullName),
+            repoFullName,
+            secret: this.deployer.getSecret(),
             prNumber,
         };
         const envInjector = this.deployer.getEnvInjector();
@@ -769,7 +770,8 @@ export class PreviewPipeline {
                 const context = { pr: String(prNumber), namespace, owner: org };
                 const publicUrlInfo = {
                     domain: config.domain ?? this.deployer.getDomain(),
-                    repoSlug: this.deployer.buildRepoSlug(repoFullName),
+                    repoFullName,
+                    secret: this.deployer.getSecret(),
                     prNumber,
                 };
                 const resolvedEnv = this.deployer

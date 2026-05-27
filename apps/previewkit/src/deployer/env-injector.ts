@@ -40,13 +40,15 @@ interface ContextVariables {
 }
 
 /**
- * Everything the injector needs to render the public preview URL for an app:
- *   `https://{appName}-pr-{prNumber}-{repoSlug}.{domain}`
+ * Everything the injector needs to render the public preview URL for an app.
+ * The hostname is an HMAC-SHA256 of (appName, prNumber, repoFullName) keyed on
+ * secret — deterministic per (app, PR, repo) but unguessable without the key.
  */
 export interface PublicUrlInfo {
     domain: string;
-    repoSlug: string;
+    repoFullName: string;
     prNumber: number;
+    secret: string;
 }
 
 export class EnvInjector {
@@ -176,8 +178,9 @@ export class EnvInjector {
             const hostname = buildAppHostname(
                 app.name,
                 publicUrlInfo.prNumber,
-                publicUrlInfo.repoSlug,
+                publicUrlInfo.repoFullName,
                 publicUrlInfo.domain,
+                publicUrlInfo.secret,
             );
             map[app.name] = {
                 host: app.name,

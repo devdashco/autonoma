@@ -1,13 +1,19 @@
 import { describe, it, expect } from "vitest";
 import type { AppConfig, ServiceConfig } from "../../src/config/schema";
 import { EnvInjector } from "../../src/deployer/env-injector";
+import { buildAppHostname } from "../../src/deployer/resource-factory";
 import { RecipeRegistry } from "../../src/recipes/recipe-registry";
 
 const registry = new RecipeRegistry();
 const injector = new EnvInjector(registry);
 
 const defaultContext = { pr: "42", namespace: "preview-acme-corp-my-repo-pr-42", owner: "acme-corp" };
-const defaultPublicUrlInfo = { domain: "preview.autonoma.app", repoSlug: "acme-corp-my-repo", prNumber: 42 };
+const defaultPublicUrlInfo = {
+    domain: "preview.autonoma.app",
+    repoFullName: "acme-corp/my-repo",
+    prNumber: 42,
+    secret: "test-secret",
+};
 
 const apps: AppConfig[] = [
     {
@@ -315,9 +321,13 @@ describe("EnvInjector", () => {
             defaultContext,
             defaultPublicUrlInfo,
         );
-        // hostname = `<app>-pr-<N>-<slug>.<domain>`, scheme `https://`
-        expect(resolved["VITE_API_URL"]).toBe("https://api-pr-42-acme-corp-my-repo.preview.autonoma.app");
-        expect(resolved["VITE_WEB_URL"]).toBe("https://web-pr-42-acme-corp-my-repo.preview.autonoma.app");
+        const { domain, repoFullName, prNumber, secret } = defaultPublicUrlInfo;
+        expect(resolved["VITE_API_URL"]).toBe(
+            `https://${buildAppHostname("api", prNumber, repoFullName, domain, secret)}`,
+        );
+        expect(resolved["VITE_WEB_URL"]).toBe(
+            `https://${buildAppHostname("web", prNumber, repoFullName, domain, secret)}`,
+        );
     });
 
     it("throws when {{name.url}} is used on a service (no public URL)", () => {
@@ -347,7 +357,10 @@ describe("EnvInjector", () => {
             defaultContext,
             defaultPublicUrlInfo,
         );
-        expect(resolved["VITE_API_URL"]).toBe("https://api-pr-42-acme-corp-my-repo.preview.autonoma.app");
+        const { domain, repoFullName, prNumber, secret } = defaultPublicUrlInfo;
+        expect(resolved["VITE_API_URL"]).toBe(
+            `https://${buildAppHostname("api", prNumber, repoFullName, domain, secret)}`,
+        );
         expect(resolved["BUILD_TARGET"]).toBe("pr-42");
         expect(resolved["STATIC"]).toBe("no-template-here");
     });

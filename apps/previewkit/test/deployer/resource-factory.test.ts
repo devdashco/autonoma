@@ -38,8 +38,9 @@ const baseRouteOpts = {
     app: baseApp,
     namespace: "preview-my-org-my-repo-pr-42",
     prNumber: 42,
-    repoSlug: "my-org-my-repo",
+    repoFullName: "my-org/my-repo",
     domain: "preview.autonoma.app",
+    secret: "test-secret",
     gateway,
 };
 
@@ -104,10 +105,36 @@ describe("buildAppService", () => {
 });
 
 describe("buildAppHostname", () => {
-    it("flattens to a single leftmost label so a wildcard ACM cert matches", () => {
-        const host = buildAppHostname("web", 42, "my-org-my-repo", "preview.autonoma.app");
-        expect(host).toBe("web-pr-42-my-org-my-repo.preview.autonoma.app");
-        expect(host.split(".")[0]).not.toContain(".");
+    it("produces a single-label hex hostname so a wildcard ACM cert matches", () => {
+        const host = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        expect(host).toMatch(/^[0-9a-f]{12}\.preview\.autonoma\.app$/);
+    });
+
+    it("is deterministic — same inputs always return the same hostname", () => {
+        const a = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        const b = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        expect(a).toBe(b);
+    });
+
+    it("produces different hostnames for different inputs", () => {
+        const webHost = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        const apiHost = buildAppHostname("api", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        const pr2Host = buildAppHostname("web", 2, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        expect(webHost).not.toBe(apiHost);
+        expect(webHost).not.toBe(pr2Host);
+    });
+
+    it("produces different hostnames for different secrets", () => {
+        const a = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "secret-a");
+        const b = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "secret-b");
+        expect(a).not.toBe(b);
+    });
+
+    it("does not expose service name or repo name in the subdomain", () => {
+        const host = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
+        const subdomain = host.split(".")[0]!;
+        expect(subdomain).not.toContain("web");
+        expect(subdomain).not.toContain("my-org");
     });
 });
 
@@ -126,9 +153,11 @@ describe("buildAppHttpRoute", () => {
         expect(parent.kind).toBe("Gateway");
     });
 
-    it("uses the flattened single-label hostname", () => {
+    it("uses the masked single-label hostname from buildAppHostname", () => {
         const route = buildAppHttpRoute(baseRouteOpts);
-        expect(route.spec.hostnames).toEqual(["web-pr-42-my-org-my-repo.preview.autonoma.app"]);
+        expect(route.spec.hostnames).toEqual([
+            buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret"),
+        ]);
     });
 
     it("routes / to the app Service on its configured port", () => {
