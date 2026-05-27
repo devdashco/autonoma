@@ -1,6 +1,7 @@
 import { ApiGatewayRecipe } from "./api-gateway-recipe";
 import { AwsRecipe } from "./aws-recipe";
 import { DockerImageRecipe } from "./docker-image-recipe";
+import { MongoDbRecipe } from "./mongodb-recipe";
 import { PostgresRecipe } from "./postgres-recipe";
 import type { Recipe } from "./recipe";
 import { RedisRecipe } from "./redis-recipe";
@@ -15,6 +16,7 @@ export class RecipeRegistry {
         this.register(new PostgresRecipe());
         this.register(new RedisRecipe());
         this.register(new ValkeyRecipe());
+        this.register(new MongoDbRecipe());
         this.register(new UpstashRecipe());
         this.register(new TemporalRecipe());
         this.register(new ApiGatewayRecipe());
