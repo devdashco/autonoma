@@ -14,6 +14,7 @@ const baseApp: AppConfig = {
     path: "./apps/web",
     port: 3000,
     build_args: {},
+    build_secrets: [],
     env: {},
     replicas: 1,
     resources: { cpu: "250m", memory: "256Mi" },
@@ -60,7 +61,10 @@ describe("buildAppDeployment", () => {
     it("injects resolved environment variables", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;
-        expect(container.env).toEqual([{ name: "DATABASE_URL", value: "postgres://db:5432/preview" }]);
+        expect(container.env).toEqual([
+            { name: "DATABASE_URL", value: "postgres://db:5432/preview" },
+            { name: "PORT", value: "3000" },
+        ]);
     });
 
     it("sets replicas from config", () => {
