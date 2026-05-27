@@ -410,22 +410,50 @@ interface ArtifactUploads {
   artifacts: UploadFile[];
 }
 
-// Target ~200KB per request body. WAF on CloudFront commonly inspects/blocks bodies
-// far smaller than the raw CloudFront limit, so stay conservative.
-const MAX_CHUNK_BYTES = 200_000;
+// AWS WAF's AWSManagedRulesCommonRuleSet contains SizeRestrictions_BODY which blocks
+// any request body larger than 8,192 bytes. CloudFront fronts beta/prod with this rule
+// enabled, which is why uploads 403 there but pass on alpha (nginx, no WAF). Stay
+// safely below 8 KB after JSON envelope overhead.
+const MAX_CHUNK_BYTES = 6_500;
 
 async function uploadArtifactsInChunks(setupId: string, apiKey: string, uploads: ArtifactUploads): Promise<void> {
-  const allBatches: Array<{ testCases?: UploadFile[]; skills?: UploadFile[]; artifacts?: UploadFile[] }> = [
-    ...chunkBySize(uploads.testCases).map((batch) => ({ testCases: batch })),
-    ...chunkBySize(uploads.skills).map((batch) => ({ skills: batch })),
-    ...chunkBySize(uploads.artifacts).map((batch) => ({ artifacts: batch })),
+  assertNoOversizedFiles(uploads);
+
+  const allBatches: Array<{ kind: "testCases" | "skills" | "artifacts"; body: object }> = [
+    ...chunkBySize(uploads.testCases).map((batch) => ({ kind: "testCases" as const, body: { testCases: batch } })),
+    ...chunkBySize(uploads.skills).map((batch) => ({ kind: "skills" as const, body: { skills: batch } })),
+    ...chunkBySize(uploads.artifacts).map((batch) => ({ kind: "artifacts" as const, body: { artifacts: batch } })),
   ];
 
   if (allBatches.length === 0) return;
 
-  for (const batch of allBatches) {
-    await postToSetup(`/setups/${setupId}/artifacts`, apiKey, batch);
+  for (let i = 0; i < allBatches.length; i++) {
+    const batch = allBatches[i];
+    if (batch == null) continue;
+    try {
+      await postToSetup(`/setups/${setupId}/artifacts`, apiKey, batch.body);
+    } catch (err) {
+      const original = err instanceof Error ? err.message : String(err);
+      throw new Error(`Batch ${i + 1}/${allBatches.length} (${batch.kind}) failed: ${original}`);
+    }
   }
+}
+
+function assertNoOversizedFiles(uploads: ArtifactUploads): void {
+  const allFiles: { kind: string; file: UploadFile }[] = [
+    ...uploads.testCases.map((file) => ({ kind: "test case", file })),
+    ...uploads.skills.map((file) => ({ kind: "skill", file })),
+    ...uploads.artifacts.map((file) => ({ kind: "artifact", file })),
+  ];
+
+  const oversized = allFiles.filter(({ file }) => estimateFileBytes(file) > MAX_CHUNK_BYTES);
+  if (oversized.length === 0) return;
+
+  const names = oversized.map(({ kind, file }) => `${kind} "${file.name}" (${file.content.length} bytes)`).join(", ");
+  throw new Error(
+    `Cannot upload: ${oversized.length} file(s) exceed the ${MAX_CHUNK_BYTES} byte per-file limit imposed by CloudFront WAF: ${names}. ` +
+      `Reduce the file(s) or contact support to adjust the WAF size restriction.`,
+  );
 }
 
 function chunkBySize(files: UploadFile[]): UploadFile[][] {
