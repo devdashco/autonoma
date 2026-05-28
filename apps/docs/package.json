@@ -24,11 +24,11 @@
         "remark-directive": "^4.0.0",
         "remark-gfm": "^4.0.1",
         "remark-stringify": "^11.0.0",
-        "sharp": "^0.33.0",
+        "sharp": "^0.33.5",
         "tailwindcss": "catalog:",
         "unified": "^11.0.5",
         "unist-util-remove": "^4.0.0",
-        "unist-util-visit": "^5.0.0"
+        "unist-util-visit": "^5.1.0"
     },
     "devDependencies": {
         "@types/react": "catalog:",

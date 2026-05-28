@@ -37,7 +37,7 @@
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "playwright": "catalog:",
-        "rimraf": "^6.0.1",
+        "rimraf": "^6.1.3",
         "zod": "catalog:"
     },
     "devDependencies": {

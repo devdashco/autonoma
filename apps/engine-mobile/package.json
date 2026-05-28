@@ -32,7 +32,7 @@
         "@t3-oss/env-core": "catalog:",
         "dotenv": "catalog:",
         "mjpeg-consumer": "^2.0.0",
-        "webdriverio": "^9.0.0",
+        "webdriverio": "^9.24.0",
         "zod": "catalog:"
     },
     "devDependencies": {

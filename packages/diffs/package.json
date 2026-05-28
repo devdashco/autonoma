@@ -35,7 +35,7 @@
         "@google/genai": "^1.42.0",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
-        "glob": "^11.0.0",
+        "glob": "^11.1.0",
         "zod": "catalog:"
     },
     "devDependencies": {
