@@ -166,10 +166,10 @@ function GenerationActions({ generation }: { generation: NonNullable<TestEntry["
       <AppLink
         to="/app/$appSlug/generations/$generationId"
         params={{ generationId: generation.id }}
-        className="ml-auto inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
+        className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
       >
         <ArrowSquareOutIcon size={11} />
-        View generation
+        View
       </AppLink>
     </>
   );
@@ -188,10 +188,10 @@ function RunActions({ run }: { run: NonNullable<TestEntry["run"]> }) {
       <AppLink
         to="/app/$appSlug/runs/$runId"
         params={{ runId: run.id }}
-        className="ml-auto inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
+        className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
       >
         <ArrowSquareOutIcon size={11} />
-        View run
+        View
       </AppLink>
     </>
   );
