@@ -177,7 +177,12 @@ export class Deployer {
             logger.info("Deployed service recipe", { service: svcConfig.name, recipe: svcConfig.recipe, namespace });
         }
 
-        // 5. Wait for service readiness
+        // 5. Delete any crashed service pods so the controller creates fresh ones
+        for (const svcConfig of config.services) {
+            await this.deleteCrashedPods(namespace, svcConfig.name);
+        }
+
+        // 6. Wait for service readiness
         await this.waitForServicesReady(namespace, config);
 
         return { namespace, awsSecretsByApp };
@@ -494,7 +499,7 @@ export class Deployer {
         throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}`);
     }
 
-    private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 180_000): Promise<void> {
+    private async waitForServicesReady(namespace: string, config: PreviewConfig, timeoutMs = 300_000): Promise<void> {
         if (config.services.length === 0) return;
 
         // Only wait on services that actually generated a K8s Service resource.
@@ -512,6 +517,8 @@ export class Deployer {
         const start = Date.now();
         logger.info("Waiting for services to be ready", { namespace, services: serviceNames });
 
+        const notReadyServices = new Set<string>();
+
         while (Date.now() - start < timeoutMs) {
             let allReady = true;
 
@@ -525,10 +532,21 @@ export class Deployer {
                     const readyAddresses = endpoints?.subsets?.flatMap((s) => s.addresses ?? []);
                     if (!readyAddresses?.length) {
                         allReady = false;
+                        if (!notReadyServices.has(name)) {
+                            notReadyServices.add(name);
+                            logger.info("Service not ready yet", { namespace, service: name });
+                        }
                         break;
+                    } else if (notReadyServices.has(name)) {
+                        notReadyServices.delete(name);
+                        logger.info("Service became ready", { namespace, service: name });
                     }
                 } catch {
                     allReady = false;
+                    if (!notReadyServices.has(name)) {
+                        notReadyServices.add(name);
+                        logger.info("Service not ready yet (endpoint query failed)", { namespace, service: name });
+                    }
                     break;
                 }
             }
@@ -538,7 +556,35 @@ export class Deployer {
                 return;
             }
 
-            await new Promise((r) => setTimeout(r, 3000));
+            await new Promise((r) => setTimeout(r, 5000));
+        }
+
+        // Log pod status for debugging before throwing
+        for (const name of serviceNames) {
+            try {
+                const pods = await this.coreApi.listNamespacedPod({
+                    namespace,
+                    labelSelector: `app=${name}`,
+                });
+                for (const pod of pods.items) {
+                    const phase = pod.status?.phase;
+                    const conditions = pod.status?.conditions?.map((c) => `${c.type}=${c.status}`).join(",");
+                    const containerStatuses = pod.status?.containerStatuses?.map(
+                        (cs) =>
+                            `${cs.name}:ready=${cs.ready},restarts=${cs.restartCount},state=${JSON.stringify(cs.state)}`,
+                    );
+                    logger.error("Service pod not ready at timeout", {
+                        namespace,
+                        service: name,
+                        pod: pod.metadata?.name,
+                        phase,
+                        conditions,
+                        containerStatuses,
+                    });
+                }
+            } catch {
+                logger.error("Could not fetch pod status for service", { namespace, service: name });
+            }
         }
 
         throw new Error(`Timed out waiting for services to be ready in ${namespace}`);
