@@ -73,7 +73,33 @@ describe("previewConfigSchema", () => {
         expect(result.apps[0].replicas).toBe(1);
         expect(result.apps[0].build_args).toEqual({});
         expect(result.apps[0].env).toEqual({});
-        expect(result.apps[0].resources).toEqual({ cpu: "250m", memory: "256Mi" });
+        // resources is deprecated; omitting it yields the standard allocation.
+        expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+    });
+
+    describe("resources (deprecated)", () => {
+        it("yields the standard 1000m/1Gi when omitted", () => {
+            const result = previewConfigSchema.parse(validConfig);
+            expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+        });
+
+        it("ignores any explicit cpu/memory and still yields 1000m/1Gi", () => {
+            const result = previewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "250m", memory: "256Mi" } }],
+                services: [{ name: "db", recipe: "postgres", resources: { cpu: "4", memory: "8Gi" } }],
+            });
+            expect(result.apps[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+            expect(result.services[0].resources).toEqual({ cpu: "1000m", memory: "1Gi" });
+        });
+
+        it("still validates a config that sets resources (backward compatibility)", () => {
+            const result = previewConfigSchema.safeParse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, resources: { cpu: "500m", memory: "512Mi" } }],
+            });
+            expect(result.success).toBe(true);
+        });
     });
 
     it("rejects missing version", () => {

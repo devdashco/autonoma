@@ -106,19 +106,17 @@ hooks:
 | `command` | No | | Override the container command |
 | `health_check` | No | | HTTP path for readiness/liveness probes |
 | `replicas` | No | `1` | Number of pod replicas |
-| `resources.cpu` | No | `250m` | CPU request |
-| `resources.memory` | No | `256Mi` | Memory request and limit |
+| `resources` | No | | **Deprecated and ignored.** Every container is allocated 1000m CPU / 1Gi memory. Still accepted so existing configs validate; remove it. |
 
 **Service fields:**
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | Yes | | Name used in `{{name.host}}` templates |
-| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `docker-image` |
+| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `docker-image` |
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
-| `resources.cpu` | No | `250m` | CPU request |
-| `resources.memory` | No | `256Mi` | Memory request and limit |
+| `resources` | No | | **Deprecated and ignored** (see app fields). All containers get 1000m CPU / 1Gi memory. |
 
 ### Template Syntax
 

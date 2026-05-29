@@ -56,17 +56,18 @@
         "resources": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Kubernetes resource requests. Values use standard K8s quantity syntax (e.g. 500m, 512Mi).",
+            "deprecated": true,
+            "description": "DEPRECATED and ignored. Every app and service is allocated a standard 1000m CPU / 1Gi memory. The field is still accepted so existing configs validate, but cpu/memory values have no effect. Remove it.",
             "properties": {
                 "cpu": {
                     "type": "string",
-                    "default": "250m",
-                    "description": "CPU request (e.g. 100m, 1, 2)."
+                    "deprecated": true,
+                    "description": "Ignored. All containers request 1000m CPU."
                 },
                 "memory": {
                     "type": "string",
-                    "default": "256Mi",
-                    "description": "Memory request (e.g. 128Mi, 1Gi)."
+                    "deprecated": true,
+                    "description": "Ignored. All containers get 1Gi memory."
                 }
             }
         },

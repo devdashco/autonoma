@@ -382,15 +382,7 @@ export class PreviewPipeline {
             //     target a failed app would fail at `kubectl exec` time with
             //     "no pod" — better to skip silently than poison the pipeline.
             await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
-            await this.runPostDeployHooks(
-                mergedConfig,
-                result,
-                readyAppNamesForHooks,
-                repoFullName,
-                prNumber,
-                imageTags,
-                addonOutputs,
-            );
+            await this.runPostDeployHooks(mergedConfig, result, readyAppNamesForHooks);
 
             // 15. Restart any apps that crashed during startup with CrashLoopBackOff.
             //     Post_deploy hooks above typically run migrations — deleting the
@@ -808,10 +800,6 @@ export class PreviewPipeline {
         config: PreviewConfig,
         result: DeployResult,
         readyAppNames: Set<string>,
-        repoFullName: string,
-        prNumber: number,
-        imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<void> {
         if (config.hooks.post_deploy.length === 0) return;
 
@@ -832,45 +820,11 @@ export class PreviewPipeline {
 
         const kc = this.deployer.getKubeConfig();
         for (const hook of runnable) {
-            logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command, type: hook.type });
+            logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command });
             try {
-                if (hook.type === "job") {
-                    const imageTag = imageTags[hook.app];
-                    if (imageTag == null) {
-                        throw new Error(
-                            `Post-deploy hook (type: job) for app "${hook.app}" has no built image — ` +
-                                `did the build fail? Available: ${Object.keys(imageTags).join(", ")}`,
-                        );
-                    }
-                    const appConfig = config.apps.find((a) => a.name === hook.app);
-                    if (appConfig == null) {
-                        throw new Error(`Post-deploy hook (type: job) references unknown app "${hook.app}"`);
-                    }
-                    const org = repoFullName.split("/")[0]!.toLowerCase();
-                    const context = { pr: String(prNumber), namespace: result.namespace, owner: org };
-                    const publicUrlInfo: PublicUrlInfo = {
-                        domain: config.domain ?? this.deployer.getDomain(),
-                        repoFullName,
-                        secret: this.deployer.getSecret(),
-                        prNumber,
-                    };
-                    const resolvedEnv = this.deployer
-                        .getEnvInjector()
-                        .resolve(
-                            appConfig.env,
-                            config.apps,
-                            config.services,
-                            result.namespace,
-                            context,
-                            publicUrlInfo,
-                            addonOutputs,
-                        );
-                    await runHookJob(kc, result.namespace, hook.app, imageTag, hook.command, resolvedEnv);
-                } else {
-                    const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
-                    if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
-                    if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
-                }
+                const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
+                if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
+                if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
             } catch (err) {
                 // Post-deploy hook failures are non-fatal: apps are already running and
                 // migrations are typically idempotent (already applied on re-deploys).
