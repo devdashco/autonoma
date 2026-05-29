@@ -59,6 +59,12 @@ export const applicationsRouter = router({
             services.applications.createMinimalApplication(input.name, organizationId),
         ),
 
+    getSharedSecret: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.applications.getSharedSecret(input.applicationId, organizationId),
+        ),
+
     delete: protectedProcedure
         .input(z.object({ id: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>

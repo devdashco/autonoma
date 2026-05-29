@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
@@ -53,6 +53,15 @@ export function useCreateMinimalApplication() {
             },
         }),
     );
+}
+
+export function useApplicationSharedSecret(applicationId: string) {
+    return useQuery({
+        ...trpc.applications.getSharedSecret.queryOptions({ applicationId }),
+        enabled: applicationId.length > 0,
+        // The secret is generated once at creation and never rotates here.
+        staleTime: Number.POSITIVE_INFINITY,
+    });
 }
 
 export function useDeleteApplication() {

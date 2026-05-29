@@ -24,6 +24,7 @@ import {
   useReconfigureWebhook,
   useRunScenarioDryRun,
 } from "lib/onboarding/onboarding-api";
+import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DocLink } from "./-components/doc-link";
@@ -278,7 +279,7 @@ function generateHexSecret(): string {
 export function DeployPage({ appId }: { appId?: string }) {
   const applicationId = appId;
 
-  const [generatedSecret] = useState(generateHexSecret);
+  const [generatedSecretFallback] = useState(generateHexSecret);
   const [webhookUrlDraft, setWebhookUrlDraft] = useState<string>();
   const [webhookUrlTouched, setWebhookUrlTouched] = useState(false);
   const [signingSecret, setSigningSecret] = useState("");
@@ -300,11 +301,17 @@ export function DeployPage({ appId }: { appId?: string }) {
   const reconfigureWebhook = useReconfigureWebhook();
   const scenariosQuery = useOnboardingScenarios(applicationId ?? "");
   const onboardingStateQuery = useOnboardingStateOptional(applicationId ?? "");
+  const sharedSecretQuery = useApplicationSharedSecret(applicationId ?? "");
   const runDryRun = useRunScenarioDryRun();
   const completeOnboarding = useCompleteOnboarding();
   const log = useLogEntries();
 
   const webhookUrl = webhookUrlDraft ?? "";
+  // Prefer the canonical secret generated at app creation (also shown in the CLI command) so
+  // the value the user deploys, the CLI used, and discovery sends all match. Fall back to a
+  // client-generated one only for applications created before the secret existed.
+  const serverSecret = sharedSecretQuery.data?.sharedSecret;
+  const generatedSecret = serverSecret ?? generatedSecretFallback;
   const scenarios = scenariosQuery.data ?? [];
   const serverStep = onboardingStateQuery.data?.step;
   const webhookConfirmed = onboardingStateQuery.data?.webhookConfigured ?? false;
@@ -325,6 +332,11 @@ export function DeployPage({ appId }: { appId?: string }) {
   const discoverErrorDetails = discoverError != null ? getWebhookErrorDetails(discoverError.message) : undefined;
   const isUrlErrorField = discoverErrorDetails?.field === "url" || discoverErrorDetails?.field === "both";
   const isSecretErrorField = discoverErrorDetails?.field === "secret" || discoverErrorDetails?.field === "both";
+
+  useEffect(() => {
+    if (serverSecret == null || serverSecret.length === 0) return;
+    setSigningSecret((prev) => (prev.length === 0 ? serverSecret : prev));
+  }, [serverSecret]);
 
   function handleDiscoverScenarios() {
     if (webhookUrl.length === 0 || !isValidUrl(webhookUrl) || signingSecret.length === 0 || applicationId == null)
@@ -604,14 +616,12 @@ export function DeployPage({ appId }: { appId?: string }) {
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="signing-secret">Shared Secret</Label>
                   <p className="text-2xs text-text-tertiary">
-                    Copy the{" "}
+                    This is your auto-generated{" "}
                     <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">
                       AUTONOMA_SHARED_SECRET
                     </code>{" "}
-                    from your project's{" "}
-                    <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env.local</code> or{" "}
-                    <code className="rounded bg-surface-raised px-1 py-0.5 font-mono text-2xs">.env</code> file. This is
-                    the same secret your deployed endpoint uses to verify requests.
+                    - the same value shown in the CLI command earlier. It's prefilled for you. Make sure the same value
+                    is set on your deployed endpoint so it can verify requests.
                   </p>
                   <Input
                     id="signing-secret"

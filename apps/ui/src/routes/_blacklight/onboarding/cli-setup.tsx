@@ -10,7 +10,8 @@ import { UploadSimpleIcon } from "@phosphor-icons/react/UploadSimple";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useCreateMinimalApplication } from "lib/query/applications.queries";
+import { useAuth } from "lib/auth";
+import { useApplicationSharedSecret, useCreateMinimalApplication } from "lib/query/applications.queries";
 import { trpc, trpcClient } from "lib/trpc";
 import posthog from "posthog-js";
 import { useEffect, useRef, useState } from "react";
@@ -57,6 +58,11 @@ export function CliSetupPage({ appId }: CliSetupProps) {
   }
 
   return <SetupStep applicationId={applicationId} />;
+}
+
+function maskSecret(value: string): string {
+  if (value.length <= 4) return "••••••••";
+  return `${value.slice(0, 4)}••••••••`;
 }
 
 function toSlug(name: string): string {
@@ -130,6 +136,9 @@ function NameStep({ onCreated }: { onCreated: (appId: string) => void }) {
 
 function SetupStep({ applicationId }: { applicationId: string }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { data: sharedSecretData } = useApplicationSharedSecret(applicationId);
+  const sharedSecret = sharedSecretData?.sharedSecret;
   const [copied, setCopied] = useState(false);
   const [uploadState, setUploadState] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const [uploadError, setUploadError] = useState<string>();
@@ -162,7 +171,21 @@ function SetupStep({ applicationId }: { applicationId: string }) {
     void bootstrap();
   }, [applicationId]);
 
-  const command = "OPENROUTER_API_KEY=your-key-here npx @autonoma-ai/planner@latest";
+  // The shared secret is generated server-side at app creation and surfaced here so the
+  // CLI has it during its test-the-implementation step. The user sets the same value as
+  // AUTONOMA_SHARED_SECRET on their deployment so the webhook can verify Autonoma's requests.
+  const sharedSecretEnv = sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${sharedSecret} ` : "";
+  // Pass the user's PostHog distinct id (same id the app identifies by, see __root.tsx)
+  // so the CLI's step events attach to the same person and the signup funnel extends
+  // into the CLI instead of breaking at an anonymous, separate identity.
+  const distinctIdEnv = user != null ? `AUTONOMA_DISTINCT_ID=${user.id} ` : "";
+  const command = `OPENROUTER_API_KEY=your-key-here ${sharedSecretEnv}${distinctIdEnv}npx @autonoma-ai/planner@latest`;
+
+  // Render a redacted command so the long secret/id don't fill the block or leak on screen.
+  // Copy still writes the real values via `command`.
+  const displaySharedSecretEnv = sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${maskSecret(sharedSecret)} ` : "";
+  const displayDistinctIdEnv = user != null ? `AUTONOMA_DISTINCT_ID=${maskSecret(user.id)} ` : "";
+  const displayCommand = `OPENROUTER_API_KEY=your-key-here ${displaySharedSecretEnv}${displayDistinctIdEnv}npx @autonoma-ai/planner@latest`;
 
   function handleCopy() {
     void navigator.clipboard.writeText(command);
@@ -195,7 +218,10 @@ function SetupStep({ applicationId }: { applicationId: string }) {
       }
 
       const testCases = fileEntries.filter(
-        (f) => f.path.startsWith("qa-tests/") && f.name.endsWith(".md") && f.name !== "INDEX.md",
+        (f) =>
+          (f.path.startsWith("qa-tests/") || f.path.startsWith("autonoma/qa-tests/")) &&
+          f.name.endsWith(".md") &&
+          f.name !== "INDEX.md",
       );
       const skills = fileEntries.filter((f) => f.path.startsWith("skills/") || f.path.startsWith("autonoma/skills/"));
       const artifacts = fileEntries.filter(
@@ -265,7 +291,7 @@ function SetupStep({ applicationId }: { applicationId: string }) {
             </div>
 
             <pre className="whitespace-pre-wrap break-all rounded-lg border border-border-dim bg-surface-void p-4 font-mono text-xs leading-relaxed text-text-primary">
-              {command}
+              {displayCommand}
             </pre>
 
             <p className="font-mono text-3xs text-text-tertiary">
@@ -288,6 +314,12 @@ function SetupStep({ applicationId }: { applicationId: string }) {
                 openrouter.ai/keys
               </a>{" "}
               and replace <code className="text-text-secondary">your-key-here</code> in the command above.
+            </p>
+
+            <p className="font-mono text-3xs text-text-tertiary">
+              <code className="text-text-secondary">AUTONOMA_SHARED_SECRET</code> is auto-generated for this application
+              and already included above. Set the same value on your deployment so it can verify Autonoma's webhook
+              requests.
             </p>
 
             <p className="font-mono text-3xs text-text-tertiary">

@@ -25,6 +25,7 @@ import {
   useGithubInstallation,
   useGithubRepositories,
   useLinkRepository,
+  useUnlinkRepository,
 } from "lib/query/github.queries";
 import { Suspense, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
@@ -148,7 +149,10 @@ function InstallationPanel({
 
         {confirming ? (
           <div className="flex items-center gap-3">
-            <p className="text-xs text-status-critical">This will remove all linked repositories. Are you sure?</p>
+            <p className="text-xs text-status-critical">
+              This disconnects the GitHub App from your whole organization and unlinks every repository from all
+              applications. To change just this app's repository, use the Linked Repository section below. Are you sure?
+            </p>
             <Button
               variant="destructive"
               size="sm"
@@ -187,26 +191,37 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
   const app = useCurrentApplication();
   const { data: repos } = useGithubRepositories();
   const linkRepository = useLinkRepository();
+  const unlinkRepository = useUnlinkRepository();
 
   const linkedRepo = repos.find((r) => r.id === app.githubRepositoryId);
+  const [editing, setEditing] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<number | undefined>();
 
   function handleSave() {
     if (selectedRepoId == null) return;
 
-    linkRepository.mutate({
-      applicationId: app.id,
-      githubRepoId: selectedRepoId,
-    });
+    linkRepository.mutate(
+      { applicationId: app.id, githubRepoId: selectedRepoId },
+      {
+        onSuccess: () => {
+          setEditing(false);
+          setSelectedRepoId(undefined);
+        },
+      },
+    );
   }
 
-  if (linkedRepo != null) {
+  function handleUnlink() {
+    unlinkRepository.mutate({ applicationId: app.id }, { onSuccess: () => setEditing(false) });
+  }
+
+  if (linkedRepo != null && !editing) {
     return (
       <Panel>
         <PanelHeader>
           <PanelTitle>Linked Repository</PanelTitle>
         </PanelHeader>
-        <PanelBody>
+        <PanelBody className="space-y-4">
           <div className="flex items-center gap-3">
             <CheckCircleIcon size={18} weight="fill" className="text-status-success" />
             <div>
@@ -216,6 +231,24 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
               </p>
             </div>
           </div>
+
+          <Separator />
+
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              Change repository
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-text-tertiary"
+              onClick={handleUnlink}
+              disabled={unlinkRepository.isPending}
+            >
+              <LinkBreakIcon size={14} />
+              {unlinkRepository.isPending ? "Unlinking..." : "Unlink"}
+            </Button>
+          </div>
         </PanelBody>
       </Panel>
     );
@@ -224,16 +257,18 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Linked Repository</PanelTitle>
+        <PanelTitle>{linkedRepo != null ? "Change Repository" : "Linked Repository"}</PanelTitle>
       </PanelHeader>
       <PanelBody className="space-y-5">
-        <div className="flex items-start gap-3 rounded border border-status-warn/20 bg-status-warn/5 px-4 py-3">
-          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
-          <p className="text-xs text-text-secondary">
-            No repository is linked to this application. Link a repository to enable automatic test updates when code
-            changes are pushed.
-          </p>
-        </div>
+        {linkedRepo == null && (
+          <div className="flex items-start gap-3 rounded border border-status-warn/20 bg-status-warn/5 px-4 py-3">
+            <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+            <p className="text-xs text-text-secondary">
+              No repository is linked to this application. Link a repository to enable automatic test updates when code
+              changes are pushed.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5">
           <label className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">Repository</label>
@@ -274,14 +309,28 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
           </p>
         </div>
 
-        <Button
-          variant="accent"
-          size="sm"
-          onClick={handleSave}
-          disabled={selectedRepoId == null || linkRepository.isPending}
-        >
-          {linkRepository.isPending ? "Saving..." : "Link Repository"}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="accent"
+            size="sm"
+            onClick={handleSave}
+            disabled={selectedRepoId == null || linkRepository.isPending}
+          >
+            {linkRepository.isPending ? "Saving..." : "Link Repository"}
+          </Button>
+          {linkedRepo != null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setSelectedRepoId(undefined);
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
       </PanelBody>
     </Panel>
   );

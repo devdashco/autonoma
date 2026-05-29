@@ -96,7 +96,7 @@ export function buildServices({
         branches: new BranchesService(conn),
         bugs: new BugsService(conn, storageProvider),
         deployments: new DeploymentsService(conn),
-        applications: new ApplicationsService(conn),
+        applications: new ApplicationsService(conn, encryptionHelper),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn, storageProvider),

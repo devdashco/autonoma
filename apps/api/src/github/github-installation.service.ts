@@ -277,6 +277,34 @@ export class GitHubInstallationService extends Service {
         this.logger.info("Repository linked to application", { applicationId, githubRepoId });
     }
 
+    /**
+     * Unlinks the repository from a single application, leaving the org-wide GitHub
+     * installation (and every other application's link) untouched. This is the
+     * scoped counterpart to `disconnect`, which tears down the whole installation.
+     */
+    async unlinkRepository(orgId: string, applicationId: string): Promise<void> {
+        this.logger.info("Unlinking repository from application", { orgId, applicationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId: orgId },
+            select: { id: true, githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+
+        if (app.githubRepositoryId == null) {
+            this.logger.info("Application has no linked repository, nothing to unlink", { applicationId });
+            return;
+        }
+
+        await this.db.application.update({
+            where: { id: applicationId },
+            data: { githubRepositoryId: null },
+        });
+
+        this.logger.info("Repository unlinked from application", { applicationId });
+    }
+
     async disconnect(orgId: string): Promise<void> {
         this.logger.info("Disconnecting GitHub installation", { orgId });
 

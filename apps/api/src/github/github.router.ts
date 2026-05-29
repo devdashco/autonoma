@@ -45,6 +45,12 @@ export const githubRouter = router({
             services.github.linkRepository(organizationId, input.applicationId, input.githubRepoId),
         ),
 
+    unlinkRepository: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.github.unlinkRepository(organizationId, input.applicationId),
+        ),
+
     disconnect: protectedProcedure.mutation(({ ctx: { services, organizationId } }) =>
         services.github.disconnect(organizationId),
     ),

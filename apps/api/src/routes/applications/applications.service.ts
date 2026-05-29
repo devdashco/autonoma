@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import type { Application, PrismaClient } from "@autonoma/db";
 import { ApplicationArchitecture, Prisma, SnapshotStatus, TriggerSource } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
+import type { EncryptionHelper } from "@autonoma/scenario";
 import { toSlug } from "@autonoma/utils";
 import { Service } from "../service";
 
@@ -65,7 +67,10 @@ class NoMainBranchError extends Error {
 }
 
 export class ApplicationsService extends Service {
-    constructor(private readonly db: PrismaClient) {
+    constructor(
+        private readonly db: PrismaClient,
+        private readonly encryption: EncryptionHelper,
+    ) {
         super();
     }
 
@@ -244,6 +249,11 @@ export class ApplicationsService extends Service {
     async createMinimalApplication(name: string, organizationId: string) {
         this.logger.info("Creating minimal application", { name, organizationId });
 
+        // Generate the webhook shared secret up front so it can be surfaced to the user
+        // at the CLI-setup step (in the planner command) instead of being hunted for later.
+        const sharedSecret = randomBytes(32).toString("hex");
+        const signingSecretEnc = this.encryption.encrypt(sharedSecret);
+
         try {
             return await this.db.$transaction(async (tx) => {
                 const app = await tx.application.create({
@@ -252,6 +262,7 @@ export class ApplicationsService extends Service {
                         slug: toSlug(name),
                         organizationId,
                         architecture: ApplicationArchitecture.WEB,
+                        signingSecretEnc,
                     },
                     select: { id: true, slug: true, name: true },
                 });
@@ -317,6 +328,25 @@ export class ApplicationsService extends Service {
             }
             throw error;
         }
+    }
+
+    /**
+     * Returns the decrypted webhook shared secret for an application so the portal can
+     * display it (e.g. in the CLI-setup command). Returns `undefined` for applications
+     * created before the secret was generated at creation time.
+     */
+    async getSharedSecret(applicationId: string, organizationId: string): Promise<{ sharedSecret?: string }> {
+        this.logger.info("Getting application shared secret", { applicationId, organizationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { id: true, signingSecretEnc: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.signingSecretEnc == null) return {};
+
+        return { sharedSecret: this.encryption.decrypt(app.signingSecretEnc) };
     }
 
     async deleteApplication(id: string, organizationId: string) {

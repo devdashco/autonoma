@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
@@ -19,15 +20,37 @@ export function useGithubRepositories() {
 
 export function useLinkRepository() {
     const queryClient = useQueryClient();
+    const router = useRouter();
     return useAPIMutation({
         ...trpc.github.linkRepository.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                // Re-run the app-shell loader so useCurrentApplication picks up the new link.
+                void router.invalidate();
             },
         }),
+        successToast: { title: "Repository linked" },
         errorToast: { title: "Failed to link repository" },
+    });
+}
+
+export function useUnlinkRepository() {
+    const queryClient = useQueryClient();
+    const router = useRouter();
+    return useAPIMutation({
+        ...trpc.github.unlinkRepository.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
+                // Re-run the app-shell loader so useCurrentApplication drops the link.
+                void router.invalidate();
+            },
+        }),
+        successToast: { title: "Repository unlinked" },
+        errorToast: { title: "Failed to unlink repository" },
     });
 }
 
