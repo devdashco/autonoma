@@ -1,3 +1,4 @@
+import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
@@ -94,7 +95,7 @@ export function buildServices({
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
         branches: new BranchesService(conn),
-        bugs: new BugsService(conn, storageProvider),
+        bugs: new BugsService(conn, storageProvider, analytics),
         deployments: new DeploymentsService(conn),
         applications: new ApplicationsService(conn, encryptionHelper),
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),

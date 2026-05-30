@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ensureAPIQueryData, useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -50,6 +50,20 @@ export function useResolveBug(bugId: string) {
             },
         }),
     );
+}
+
+export function useClassificationEnabled(enabled: boolean) {
+    return useQuery({
+        ...trpc.bugs.classificationEnabled.queryOptions(),
+        enabled,
+    });
+}
+
+export function useClassifyBug() {
+    return useAPIMutation({
+        ...trpc.bugs.classify.mutationOptions(),
+        successToast: { title: "Classification recorded" },
+    });
 }
 
 export function useReopenBug(bugId: string) {

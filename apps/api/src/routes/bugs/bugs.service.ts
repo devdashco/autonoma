@@ -1,6 +1,8 @@
+import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
+import type { BugVerdict } from "@autonoma/types";
 import { Service } from "../service";
 import { signEvidenceUrls } from "../sign-evidence-urls";
 
@@ -10,6 +12,7 @@ export class BugsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
+        private readonly analytics: PostHogAnalytics,
     ) {
         super();
     }
@@ -183,6 +186,34 @@ export class BugsService extends Service {
         });
 
         this.logger.info("Bug reopened", { bugId });
+    }
+
+    isClassificationEnabled(): boolean {
+        const enabled = this.analytics.isEnabled();
+        this.logger.info("Reporting bug classification availability", { enabled });
+        return enabled;
+    }
+
+    async classifyBug(bugId: string, organizationId: string, userId: string, verdict: BugVerdict) {
+        this.logger.info("Classifying bug", { bugId, organizationId, userId, verdict });
+
+        const bug = await this.db.bug.findFirst({
+            where: { id: bugId, organizationId },
+            select: { id: true, severity: true, status: true, applicationId: true },
+        });
+
+        if (bug == null) throw new NotFoundError();
+
+        this.analytics.capture(userId, "bug.classified", {
+            bugId: bug.id,
+            verdict,
+            applicationId: bug.applicationId,
+            organizationId,
+            severity: bug.severity,
+            status: bug.status,
+        });
+
+        this.logger.info("Bug classified", { bugId, verdict });
     }
 
     async dismissIssue(issueId: string, organizationId: string) {

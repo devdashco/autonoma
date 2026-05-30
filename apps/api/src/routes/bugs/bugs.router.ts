@@ -1,5 +1,6 @@
+import { bugVerdictSchema } from "@autonoma/types";
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { internalProcedure, protectedProcedure, router } from "../../trpc";
 
 export const bugsRouter = router({
     list: protectedProcedure
@@ -37,5 +38,15 @@ export const bugsRouter = router({
         .input(z.object({ bugId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.bugs.reopenBug(input.bugId, organizationId),
+        ),
+
+    classificationEnabled: internalProcedure.query(({ ctx: { services } }) => ({
+        enabled: services.bugs.isClassificationEnabled(),
+    })),
+
+    classify: internalProcedure
+        .input(z.object({ bugId: z.string(), verdict: bugVerdictSchema }))
+        .mutation(({ ctx: { services, organizationId, user }, input }) =>
+            services.bugs.classifyBug(input.bugId, organizationId, user.id, input.verdict),
         ),
 });

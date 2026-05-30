@@ -9,6 +9,7 @@ export type TestStatus = z.infer<typeof TestStatusSchema>;
 export * from "./scenarios";
 export * from "./onboarding";
 export * from "./generation-verdict";
+export * from "./bug-verdict";
 export * from "./replay-verdict";
 export * from "./generation";
 export * from "./api-key";

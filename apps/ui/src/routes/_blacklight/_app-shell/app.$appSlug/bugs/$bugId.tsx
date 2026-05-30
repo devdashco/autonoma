@@ -1,13 +1,24 @@
 import { Badge, Button, Panel, PanelBody, PanelHeader, PanelTitle, Separator, Skeleton } from "@autonoma/blacklight";
+import type { BugVerdict } from "@autonoma/types";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { BugBeetleIcon } from "@phosphor-icons/react/BugBeetle";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+import { ThumbsDownIcon } from "@phosphor-icons/react/ThumbsDown";
+import { ThumbsUpIcon } from "@phosphor-icons/react/ThumbsUp";
 import { VideoIcon } from "@phosphor-icons/react/Video";
 import { createFileRoute } from "@tanstack/react-router";
 import { EvidenceLightbox } from "components/evidence-lightbox";
+import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { ensureBugDetailData, useBugDetail, useReopenBug, useResolveBug } from "lib/query/bugs.queries";
+import {
+  ensureBugDetailData,
+  useBugDetail,
+  useClassificationEnabled,
+  useClassifyBug,
+  useReopenBug,
+  useResolveBug,
+} from "lib/query/bugs.queries";
 import { Suspense, useState } from "react";
 import { AppLink } from "../../-app-link";
 
@@ -45,10 +56,19 @@ interface EvidenceMedia {
 
 function BugDetail() {
   const { bugId } = Route.useParams();
+  const { isAdmin } = useAuth();
   const { data: bug } = useBugDetail(bugId);
   const resolveBug = useResolveBug(bugId);
   const reopenBug = useReopenBug(bugId);
+  const classifyBug = useClassifyBug();
+  const { data: classification } = useClassificationEnabled(isAdmin);
   const [activeMedia, setActiveMedia] = useState<EvidenceMedia | undefined>(undefined);
+  const [verdict, setVerdict] = useState<BugVerdict | undefined>(undefined);
+
+  function classify(value: BugVerdict) {
+    setVerdict(value);
+    classifyBug.mutate({ bugId, verdict: value });
+  }
 
   function getIssueMediaItems(evidence: Array<{ type: string; description: string; url?: string }>) {
     return evidence.filter(
@@ -73,6 +93,37 @@ function BugDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && classification?.enabled === true && (
+            <>
+              <Button
+                size="sm"
+                variant={verdict === "true_positive" ? "default" : "ghost"}
+                onClick={() => classify("true_positive")}
+                disabled={classifyBug.isPending}
+              >
+                <ThumbsUpIcon size={14} />
+                True positive
+              </Button>
+              <Button
+                size="sm"
+                variant={verdict === "false_positive" ? "default" : "ghost"}
+                onClick={() => classify("false_positive")}
+                disabled={classifyBug.isPending}
+              >
+                <ThumbsDownIcon size={14} />
+                False positive
+              </Button>
+              <Separator orientation="vertical" className="h-5" />
+            </>
+          )}
+          {isAdmin && classification?.enabled === false && (
+            <>
+              <span className="max-w-56 text-right text-xs text-text-tertiary">
+                Bug classification needs PostHog, which isn't enabled in this environment. Use it in production.
+              </span>
+              <Separator orientation="vertical" className="h-5" />
+            </>
+          )}
           {bug.status === "resolved" ? (
             <Button
               size="sm"
