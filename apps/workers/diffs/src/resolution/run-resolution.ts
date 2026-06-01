@@ -1,18 +1,40 @@
 import { db } from "@autonoma/db";
-import type { TestCandidateInput } from "@autonoma/diffs";
+import type { Codebase, TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
-import { extendObservabilityContext, logger as rootLogger } from "@autonoma/logger";
+import { createDiffsServices } from "@autonoma/job-diffs/create-services";
+import { uploadConversation } from "@autonoma/job-diffs/upload-conversation";
+import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
-import { rimraf } from "rimraf";
-import { createDiffsServices } from "./create-services";
-import { loadBranchData } from "./load-context";
 import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
-import { uploadConversation } from "./upload-conversation";
 
-export async function runDiffsResolution(snapshotId: string): Promise<void> {
+export interface RunDiffsResolutionParams {
+    snapshotId: string;
+    /** The on-disk clone (at base + head SHAs), acquired by the activity via `withCodebaseForSnapshot`. */
+    codebase: Codebase;
+}
+
+export interface DiffsResolutionResult {
+    /** The agent's resolution reasoning, persisted by the activity onto the DiffsJob. */
+    reasoning: string;
+    /** S3 URL of the persisted resolution conversation, or undefined if upload was skipped/failed. */
+    conversationUrl?: string;
+}
+
+/**
+ * Resolution runner: runs the ResolutionAgent against the provided codebase
+ * clone, then applies the result (the agent runner dispatches the modify /
+ * remove / report-bug / add-test callbacks) and links the outcomes (modified
+ * tests to their generations, accepted candidates to their new test cases).
+ * Returns the reasoning + conversation URL for the activity to record on the
+ * DiffsJob.
+ */
+export async function runDiffsResolution({
+    snapshotId,
+    codebase,
+}: RunDiffsResolutionParams): Promise<DiffsResolutionResult> {
     const logger = rootLogger.child({ name: "runDiffsResolution" });
-    extendObservabilityContext({ snapshot: { snapshotId } });
+    logger.info("Starting diffs resolution");
 
     const diffsJob = await db.diffsJob.findUniqueOrThrow({
         where: { snapshotId },
@@ -70,22 +92,7 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
         },
     });
 
-    const { githubApp, updater } = await createDiffsServices(snapshotId);
-    const branchId = updater.branchId;
-
-    const headSha = updater.headSha;
-    const baseSha = updater.baseSha;
-
-    const snapshotGroup: { snapshotId: string; headSha?: string; baseSha?: string } = { snapshotId };
-    if (headSha != null) snapshotGroup.headSha = headSha;
-    if (baseSha != null) snapshotGroup.baseSha = baseSha;
-    extendObservabilityContext({ branch: { branchId }, snapshot: snapshotGroup });
-
-    if (headSha == null || baseSha == null) {
-        throw new Error(
-            `Snapshot ${snapshotId} (branch ${branchId}) is missing required SHAs (headSha: ${headSha ?? "null"}, baseSha: ${baseSha ?? "null"})`,
-        );
-    }
+    const { updater } = await createDiffsServices(snapshotId);
 
     const candidateInputs: TestCandidateInput[] = testCandidates.map((c) => ({
         candidateId: c.id,
@@ -111,53 +118,37 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             extra: { verdictCount: verdicts.length, candidateCount: candidateInputs.length },
         });
 
-        const branchData = await loadBranchData(branchId, githubApp);
-        const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
+        const suiteInfo = await updater.currentTestSuiteInfo();
+        const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
-        await rimraf("/tmp/repo-resolution");
+        const [flows, application] = await Promise.all([
+            loadFlows(db, updater.applicationId, suiteInfo),
+            db.application.findUniqueOrThrow({
+                where: { id: updater.applicationId },
+                select: { testScopeGuidelines: true },
+            }),
+        ]);
+        const flowIndex = new FlowIndex(flows);
 
-        try {
-            const repoDir = await githubClient.cloneRepository({
-                fullName: branchData.fullName,
-                headSha,
-                baseSha,
-                targetDir: "/tmp/repo-resolution",
-            });
+        const agentResult = await runResolutionAgent({
+            input: {
+                verdicts,
+                step1Reasoning: diffsJob.analysisReasoning ?? "",
+                testCandidates: candidateInputs,
+                existingTests,
+                testScopeGuidelines: application.testScopeGuidelines ?? undefined,
+            },
+            db,
+            updater,
+            codebase,
+            flowIndex,
+        });
 
-            const suiteInfo = await updater.currentTestSuiteInfo();
-            const { existingTests } = mapTestSuiteToContext(suiteInfo);
-
-            const [flows, application] = await Promise.all([
-                loadFlows(db, branchData.applicationId, suiteInfo),
-                db.application.findUniqueOrThrow({
-                    where: { id: branchData.applicationId },
-                    select: { testScopeGuidelines: true },
-                }),
-            ]);
-            const flowIndex = new FlowIndex(flows);
-
-            const agentResult = await runResolutionAgent({
-                input: {
-                    verdicts,
-                    step1Reasoning: diffsJob.analysisReasoning ?? "",
-                    testCandidates: candidateInputs,
-                    existingTests,
-                    testScopeGuidelines: application.testScopeGuidelines ?? undefined,
-                },
-                db,
-                updater,
-                repoDir,
-                flowIndex,
-            });
-
-            resolutionReasoning = agentResult.reasoning;
-            modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
-            newTestsCount = agentResult.newTests.length;
-            acceptedCandidates = agentResult.accepted;
-            resolutionConversation = agentResult.conversation;
-        } finally {
-            await rimraf("/tmp/repo-resolution");
-        }
+        resolutionReasoning = agentResult.reasoning;
+        modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
+        newTestsCount = agentResult.newTests.length;
+        acceptedCandidates = agentResult.accepted;
+        resolutionConversation = agentResult.conversation;
     }
 
     await linkResolutionOutcomes({
@@ -175,11 +166,6 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
         logger,
     });
 
-    await db.diffsJob.update({
-        where: { snapshotId },
-        data: { resolutionReasoning, resolutionConversationUrl, status: "generating" },
-    });
-
     logger.info("Diffs resolution complete", {
         extra: {
             modifiedTests: modifiedSlugs.length,
@@ -187,6 +173,10 @@ export async function runDiffsResolution(snapshotId: string): Promise<void> {
             acceptedCandidates: acceptedCandidates.length,
         },
     });
+
+    const output: DiffsResolutionResult = { reasoning: resolutionReasoning };
+    if (resolutionConversationUrl != null) output.conversationUrl = resolutionConversationUrl;
+    return output;
 }
 
 interface LinkResolutionOutcomesParams {

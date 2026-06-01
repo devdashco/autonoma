@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { GitHubInstallationClient } from "@autonoma/github";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { glob as globPackage } from "glob";
+import { rimraf } from "rimraf";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,9 +79,10 @@ export class Codebase {
 
     /**
      * Shells out to `cloneRepository()` from `@autonoma/github` and returns a
-     * `Codebase` rooted at `targetDir`. Throws on any failure (and removes the
-     * partially-populated `targetDir` first). Caller owns the lifecycle - call
-     * `dispose()` when done.
+     * `Codebase` rooted at `targetDir`. Clears `targetDir` first so a dangling
+     * tree from a previous crashed run never interferes with the fresh clone.
+     * Throws on any failure (removing the partially-populated `targetDir`
+     * first). Caller owns the lifecycle - call `dispose()` when done.
      */
     static async clone(
         githubClient: GitHubInstallationClient,
@@ -93,6 +95,11 @@ export class Codebase {
             commitSha: opts.commitSha,
             targetDir,
         });
+        // Clear any dangling tree left by a previous crashed/aborted run before
+        // cloning, so a fresh clone never lands on top of stale files.
+        logger.info("Clearing target directory before clone");
+        await rimraf(targetDir);
+
         logger.info("Cloning repository for codebase access");
         try {
             await githubClient.cloneRepository({
@@ -102,7 +109,11 @@ export class Codebase {
                 targetDir,
             });
         } catch (error) {
-            await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+            await rimraf(targetDir).catch((cleanupError) => {
+                logger.warn("Failed to clean up target directory after clone failure", {
+                    extra: { error: cleanupError },
+                });
+            });
             throw error;
         }
         return new Codebase(targetDir);
@@ -111,7 +122,7 @@ export class Codebase {
     /** Remove the on-disk directory. Explicit, never auto-called. */
     async dispose(): Promise<void> {
         this.logger.info("Disposing codebase clone");
-        await fs.rm(this.root, { recursive: true, force: true });
+        await rimraf(this.root);
     }
 
     async readFile(path: string, options: ReadFileOptions = {}): Promise<string> {

@@ -4,6 +4,7 @@ import { mkdtemp, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { type CloneRepositoryParams, FakeGitHubInstallationClient } from "@autonoma/github";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Codebase } from "../src/codebase";
 
@@ -154,6 +155,24 @@ describe("Codebase", () => {
         await expect(fs.access(codebase.root)).rejects.toThrow();
     });
 
+    it("clone clears a dangling target tree before cloning", async () => {
+        const targetDir = await mkdtemp(join(tmpdir(), "codebase-dangling-"));
+        const danglingFile = join(targetDir, "stale-from-previous-run.txt");
+        await fs.writeFile(danglingFile, "leftover\n");
+
+        const client = new ClearTrackingGitHubClient(danglingFile);
+        const codebase = await Codebase.clone(client, targetDir, { repoName: "owner/repo", commitSha: "abc123" });
+
+        try {
+            // The fake records whether the dangling file survived into the clone
+            // call - it must not, because clone() rimrafs the target first.
+            expect(client.danglingFileSurvived).toBe(false);
+            expect(await codebase.readFile("README.md")).toContain("cloned fixture");
+        } finally {
+            await codebase.dispose();
+        }
+    });
+
     it("supports reuse: multiple operations on the same instance", async () => {
         const codebase = await makeCodebase();
         try {
@@ -165,3 +184,27 @@ describe("Codebase", () => {
         }
     });
 });
+
+/**
+ * Fake client whose `cloneRepository` records whether a known dangling file
+ * still existed at clone time (it should not - `Codebase.clone` clears the
+ * target first), then populates the target dir with a minimal fixture.
+ */
+class ClearTrackingGitHubClient extends FakeGitHubInstallationClient {
+    public danglingFileSurvived = true;
+
+    constructor(private readonly danglingFile: string) {
+        super();
+    }
+
+    override async cloneRepository(params: CloneRepositoryParams): Promise<string> {
+        this.danglingFileSurvived = await fs
+            .access(this.danglingFile)
+            .then(() => true)
+            .catch(() => false);
+
+        await fs.mkdir(params.targetDir, { recursive: true });
+        await fs.writeFile(join(params.targetDir, "README.md"), "# cloned fixture\n");
+        return params.targetDir;
+    }
+}

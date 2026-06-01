@@ -1,15 +1,16 @@
-import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { PrismaClient } from "@autonoma/db";
 import {
-    Codebase,
+    type Codebase,
+    type FlowIndex,
     ResolutionAgent,
     type ResolutionAgentInput,
     type ResolutionAgentResult,
     ScenarioIndex,
     type ScenarioInfo,
     createResolutionCallbacks,
+    openModelSession,
+    summarizeSessionCost,
 } from "@autonoma/diffs";
-import type { FlowIndex } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ModelMessage } from "ai";
@@ -19,7 +20,8 @@ export interface RunResolutionAgentParams {
     input: Omit<ResolutionAgentInput, "codebase" | "scenarioIndex" | "flowIndex">;
     db: PrismaClient;
     updater: TestSuiteUpdater;
-    repoDir: string;
+    /** The on-disk clone (at base + head SHAs), acquired by the activity via `withCodebaseForSnapshot`. */
+    codebase: Codebase;
     flowIndex: FlowIndex;
 }
 
@@ -33,26 +35,28 @@ export interface RunResolutionAgentResult extends ResolutionAgentResult {
     conversation: ModelMessage[];
 }
 
+/**
+ * Constructs a {@link ResolutionAgent} over a metered {@link openModelSession},
+ * runs it against the provided codebase clone, and applies the result by
+ * dispatching its modify / remove / report-bug / add-test callbacks. After the
+ * run it logs an aggregated cost summary drawn from the session's collector (no
+ * DB persistence).
+ */
 export async function runResolutionAgent({
     input,
     db,
     updater,
-    repoDir,
+    codebase,
     flowIndex,
 }: RunResolutionAgentParams): Promise<RunResolutionAgentResult> {
-    const registry = new ModelRegistry({
-        models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-    });
-    const model = registry.getModel({ model: "flash", tag: "diffs-resolve" });
+    const session = openModelSession();
+    const model = session.getModel({ model: "smart-visual", tag: "diffs-resolution" });
 
     const scenarioIndex = await loadScenarioIndex(db, updater.applicationId);
 
     const agent = new ResolutionAgent({ model });
-    const codebase = new Codebase(repoDir);
 
-    const startTime = Date.now();
     const { result, conversation } = await agent.run({ ...input, codebase, flowIndex, scenarioIndex });
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
     const callbacks = createResolutionCallbacks({ db, updater });
 
@@ -72,22 +76,24 @@ export async function runResolutionAgent({
         }),
     ]);
 
+    logger.info("Resolution agent cost", { extra: summarizeSessionCost(session.costCollector) });
+
     logger.info("Resolution agent complete", {
-        elapsed: `${elapsed}s`,
-        modifiedTests: result.modifiedTests.length,
-        removedTests: result.removedTests.length,
-        reportedBugs: result.reportedBugs.length,
-        newTests: result.newTests.length,
-        acceptedCandidates: accepted.length,
-        reasoning: result.reasoning.slice(0, 500),
-        modelUsage: registry.modelUsage,
+        extra: {
+            modifiedTests: result.modifiedTests.length,
+            removedTests: result.removedTests.length,
+            reportedBugs: result.reportedBugs.length,
+            newTests: result.newTests.length,
+            acceptedCandidates: accepted.length,
+            reasoning: result.reasoning.slice(0, 500),
+        },
     });
 
     return { ...result, accepted, conversation };
 }
 
 async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
-    logger.info("Loading scenarios for resolution agent", { applicationId });
+    logger.info("Loading scenarios for resolution agent", { extra: { applicationId } });
 
     const scenarios = await db.scenario.findMany({
         where: { applicationId, isDisabled: false },
@@ -125,6 +131,6 @@ async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promi
         };
     });
 
-    logger.info("Loaded scenarios", { count: infos.length });
+    logger.info("Loaded scenarios", { extra: { count: infos.length } });
     return new ScenarioIndex(infos);
 }

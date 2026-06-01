@@ -1,8 +1,9 @@
 import { db } from "@autonoma/db";
-import { runDiffsResolution } from "@autonoma/job-diffs/run-resolution";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { ResolveDiffsInput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
+import { withCodebaseForSnapshot } from "../codebase/resolve";
+import { runDiffsResolution } from "../resolution/run-resolution";
 
 export async function resolveDiffs({ snapshotId }: ResolveDiffsInput): Promise<void> {
     const logger = rootLogger.child({ name: "resolveDiffs" });
@@ -16,7 +17,21 @@ export async function resolveDiffs({ snapshotId }: ResolveDiffsInput): Promise<v
             data: { status: "resolving" },
         });
 
-        await runDiffsResolution(snapshotId);
+        const { reasoning, conversationUrl } = await withCodebaseForSnapshot(snapshotId, {
+            targetDirSeed: `resolution-${snapshotId}`,
+            body: (codebase) => runDiffsResolution({ snapshotId, codebase }),
+        });
+
+        await db.diffsJob.update({
+            where: { snapshotId },
+            data: {
+                resolutionReasoning: reasoning,
+                resolutionConversationUrl: conversationUrl,
+                status: "generating",
+            },
+        });
+
+        logger.info("Diffs resolution activity completed");
     } catch (error) {
         await db.diffsJob.update({
             where: { snapshotId },
