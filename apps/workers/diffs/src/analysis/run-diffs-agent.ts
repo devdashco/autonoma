@@ -1,10 +1,11 @@
-import type { AgentRunResult, CostRecord } from "@autonoma/ai";
+import type { AgentRunResult } from "@autonoma/ai";
 import {
     type Codebase,
     DiffsAgent,
     type DiffsAgentInput,
     type DiffsAgentResult,
     openModelSession,
+    summarizeSessionCost,
 } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 
@@ -31,7 +32,7 @@ export async function runDiffsAgent({
 
     const { result, conversation } = await agent.run({ ...input, codebase });
 
-    logAggregatedCost(session.costCollector.getRecords());
+    logger.info("Diffs analysis model cost", { extra: summarizeSessionCost(session.costCollector) });
 
     logger.info("Diffs analysis complete", {
         extra: {
@@ -42,23 +43,4 @@ export async function runDiffsAgent({
     });
 
     return { result, conversation };
-}
-
-function logAggregatedCost(records: readonly CostRecord[]): void {
-    const totalCostMicrodollars = records.reduce((sum, r) => sum + r.costMicrodollars, 0);
-    const inputTokens = records.reduce((sum, r) => sum + r.inputTokens, 0);
-    const outputTokens = records.reduce((sum, r) => sum + r.outputTokens, 0);
-    const reasoningTokens = records.reduce((sum, r) => sum + r.reasoningTokens, 0);
-    const cacheReadTokens = records.reduce((sum, r) => sum + r.cacheReadTokens, 0);
-
-    logger.info("Diffs analysis model cost", {
-        extra: {
-            calls: records.length,
-            costUsd: totalCostMicrodollars / 1_000_000,
-            inputTokens,
-            outputTokens,
-            reasoningTokens,
-            cacheReadTokens,
-        },
-    });
 }

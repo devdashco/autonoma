@@ -60,7 +60,7 @@ export async function runReplayReview(runId: string, deps: RunReplayReviewDeps):
     }
 
     const session = openModelSession();
-    const model = session.getModel({ model: "smart-visual", tag: "analysis" });
+    const model = session.getModel({ model: "smart-visual", tag: "replay-review" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new RunContextLoader(db, storage);

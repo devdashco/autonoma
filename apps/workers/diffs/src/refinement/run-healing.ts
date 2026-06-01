@@ -1,4 +1,3 @@
-import type { CostCollector } from "@autonoma/ai";
 import { type PrismaClient, db } from "@autonoma/db";
 import {
     type Codebase,
@@ -11,8 +10,9 @@ import {
     ScenarioIndex,
     healingActionSchema,
     openModelSession,
+    summarizeSessionCost,
 } from "@autonoma/diffs";
-import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type {
@@ -30,91 +30,69 @@ import { uploadHealingConversation } from "./upload-conversation";
  * aggregated cost. Returns the persisted rows so the workflow can dispatch
  * apply* activities.
  */
-export class HealingRunner {
-    private readonly logger: Logger;
+export async function runRefinementHealing(
+    input: RunHealingAgentForRefinementInput,
+    codebase: Codebase,
+): Promise<RunHealingAgentForRefinementOutput> {
+    const logger = rootLogger.child({ name: "runRefinementHealing" });
+    logger.info("Running refinement healing agent", {
+        extra: {
+            iterationNumber: input.iteration,
+            failureCount: input.failuresAtGeneration.length + input.failuresAtReplay.length,
+        },
+    });
 
-    constructor(private readonly input: RunHealingAgentForRefinementInput) {
-        this.logger = rootLogger.child({ name: this.constructor.name });
-    }
+    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
+        db,
+        snapshotId: input.snapshotId,
+        organizationId: input.organizationId,
+    });
 
-    public async run(codebase: Codebase): Promise<RunHealingAgentForRefinementOutput> {
-        this.logger.info("Running refinement healing agent", {
-            extra: {
-                iterationNumber: this.input.iteration,
-                failureCount: this.input.failuresAtGeneration.length + this.input.failuresAtReplay.length,
-            },
-        });
+    const priorActions = await loadPriorActions(input.iterationId);
+    const failures = collectFailureRecords(input);
+    const reportableReviewLinks = computeReportableReviewLinks(input);
+    const planAuthoring = await loadPlanAuthoringInput({
+        db,
+        applicationId: updater.applicationId,
+        snapshotId: input.snapshotId,
+    });
 
-        const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-            db,
-            snapshotId: this.input.snapshotId,
-            organizationId: this.input.organizationId,
-        });
+    const session = openModelSession();
+    const model = session.getModel({ model: "smart-visual", tag: "healing-refinement" });
 
-        const priorActions = await loadPriorActions(this.input.iterationId);
-        const failures = collectFailureRecords(this.input);
-        const reportableReviewLinks = computeReportableReviewLinks(this.input);
-        const planAuthoring = await loadPlanAuthoringInput({
-            db,
-            applicationId: updater.applicationId,
-            snapshotId: this.input.snapshotId,
-        });
+    const agent = new HealingAgent({ model });
+    const { result, conversation } = await agent.run({
+        iteration: input.iteration,
+        priorActions,
+        failures,
+        reportableReviewLinks,
+        codebase,
+        planAuthoring,
+        snapshotId: input.snapshotId,
+        applicationId: updater.applicationId,
+        organizationId: input.organizationId,
+    });
 
-        const session = openModelSession();
-        const model = session.getModel({ model: "smart-visual", tag: "healing-refinement" });
+    const persisted = await persistActions(input.iterationId, result.actions);
 
-        const agent = new HealingAgent({ model });
-        const { result, conversation } = await agent.run({
-            iteration: this.input.iteration,
-            priorActions,
-            failures,
-            reportableReviewLinks,
-            codebase,
-            planAuthoring,
-            snapshotId: this.input.snapshotId,
-            applicationId: updater.applicationId,
-            organizationId: this.input.organizationId,
-        });
-
-        const persisted = await persistActions(this.input.iterationId, result.actions);
-
-        const conversationUrl = await uploadHealingConversation({
-            storage: S3Storage.createFromEnv(),
-            iterationId: this.input.iterationId,
-            conversation,
-            logger: this.logger.child({ name: "uploadHealingConversation" }),
-        });
-        if (conversationUrl != null) {
-            await db.refinementIteration.update({
-                where: { id: this.input.iterationId },
-                data: { healingConversationUrl: conversationUrl },
-            });
-        }
-
-        this.logAggregatedCost(session.costCollector);
-
-        this.logger.info("Refinement healing run finished", { extra: { actionCount: persisted.length } });
-
-        return { persistedActions: persisted, reasoning: result.reasoning };
-    }
-
-    private logAggregatedCost(costCollector: CostCollector): void {
-        const records = costCollector.getRecords();
-        const totals = records.reduce(
-            (acc, record) => ({
-                costMicrodollars: acc.costMicrodollars + record.costMicrodollars,
-                inputTokens: acc.inputTokens + record.inputTokens,
-                outputTokens: acc.outputTokens + record.outputTokens,
-                reasoningTokens: acc.reasoningTokens + record.reasoningTokens,
-                cacheReadTokens: acc.cacheReadTokens + record.cacheReadTokens,
-            }),
-            { costMicrodollars: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0 },
-        );
-
-        this.logger.info("Refinement healing cost", {
-            extra: { callCount: records.length, ...totals },
+    const conversationUrl = await uploadHealingConversation({
+        storage: S3Storage.createFromEnv(),
+        iterationId: input.iterationId,
+        conversation,
+        logger: logger.child({ name: "uploadHealingConversation" }),
+    });
+    if (conversationUrl != null) {
+        await db.refinementIteration.update({
+            where: { id: input.iterationId },
+            data: { healingConversationUrl: conversationUrl },
         });
     }
+
+    logger.info("Refinement healing cost", { extra: summarizeSessionCost(session.costCollector) });
+
+    logger.info("Refinement healing run finished", { extra: { actionCount: persisted.length } });
+
+    return { persistedActions: persisted, reasoning: result.reasoning };
 }
 
 async function loadPriorActions(currentIterationId: string): Promise<HealingAction[]> {

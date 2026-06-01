@@ -50,7 +50,7 @@ export class GenerationReviewPersister {
                     data: records.map((record) => ({
                         generationId,
                         model: record.model,
-                        tag: `review/${record.tag}`,
+                        tag: record.tag,
                         inputTokens: record.inputTokens,
                         outputTokens: record.outputTokens,
                         reasoningTokens: record.reasoningTokens,

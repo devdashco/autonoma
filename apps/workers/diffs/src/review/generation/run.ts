@@ -58,7 +58,7 @@ export async function runGenerationReview(
     }
 
     const session = openModelSession();
-    const model = session.getModel({ model: "smart-visual", tag: "analysis" });
+    const model = session.getModel({ model: "smart-visual", tag: "generation-review" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new GenerationContextLoader(db, storage);

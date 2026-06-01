@@ -42,7 +42,7 @@ export class RunReviewPersister {
                     data: records.map((record) => ({
                         runId,
                         model: record.model,
-                        tag: `review/${record.tag}`,
+                        tag: record.tag,
                         inputTokens: record.inputTokens,
                         outputTokens: record.outputTokens,
                         reasoningTokens: record.reasoningTokens,

@@ -21,7 +21,7 @@ const storage = S3Storage.createFromEnv();
 const contextLoader = new GenerationContextLoader(db, storage);
 
 const session = openModelSession();
-const model = session.getModel({ model: "smart-visual", tag: "analysis" });
+const model = session.getModel({ model: "smart-visual", tag: "generation-review" });
 const videoProcessor = new VideoProcessor(new GoogleGenAI({ apiKey: aiEnv.GEMINI_API_KEY }));
 
 try {
