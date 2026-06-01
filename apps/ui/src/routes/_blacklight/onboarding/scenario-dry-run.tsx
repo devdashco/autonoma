@@ -461,7 +461,7 @@ export function DeployPage({ appId }: { appId?: string }) {
                 /api/autonoma
               </code>
               ). You need to commit, push, and deploy these changes so the endpoint is reachable.{" "}
-              <DocLink href="https://docs.agent.autonoma.app/guides/environment-factory/">
+              <DocLink href="https://docs.autonoma.app/guides/environment-factory/">
                 See the Environment Factory guide
               </DocLink>
             </p>
@@ -781,7 +781,7 @@ export function DeployPage({ appId }: { appId?: string }) {
                   Run a dry run for all {scenarios.length} scenario{scenarios.length !== 1 ? "s" : ""}. This calls your
                   webhook to create test data (up), then immediately tear it down (down) - verifying the full cycle
                   works.{" "}
-                  <DocLink href="https://docs.agent.autonoma.app/test-planner/step-2-scenarios/">
+                  <DocLink href="https://docs.autonoma.app/test-planner/step-2-scenarios/">
                     Learn more about scenarios
                   </DocLink>
                 </p>

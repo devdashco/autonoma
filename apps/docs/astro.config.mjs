@@ -7,7 +7,7 @@ import remarkDirective from "remark-directive"
 import { remarkCallouts } from "./src/lib/remark-callouts.mjs"
 
 export default defineConfig({
-    site: "https://docs.agent.autonoma.app",
+    site: "https://docs.autonoma.app",
     vite: {
         plugins: [tailwindcss()],
     },

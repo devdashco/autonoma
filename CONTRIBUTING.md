@@ -278,7 +278,7 @@ packages/
   utils/            Shared utilities
 ```
 
-For detailed architecture documentation, see `CLAUDE.md` and the [docs site](https://docs.agent.autonoma.app).
+For detailed architecture documentation, see `CLAUDE.md` and the [docs site](https://docs.autonoma.app).
 
 ---
 

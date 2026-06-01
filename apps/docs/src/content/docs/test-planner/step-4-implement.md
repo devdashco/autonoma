@@ -113,7 +113,7 @@ Do not proceed without it.
 
 Fetch the Autonoma documentation to understand the current SDK setup:
 
-1. Fetch `https://docs.agent.autonoma.app/llms.txt` to get the documentation index
+1. Fetch `https://docs.autonoma.app/llms.txt` to get the documentation index
 2. Read the **Environment Factory Guide** — understand the SDK packages, factory registration with `inputSchema` / `input_model`, the `scopeField` on `HandlerConfig`, auth callback patterns, and the create tree format
 3. Read the **framework example** that matches this project's stack if one exists
 
@@ -451,7 +451,7 @@ Tell the user:
 - **Never create a standalone server or sidecar.** Always integrate into the backend you identified in Phase 1.1. If that's not possible, stop and ask the user — do not invent a workaround.
 - **SDK language must match backend language.** Do not install `autonoma-ai` (Python) into a TypeScript/NestJS project, etc.
 - **Do not scaffold at the repo root** when a backend directory exists, including non-standard names like `core-app-backend/`, `apps/api/`, `services/core/`.
-- **Always read the live docs** at `https://docs.agent.autonoma.app/llms.txt` before implementing. The SDK may have been updated.
+- **Always read the live docs** at `https://docs.autonoma.app/llms.txt` before implementing. The SDK may have been updated.
 - **ALL database writes go through the SDK endpoint.** Never write directly via psql, raw SQL, or ORM methods.
 - **Register a factory for every model in the entity audit** — there is no SQL fallback. For `independently_created: true` rows the factory must call the audit's identified function; for `independently_created: false` rows a thin repository call is fine. Never reimplement an identified creation function inline.
 - **Validate is Step 5's job.** This step only runs `discover` plus the factory-integrity check. Do not try to run `up`/`down` here.

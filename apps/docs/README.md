@@ -1,6 +1,6 @@
 # @autonoma/docs
 
-Public documentation site for Autonoma's agentic end-to-end testing platform. Deployed to `docs.agent.autonoma.app`.
+Public documentation site for Autonoma's agentic end-to-end testing platform. Deployed to `docs.autonoma.app`.
 
 ## Tech Stack
 

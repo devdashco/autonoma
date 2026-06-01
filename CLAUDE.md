@@ -781,7 +781,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 
 ## Documentation Site (`apps/docs`)
 
-The documentation site is built with Astro Starlight and deployed to S3 + CloudFront at `docs.agent.autonoma.app`.
+The documentation site is built with Astro Starlight and deployed to S3 + CloudFront at `docs.autonoma.app`.
 
 ### When to Update Docs
 

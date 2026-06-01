@@ -43,7 +43,7 @@ ${COLOR_BOLD}Autonoma Environment Factory - Scenario Tester${COLOR_RESET}
 Tests your Environment Factory endpoint by running the full discover -> up -> down lifecycle.
 
 ${COLOR_BOLD}Usage:${COLOR_RESET}
-  curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- [options]
+  curl -fsSL https://docs.autonoma.app/test-scenario.sh | bash -s -- [options]
 
   ${COLOR_BOLD}or${COLOR_RESET} download and run directly:
   bash $SCRIPT_NAME [options]
@@ -62,20 +62,20 @@ ${COLOR_BOLD}Options:${COLOR_RESET}
 
 ${COLOR_BOLD}Examples:${COLOR_RESET}
   # Test the standard scenario
-  curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- \\
+  curl -fsSL https://docs.autonoma.app/test-scenario.sh | bash -s -- \\
     --url https://your-app.com/api/autonoma \\
     --secret your-signing-secret \\
     --scenario standard
 
   # Test without teardown (inspect created data manually)
-  curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- \\
+  curl -fsSL https://docs.autonoma.app/test-scenario.sh | bash -s -- \\
     --url https://your-app.com/api/autonoma \\
     --secret your-signing-secret \\
     --scenario standard \\
     --keep-up
 
   # Skip discover and test up/down directly
-  curl -fsSL https://docs.agent.autonoma.app/test-scenario.sh | bash -s -- \\
+  curl -fsSL https://docs.autonoma.app/test-scenario.sh | bash -s -- \\
     --url https://your-app.com/api/autonoma \\
     --secret your-signing-secret \\
     --scenario empty \\
@@ -93,7 +93,7 @@ ${COLOR_BOLD}Requirements:${COLOR_RESET}
   curl, openssl, python3
 
 ${COLOR_BOLD}Documentation:${COLOR_RESET}
-  https://docs.agent.autonoma.app/guides/environment-factory/
+  https://docs.autonoma.app/guides/environment-factory/
 EOF
 }
 
