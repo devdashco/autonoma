@@ -10,6 +10,19 @@ const evidenceItemSchema = z.object({
 
 export type HealingEvidenceItem = z.infer<typeof evidenceItemSchema>;
 
+/**
+ * The source review a report action links its evidence to. Deterministic
+ * metadata about the failure (not authored by the model): a failure surfaced
+ * at generation links to its generation review, one surfaced at replay links
+ * to its run review.
+ */
+export const healingReviewLinkSchema = z.union([
+    z.object({ generationReviewId: z.string() }),
+    z.object({ runReviewId: z.string() }),
+]);
+
+export type HealingReviewLink = z.infer<typeof healingReviewLinkSchema>;
+
 const updatePlanActionSchema = z.object({
     kind: z.literal("update_plan"),
     planId: z.string().describe("ID of the test plan to update"),
@@ -26,6 +39,7 @@ const reportBugActionSchema = z.object({
     severity: reviewSeveritySchema,
     evidence: z.array(evidenceItemSchema).describe("Screenshots, videos, step outputs supporting the bug report"),
     reasoning: z.string().describe("Why this is an application bug rather than a test or engine issue"),
+    reviewLink: healingReviewLinkSchema,
 });
 
 const reportEngineLimitationActionSchema = z.object({
@@ -36,6 +50,7 @@ const reportEngineLimitationActionSchema = z.object({
     severity: reviewSeveritySchema,
     evidence: z.array(evidenceItemSchema),
     reasoning: z.string(),
+    reviewLink: healingReviewLinkSchema,
 });
 
 const removeTestActionSchema = z.object({
@@ -58,6 +73,10 @@ export type ReportEngineLimitationAction = z.infer<typeof reportEngineLimitation
 export type RemoveTestAction = z.infer<typeof removeTestActionSchema>;
 
 export const updatePlanInputSchema = updatePlanActionSchema.omit({ kind: true });
-export const reportBugInputSchema = reportBugActionSchema.omit({ kind: true });
-export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({ kind: true });
+// reviewLink is deterministic failure metadata attached by the runner, not authored by the model.
+export const reportBugInputSchema = reportBugActionSchema.omit({ kind: true, reviewLink: true });
+export const reportEngineLimitationInputSchema = reportEngineLimitationActionSchema.omit({
+    kind: true,
+    reviewLink: true,
+});
 export const removeTestInputSchema = removeTestActionSchema.omit({ kind: true });

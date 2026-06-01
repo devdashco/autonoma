@@ -2,7 +2,7 @@ import { AgentTool } from "@autonoma/ai";
 import type { z } from "zod";
 import { reportBugInputSchema } from "../../../healing/actions";
 import type { HealingAgentLoop } from "../healing-agent-loop";
-import { recordHealingAction } from "./record-action";
+import { recordHealingAction, resolveReviewLink } from "./record-action";
 
 export type HealingReportBugInput = z.infer<typeof reportBugInputSchema>;
 
@@ -22,7 +22,8 @@ export class HealingReportBugTool extends AgentTool<HealingReportBugInput, Repor
     }
 
     protected async execute(input: HealingReportBugInput, loop: HealingAgentLoop): Promise<ReportBugOutput> {
-        recordHealingAction(loop, { kind: "report_bug", ...input });
+        const reviewLink = resolveReviewLink(loop, input.testCaseId);
+        recordHealingAction(loop, { kind: "report_bug", ...input, reviewLink });
         return { testCaseId: input.testCaseId };
     }
 }

@@ -10,4 +10,5 @@ export {
     type ReportEngineLimitationAction,
     type RemoveTestAction,
     type HealingEvidenceItem,
+    type HealingReviewLink,
 } from "@autonoma/types";

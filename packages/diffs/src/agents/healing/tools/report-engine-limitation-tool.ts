@@ -2,7 +2,7 @@ import { AgentTool } from "@autonoma/ai";
 import type { z } from "zod";
 import { reportEngineLimitationInputSchema } from "../../../healing/actions";
 import type { HealingAgentLoop } from "../healing-agent-loop";
-import { recordHealingAction } from "./record-action";
+import { recordHealingAction, resolveReviewLink } from "./record-action";
 
 export type ReportEngineLimitationInput = z.infer<typeof reportEngineLimitationInputSchema>;
 
@@ -29,7 +29,8 @@ export class ReportEngineLimitationTool extends AgentTool<
         input: ReportEngineLimitationInput,
         loop: HealingAgentLoop,
     ): Promise<ReportEngineLimitationOutput> {
-        recordHealingAction(loop, { kind: "report_engine_limitation", ...input });
+        const reviewLink = resolveReviewLink(loop, input.testCaseId);
+        recordHealingAction(loop, { kind: "report_engine_limitation", ...input, reviewLink });
         return { testCaseId: input.testCaseId };
     }
 }

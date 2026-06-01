@@ -1,6 +1,6 @@
 import { type AgentConfig, AgentLoop } from "@autonoma/ai";
 import type { Codebase } from "../../codebase";
-import type { HealingAction } from "../../healing/actions";
+import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
 import type { ScenarioLookupLoop } from "../tools/lookup/scenario-lookup-loop";
@@ -11,7 +11,7 @@ interface HealingAgentLoopParams extends AgentConfig<HealingResult> {
     scenarioIndex: ScenarioIndex;
     failureKeysByTestCaseId: ReadonlyMap<string, string>;
     failureKeys: ReadonlySet<string>;
-    reportableTestCaseIds: ReadonlySet<string>;
+    reportableReviewLinks: ReadonlyMap<string, HealingReviewLink>;
 }
 
 /**
@@ -32,10 +32,12 @@ export class HealingAgentLoop extends AgentLoop<HealingResult> implements Codeba
     /** Every failure key the agent must address before finishing. */
     public readonly failureKeys: ReadonlySet<string>;
     /**
-     * testCaseIds that may be targeted by report_bug / report_engine_limitation.
+     * Maps each reportable testCaseId to the source review its report action
+     * links evidence to. A test case is reportable iff it appears here; the
+     * report tools attach the link directly to the action they record.
      * Excludes hallucinated IDs and failures without source review evidence.
      */
-    public readonly reportableTestCaseIds: ReadonlySet<string>;
+    public readonly reportableReviewLinks: ReadonlyMap<string, HealingReviewLink>;
 
     /** Actions the agent has recorded this iteration. */
     public readonly actions: HealingAction[] = [];
@@ -49,7 +51,7 @@ export class HealingAgentLoop extends AgentLoop<HealingResult> implements Codeba
         scenarioIndex,
         failureKeysByTestCaseId,
         failureKeys,
-        reportableTestCaseIds,
+        reportableReviewLinks,
         ...config
     }: HealingAgentLoopParams) {
         super(config);
@@ -57,7 +59,7 @@ export class HealingAgentLoop extends AgentLoop<HealingResult> implements Codeba
         this.scenarioIndex = scenarioIndex;
         this.failureKeysByTestCaseId = failureKeysByTestCaseId;
         this.failureKeys = failureKeys;
-        this.reportableTestCaseIds = reportableTestCaseIds;
+        this.reportableReviewLinks = reportableReviewLinks;
     }
 
     /** Failure keys the agent has yet to address. */

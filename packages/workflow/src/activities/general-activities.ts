@@ -3,7 +3,15 @@
  * Workers must export an object that `satisfies GeneralActivities` to ensure type safety.
  */
 
-import type { GenerationVerdict, GenerationVerdictKind, ReplayVerdict, ReplayVerdictKind } from "@autonoma/types";
+import type {
+    GenerationVerdict,
+    GenerationVerdictKind,
+    HealingReviewLink,
+    ReplayVerdict,
+    ReplayVerdictKind,
+} from "@autonoma/types";
+
+export type { HealingReviewLink };
 
 export type HealingSeverity = "critical" | "high" | "medium" | "low";
 
@@ -14,8 +22,6 @@ export interface HealingEvidenceItem {
     description: string;
     s3Key?: string;
 }
-
-export type HealingReviewLink = { generationReviewId: string } | { runReviewId: string };
 
 export interface ScenarioUpInput {
     scenarioJobType: string;

@@ -1,5 +1,5 @@
 import { FixableToolError } from "@autonoma/ai";
-import type { HealingAction } from "../../../healing/actions";
+import type { HealingAction, HealingReviewLink } from "../../../healing/actions";
 import type { HealingAgentLoop } from "../healing-agent-loop";
 
 class DuplicateActionError extends FixableToolError {
@@ -22,6 +22,18 @@ class UnreportableActionError extends FixableToolError {
 }
 
 /**
+ * Resolve the source review a report action must link evidence to. A test case
+ * is reportable iff it carries a review link, so this doubles as the
+ * reportability guard: it throws a fixable error when the model targets a test
+ * case that has none.
+ */
+export function resolveReviewLink(loop: HealingAgentLoop, testCaseId: string): HealingReviewLink {
+    const reviewLink = loop.reportableReviewLinks.get(testCaseId);
+    if (reviewLink == null) throw new UnreportableActionError(testCaseId);
+    return reviewLink;
+}
+
+/**
  * Atomically record an action onto the loop, enforcing the "one action per
  * test case per iteration" invariant. Throws a fixable error if the test case
  * already has an action so the model can choose which one to keep.
@@ -31,13 +43,6 @@ class UnreportableActionError extends FixableToolError {
  * always go together (push action, mark handled, mark failure-key handled).
  */
 export function recordHealingAction(loop: HealingAgentLoop, action: HealingAction): void {
-    if (
-        (action.kind === "report_bug" || action.kind === "report_engine_limitation") &&
-        !loop.reportableTestCaseIds.has(action.testCaseId)
-    ) {
-        throw new UnreportableActionError(action.testCaseId);
-    }
-
     if (loop.handledTestCaseIds.has(action.testCaseId)) {
         const prior = loop.actions.find((a) => a.testCaseId === action.testCaseId);
         throw new DuplicateActionError(action.testCaseId, prior?.kind ?? "unknown");

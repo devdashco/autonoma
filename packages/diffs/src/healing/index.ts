@@ -7,6 +7,7 @@ export {
     type ReportEngineLimitationAction,
     type RemoveTestAction,
     type HealingEvidenceItem,
+    type HealingReviewLink,
 } from "./actions";
 export { BugMatcher, type BugCandidate } from "./bug-matcher";
 export {

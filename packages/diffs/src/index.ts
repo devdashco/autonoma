@@ -130,6 +130,7 @@ export {
     type ReportEngineLimitationAction,
     type RemoveTestAction,
     type HealingEvidenceItem,
+    type HealingReviewLink,
 } from "./healing/actions";
 export { BugMatcher, type BugCandidate } from "./healing/bug-matcher";
 export {

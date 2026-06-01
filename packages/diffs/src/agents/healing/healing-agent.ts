@@ -4,7 +4,7 @@ import { Agent, type LanguageModel } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { ModelMessage } from "ai";
 import type { Codebase } from "../../codebase";
-import type { HealingAction } from "../../healing/actions";
+import type { HealingAction, HealingReviewLink } from "../../healing/actions";
 import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
 import { buildHealingPrompt } from "../../healing/prompt-builder";
 import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
@@ -40,11 +40,12 @@ export interface HealingInput extends SnapshotInfo {
     priorActions: HealingAction[];
     failures: FailureRecord[];
     /**
-     * Subset of failures' testCaseIds that may be targeted by report_bug
-     * or report_engine_limitation - i.e. those whose failure carries a
-     * source review the apply layer can link evidence to.
+     * Maps each reportable testCaseId (one whose failure carries a source
+     * review the apply layer can link evidence to) to that review link. Only
+     * these test cases may be targeted by report_bug / report_engine_limitation,
+     * and the resolved link is attached to the emitted action.
      */
-    reportableTestCaseIds: Set<string>;
+    reportableReviewLinks: ReadonlyMap<string, HealingReviewLink>;
     codebase: Codebase;
     planAuthoring: PlanAuthoringInput;
 }
@@ -117,7 +118,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
             scenarioIndex: input.planAuthoring.scenarios,
             failureKeysByTestCaseId: new Map(input.failures.map((f) => [f.testCaseId, f.key])),
             failureKeys: new Set(input.failures.map((f) => f.key)),
-            reportableTestCaseIds: input.reportableTestCaseIds,
+            reportableReviewLinks: input.reportableReviewLinks,
         });
     }
 }
