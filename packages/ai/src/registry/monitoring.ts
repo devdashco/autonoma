@@ -11,7 +11,6 @@ interface BaseInformation {
     provider: string;
     reasoning?: ModelReasoningEffort;
     tag: string;
-    context: Record<string, unknown>;
     pricing: CostFunction;
 }
 
@@ -58,16 +57,13 @@ export function mergeMonitoringCallbacks(callbacks: MonitoringCallbacks[]): Moni
 
 export function createLoggingMiddleware(
     options: ModelOptions,
-    getContext: () => Record<string, unknown>,
     { onRequest, onResponse, onError }: MonitoringCallbacks,
     pricing: CostFunction,
 ): LanguageModelMiddleware {
     return {
         specificationVersion: "v3",
         wrapGenerate: async ({ doGenerate, model, params }) => {
-            const context = getContext();
             const baseInfo = {
-                context,
                 name: options.model,
                 modelId: model.modelId,
                 provider: model.provider,
@@ -81,11 +77,11 @@ export function createLoggingMiddleware(
             try {
                 const result = await doGenerate();
 
-                const modelUsage = updateModelUsage(newModelUsage(), result.usage);
+                const usage = updateModelUsage(newModelUsage(), result.usage);
 
                 const resultWithUsage = {
                     ...result,
-                    usage: modelUsage,
+                    usage,
                 };
 
                 onResponse({ ...baseInfo, result: resultWithUsage });

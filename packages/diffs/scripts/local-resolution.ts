@@ -13,7 +13,7 @@
  *   pnpm local-resolution /path/to/horizon --snapshot=snap_123 --model=flash
  */
 
-import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
+import { CostCollector, MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
@@ -24,6 +24,7 @@ import {
     loadFlows,
     mapTestSuiteToContext,
     runResolutionAgentLocally,
+    summarizeSessionCost,
     type LocalTestCandidateInput,
 } from "../src";
 
@@ -166,7 +167,8 @@ async function main() {
     console.log();
 
     const registry = new ModelRegistry({ models: MODEL_OPTIONS });
-    const model = registry.getModel({ model: modelKey, tag: "resolution-script" });
+    const costCollector = new CostCollector();
+    const model = registry.getModel({ model: modelKey, tag: "resolution-script" }, costCollector);
 
     console.log("--- Starting agent ---\n");
     const startTime = Date.now();
@@ -232,7 +234,7 @@ async function main() {
     console.log(`  Reported bugs: ${result.reportedBugs.length}`);
     console.log(`  New tests: ${result.newTests.length}`);
     console.log(`  Time: ${elapsed}s`);
-    console.log("  Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+    console.log("  Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 }
 
 main()

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { DiffsAgent } from "../src";
+import { DiffsAgent, summarizeSessionCost } from "../src";
 import { createAuthFlowFixture } from "../test/fixtures";
 import { createChatFixture } from "../test/fixtures";
 import { createCheckoutFixture } from "../test/fixtures";
@@ -30,7 +30,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createTodoAppFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -45,7 +45,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Should have run both tests
                 expect(callbacks.calls.triggerTestsAndWait).toContain("test-add-todo");
@@ -74,7 +74,7 @@ describe("diffs agent evals", () => {
         it("should report a bug for signup", { repeats: EVAL_REPEATS, timeout: AGENT_TIMEOUT }, async () => {
             fixture = await createAuthFlowFixture();
             const callbacks = buildMockCallbacks(fixture.testRunResults);
-            const { model, registry } = createEvalModel();
+            const { model, costCollector } = createEvalModel();
 
             const agent = new DiffsAgent({
                 model,
@@ -89,7 +89,7 @@ describe("diffs agent evals", () => {
             console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
             console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
             console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-            console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+            console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
             // Should run the signup test (it fails due to validation bug)
             expect(callbacks.calls.triggerTestsAndWait).toContain("test-signup");
@@ -113,7 +113,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createFormProjectFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -128,7 +128,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Should have run the failing tests (at minimum the ones affected by changes)
                 const ranTests = callbacks.calls.triggerTestsAndWait as string[];
@@ -178,7 +178,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createEcommerceFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -193,7 +193,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Should have run the failing tests
                 expect(callbacks.calls.triggerTestsAndWait).toContain("test-browse-images");
@@ -222,7 +222,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createKanbanFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -237,7 +237,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Should have run the failing tests
                 expect(callbacks.calls.triggerTestsAndWait).toContain("test-move-right");
@@ -269,7 +269,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createChatFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -284,7 +284,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Read receipt tests should be quarantined (feature removed entirely)
                 const quarantineActions = result.testActions.filter((a) => a.type === "quarantine");
@@ -316,7 +316,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createDataTableFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -331,7 +331,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Both pagination tests should be MODIFIED (the underlying flows still exist in infinite scroll)
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");
@@ -367,7 +367,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createCheckoutFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -382,7 +382,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Happy path and payment validation tests should be modified (payment form has tabs now)
                 const modifyActions = result.testActions.filter((a) => a.type === "modify");
@@ -414,7 +414,7 @@ describe("diffs agent evals", () => {
             async () => {
                 fixture = await createSettingsPageFixture();
                 const callbacks = buildMockCallbacks(fixture.testRunResults);
-                const { model, registry } = createEvalModel();
+                const { model, costCollector } = createEvalModel();
 
                 const agent = new DiffsAgent({
                     model,
@@ -429,7 +429,7 @@ describe("diffs agent evals", () => {
                 console.log("Test actions:", JSON.stringify(result.testActions, null, 2));
                 console.log("Bug reports:", JSON.stringify(result.bugReports, null, 2));
                 console.log("New tests:", JSON.stringify(result.testCandidates, null, 2));
-                console.log("Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+                console.log("Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 
                 // Should have run both tests
                 expect(callbacks.calls.triggerTestsAndWait).toContain("test-update-profile");

@@ -1,4 +1,4 @@
-import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
+import { CostCollector, MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 
 const EVAL_MODEL_ENTRIES = {
     flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
@@ -24,9 +24,10 @@ export function createEvalModel() {
     const registry = new ModelRegistry({
         models: EVAL_MODEL_ENTRIES,
     });
+    const costCollector = new CostCollector();
 
     return {
-        model: registry.getModel({ model: ACTIVE_MODEL, tag: "diffs-eval" }),
-        registry,
+        model: registry.getModel({ model: ACTIVE_MODEL, tag: "diffs-eval" }, costCollector),
+        costCollector,
     };
 }

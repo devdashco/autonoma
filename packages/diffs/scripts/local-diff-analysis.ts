@@ -12,9 +12,10 @@
  */
 
 import { execSync } from "node:child_process";
-import { MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
+import { CostCollector, MODEL_ENTRIES, ModelRegistry, openRouterProvider, simpleCostFunction } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { summarizeSessionCost } from "../src";
 import type { DiffsAgentInput } from "../src/diffs-agent";
 import { DiffsAgent } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
@@ -113,7 +114,8 @@ async function main() {
     };
 
     const registry = new ModelRegistry({ models: MODEL_OPTIONS });
-    const model = registry.getModel({ model: modelKey, tag: "diffs-script" });
+    const costCollector = new CostCollector();
+    const model = registry.getModel({ model: modelKey, tag: "diffs-script" }, costCollector);
 
     console.log("--- Starting agent ---\n");
     const startTime = Date.now();
@@ -157,7 +159,7 @@ async function main() {
     console.log(`  Affected tests: ${result.affectedTests.length}`);
     console.log(`  Test candidates: ${result.testCandidates.length}`);
     console.log(`  Time: ${elapsed}s`);
-    console.log("  Model usage:", JSON.stringify(registry.modelUsage, null, 2));
+    console.log("  Cost summary:", JSON.stringify(summarizeSessionCost(costCollector), null, 2));
 }
 
 main().catch((err) => {

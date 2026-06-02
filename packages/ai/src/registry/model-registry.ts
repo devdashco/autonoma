@@ -9,7 +9,6 @@ import type { CostFunction } from "./costs";
 import type { ModelEntry } from "./model-entries";
 import { type MonitoringCallbacks, createLoggingMiddleware, mergeMonitoringCallbacks } from "./monitoring";
 import { type ModelOptions, type ModelSettings, buildSettings } from "./options";
-import { type ModelUsage, updateModelUsage } from "./usage";
 
 export type LanguageModel = Extract<AISDKLanguageModel, { specificationVersion: "v3" }>;
 
@@ -20,22 +19,15 @@ interface ModelRegistryConfig<TModel extends string> {
 }
 
 /**
- * The model registry holds all the {@link LanguageModel} instances, tracking their usage
- * and wrapping them with monitoring capabilities.
+ * The model registry holds all the {@link LanguageModel} instances, wrapping them with
+ * monitoring capabilities. It is a stateless, construct-once singleton: per-run cost
+ * attribution flows through a {@link CostCollector} passed to {@link getModel}.
  */
 export class ModelRegistry<TModel extends string> {
     private readonly models: Record<TModel, LanguageModel>;
     private readonly pricing: Record<string, CostFunction>;
     private readonly defaultSettings?: Omit<ModelSettings, "providerOptions">;
     private readonly monitoring?: MonitoringCallbacks;
-
-    /**
-     * Extra context that may be added to the model registry during any point in the execution.
-     */
-    private extraContext: Record<string, unknown>;
-
-    private readonly usageTrackingMiddleware: LanguageModelMiddleware;
-    public readonly modelUsage: Record<string, ModelUsage>;
 
     constructor({ models, defaultSettings, monitoring }: ModelRegistryConfig<TModel>) {
         const createdModels = Object.fromEntries(
@@ -53,35 +45,6 @@ export class ModelRegistry<TModel extends string> {
 
         this.defaultSettings = defaultSettings;
         this.monitoring = monitoring;
-        this.extraContext = {};
-
-        this.modelUsage = Object.fromEntries(
-            Object.keys(models).map((key) => [
-                createdModels[key as TModel].modelId,
-                {
-                    inputTokens: 0,
-                    inputTokenDetails: { noCacheTokens: 0, cacheReadTokens: 0 },
-                    outputTokens: 0,
-                    outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-                } as const,
-            ]),
-        );
-
-        this.usageTrackingMiddleware = {
-            specificationVersion: "v3",
-            wrapGenerate: async ({ doGenerate, model }) => {
-                const result = await doGenerate();
-
-                const modelId = model.modelId;
-                const oldUsage = this.modelUsage[modelId];
-                const newUsage = result.usage;
-
-                if (oldUsage != null && newUsage != null)
-                    this.modelUsage[modelId] = updateModelUsage(oldUsage, newUsage);
-
-                return result;
-            },
-        };
     }
 
     /**
@@ -104,7 +67,6 @@ export class ModelRegistry<TModel extends string> {
             model,
             middleware: [
                 ...(monitoringMiddleware != null ? [monitoringMiddleware] : []),
-                this.usageTrackingMiddleware,
                 defaultSettingsMiddleware({ settings }),
             ],
         });
@@ -123,14 +85,6 @@ export class ModelRegistry<TModel extends string> {
         if (callbacks.length === 0) return undefined;
 
         const merged = mergeMonitoringCallbacks(callbacks);
-        return createLoggingMiddleware(options, () => this.extraContext, merged, pricing);
-    }
-
-    public resetContext(): void {
-        this.extraContext = {};
-    }
-
-    public addContext(context: Record<string, unknown>): void {
-        this.extraContext = { ...this.extraContext, ...context };
+        return createLoggingMiddleware(options, merged, pricing);
     }
 }

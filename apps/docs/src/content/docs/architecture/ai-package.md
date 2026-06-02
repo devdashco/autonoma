@@ -47,7 +47,7 @@ packages/ai/src/
 
 ## Model Registry
 
-`ModelRegistry<TModel>` manages all LLM instances with middleware for cost tracking and monitoring. It wraps the Vercel AI SDK's language models with usage tracking and provider-specific configuration.
+`ModelRegistry<TModel>` manages all LLM instances with middleware for cost calculation and monitoring. It wraps the Vercel AI SDK's language models with provider-specific configuration.
 
 ### How It Works
 
@@ -61,7 +61,7 @@ const registry = new ModelRegistry({
 });
 ```
 
-When you request a model, the registry wraps it with middleware for usage tracking, monitoring, and default settings:
+The registry is a stateless, construct-once singleton - it holds no mutable per-run state. When you request a model, it wraps it with middleware for monitoring, cost calculation, and default settings:
 
 ```ts
 const model = registry.getModel({
@@ -108,17 +108,20 @@ The `ModelReasoningEffort` type supports four levels:
 
 Reasoning effort is translated to provider-specific options in `buildSettings()`, so callers never need to think about which provider they are targeting.
 
-### Extra Context
+### Cost Tracking
 
-The registry supports dynamic context that can be attached during execution:
+Per-run cost and usage tracking flows through a `CostCollector`. Construct one per run and pass it to `getModel`; every call issued by that model is metered into the collector:
 
 ```ts
-registry.addContext({ testRunId: "run-123", stepIndex: 3 });
-// Later...
-registry.resetContext();
+const costCollector = new CostCollector();
+const model = registry.getModel({ model: "GEMINI_3_FLASH_PREVIEW", tag: "assert-checker" }, costCollector);
+
+// After execution, aggregate the per-call records:
+const records = costCollector.getRecords();
+// Each record carries { model, tag, inputTokens, outputTokens, reasoningTokens, cacheReadTokens, costMicrodollars }.
 ```
 
-This context is passed to monitoring callbacks, making it possible to trace costs and usage back to specific test runs and steps.
+Keeping this state on a per-run collector (rather than the registry) lets a single shared registry attribute cost to many concurrent runs without mutable per-instance state. Group records by `tag` or `model` to trace costs back to specific use cases.
 
 ## Visual AI Primitives
 

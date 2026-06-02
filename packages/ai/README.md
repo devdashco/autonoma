@@ -191,6 +191,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core`:
 
 - All primitives build on `ObjectGenerator` - visual checkers, assertion splitters, and text extractors are specialized subclasses with configured schemas and system prompts.
 - `PointDetector` and `ObjectDetector` are abstract base classes. Resolution normalization is handled by the base class via `resolveResolution`.
-- The `ModelRegistry` wraps AI SDK models with middleware for usage tracking, cost calculation, and logging.
-- Cost is tracked at two levels: `ModelRegistry.modelUsage` for aggregate totals, and `CostCollector` for per-call records with tags.
+- The `ModelRegistry` wraps AI SDK models with middleware for cost calculation, logging, and monitoring. It is a stateless, construct-once singleton.
+- Cost and usage are tracked via `CostCollector`: pass one to `ModelRegistry.getModel(options, costCollector)` to capture per-call records (tokens, cost, tag), then aggregate `getRecords()` for totals.
 - Video input is only supported on models that pass the `modelSupportsVideo` check (currently Google models).
