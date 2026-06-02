@@ -427,12 +427,22 @@ type ScenarioData = {
   createdAt?: Date | string;
 };
 
-function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
+type RecipeUpdateResult = {
+  updatedRecipeVersions: Array<{ id: string; snapshotId: string; target: "active" | "pending" }>;
+};
+
+function formatShortId(value: string | null | undefined): string {
+  if (value == null) return "-";
+  return value.slice(0, 12);
+}
+
+function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: string; applicationId: string }) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [jsonError, setJsonError] = useState<string | undefined>(undefined);
+  const [lastUpdate, setLastUpdate] = useState<RecipeUpdateResult | undefined>(undefined);
 
   const { data, isLoading } = useQuery(trpc.scenarios.getRecipe.queryOptions({ scenarioId }, { enabled: isAdmin }));
 
@@ -441,6 +451,9 @@ function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
       onSettled: () => {
         void queryClient.invalidateQueries({
           queryKey: trpc.scenarios.getRecipe.queryKey({ scenarioId }),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.scenarios.list.queryKey({ applicationId }),
         });
       },
     }),
@@ -452,6 +465,7 @@ function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
   function handleEdit() {
     setEditValue(JSON.stringify(data?.fixtureJson, null, 2) ?? "");
     setJsonError(undefined);
+    setLastUpdate(undefined);
     setIsEditing(true);
   }
 
@@ -463,7 +477,15 @@ function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
       return;
     }
     setJsonError(undefined);
-    updateRecipe.mutate({ scenarioId, fixtureJson: editValue }, { onSuccess: () => setIsEditing(false) });
+    updateRecipe.mutate(
+      { scenarioId, fixtureJson: editValue },
+      {
+        onSuccess: (result) => {
+          setLastUpdate(result);
+          setIsEditing(false);
+        },
+      },
+    );
   }
 
   function handleCancel() {
@@ -492,13 +514,63 @@ function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Recipe</span>
+        <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">
+          Admin Recipe Debug
+        </span>
         {!isEditing && (
           <Button variant="ghost" size="icon-xs" onClick={handleEdit}>
             <PencilSimpleIcon size={14} />
           </Button>
         )}
       </div>
+
+      <div className="flex flex-col divide-y divide-border-dim border border-border-dim">
+        <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <span className="font-mono text-2xs text-text-tertiary">Active recipe</span>
+          <span className="font-mono text-2xs text-text-secondary">
+            {formatShortId(data.activeRecipeVersion?.id)} / {formatShortId(data.activeRecipeVersion?.snapshotId)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <span className="font-mono text-2xs text-text-tertiary">Main snapshots</span>
+          <span className="font-mono text-2xs text-text-secondary">
+            active {formatShortId(data.mainBranch.activeSnapshotId)} / pending{" "}
+            {formatShortId(data.mainBranch.pendingSnapshotId)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <span className="font-mono text-2xs text-text-tertiary">Pending recipe row</span>
+          <span className="font-mono text-2xs text-text-secondary">
+            {data.mainBranch.pendingSnapshotId == null
+              ? "No pending snapshot"
+              : data.pendingRecipeVersionExists
+                ? "Exists"
+                : "Will be created on save"}
+          </span>
+        </div>
+        {data.activeRecipeVersion?.updatedAt != null && (
+          <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+            <span className="font-mono text-2xs text-text-tertiary">Last updated</span>
+            <span className="font-mono text-2xs text-text-secondary">
+              {formatRelativeTime(new Date(data.activeRecipeVersion.updatedAt))}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {lastUpdate != null && (
+        <div className="flex flex-col gap-1.5 border border-border-dim px-3 py-2.5">
+          <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Last Save</span>
+          {lastUpdate.updatedRecipeVersions.map((version) => (
+            <div key={`${version.target}-${version.id}`} className="flex items-center justify-between gap-3">
+              <Badge variant={version.target === "active" ? "success" : "outline"}>{version.target}</Badge>
+              <span className="font-mono text-2xs text-text-secondary">
+                {formatShortId(version.id)} / {formatShortId(version.snapshotId)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {isEditing ? (
         <div className="flex flex-col gap-2">
@@ -538,10 +610,12 @@ function ScenarioRecipeEditor({ scenarioId }: { scenarioId: string }) {
 
 function ScenarioDrawer({
   scenario,
+  applicationId,
   open,
   onOpenChange,
 }: {
   scenario: ScenarioData;
+  applicationId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -636,7 +710,7 @@ function ScenarioDrawer({
               </Suspense>
             </div>
 
-            <ScenarioRecipeEditor scenarioId={scenario.id} />
+            <ScenarioRecipeEditor scenarioId={scenario.id} applicationId={applicationId} />
           </div>
         </ScrollArea>
       </DrawerContent>
@@ -772,7 +846,12 @@ function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; appl
           </Button>
         </td>
       </tr>
-      <ScenarioDrawer scenario={scenario} open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <ScenarioDrawer
+        scenario={scenario}
+        applicationId={applicationId}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </>
   );
 }
