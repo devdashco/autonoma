@@ -5,7 +5,7 @@
  * requiring a database, Temporal, or GitHub App credentials.
  *
  * Usage:
- *   tsx src/run-resolution-isolated.ts \
+ *   tsx src/local-dev/run-resolution-isolated.ts \
  *     --repo <url-or-local-path> \
  *     --verdicts <path>           path to JSON file with RunReviewVerdict[]
  *     [--step1-result <path>]     path to Step 1 (DiffsAgent) JSON output
@@ -14,8 +14,8 @@
  *     [--branch <name>]           branch to check out in a local repo or clone from a remote
  *
  * Natural chaining with the analysis runner:
- *   pnpm isolated --repo /path/to/repo --branch feature-x > step1-result.json
- *   pnpm isolated:resolve --repo /path/to/repo --branch feature-x \
+ *   pnpm diffs-agent --repo /path/to/repo --branch feature-x > step1-result.json
+ *   pnpm resolution-agent --repo /path/to/repo --branch feature-x \
  *     --verdicts fixtures/verdicts/sample.json \
  *     --step1-result step1-result.json \
  *     [--output <path>]            JSON result is written to this file instead of stdout
@@ -27,8 +27,8 @@
  */
 
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { LocalTestCandidateInput, ResolutionAgentResult, RunReviewVerdict, ScenarioInfo } from "@autonoma/diffs";
+import { openModelSession, summarizeSessionCost } from "@autonoma/diffs";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readTestFiles } from "./isolated-utils";
@@ -115,10 +115,8 @@ async function run(args: CliArgs): Promise<void> {
 
         const scenarios = args.scenarios != null ? await loadScenarios(args.scenarios) : undefined;
 
-        const registry = new ModelRegistry({
-            models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-        });
-        const model = registry.getModel({ model: "flash", tag: "resolution-isolated" });
+        const session = openModelSession();
+        const model = session.getModel({ model: "smart-visual", tag: "resolution-isolated" });
 
         const startTime = Date.now();
         const result: ResolutionAgentResult = await runResolutionAgentLocally({
@@ -138,7 +136,7 @@ async function run(args: CliArgs): Promise<void> {
             removedTests: result.removedTests.length,
             reportedBugs: result.reportedBugs.length,
             newTests: result.newTests.length,
-            modelUsage: registry.modelUsage,
+            modelCost: summarizeSessionCost(session.costCollector),
         });
 
         const json = JSON.stringify(result, null, 2) + "\n";

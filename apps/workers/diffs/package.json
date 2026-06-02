@@ -11,15 +11,21 @@
         "start": "tsx --import ./src/preload.ts src/index.ts",
         "test": "vitest run --passWithNoTests",
         "review:generation": "tsx --env-file=../../../.env src/review/generation/run-generation-review.ts",
-        "review:replay": "tsx --env-file=../../../.env src/review/replay/run-replay-review.ts"
+        "review:replay": "tsx --env-file=../../../.env src/review/replay/run-replay-review.ts",
+        "diffs-agent": "tsx --env-file=../../../.env src/local-dev/run-diffs-isolated.ts",
+        "resolution-agent": "tsx --env-file=../../../.env src/local-dev/run-resolution-isolated.ts",
+        "full-pipeline": "tsx --env-file=../../../.env src/local-dev/run-full-pipeline-isolated.ts",
+        "generate-fixtures": "tsx --env-file=../../../.env src/local-dev/run-generate-fixtures.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/diffs": "workspace:*",
+        "@autonoma/engine": "workspace:*",
+        "@autonoma/engine-web": "workspace:*",
         "@autonoma/github": "workspace:*",
-        "@autonoma/job-diffs": "workspace:*",
+        "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
@@ -31,6 +37,7 @@
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
         "ai": "catalog:",
+        "playwright": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {

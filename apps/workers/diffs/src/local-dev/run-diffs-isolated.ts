@@ -5,7 +5,7 @@
  * requiring a database, Temporal, or GitHub App credentials.
  *
  * Usage:
- *   tsx src/run-diffs-isolated.ts \
+ *   tsx src/local-dev/run-diffs-isolated.ts \
  *     --repo <url-or-local-path> \
  *     [--tests-dir <path>]       dir containing qa-tests/ (defaults to fixtures/)
  *     [--branch <name>]          resolves base = merge-base(main, branch), head = branch tip
@@ -20,8 +20,8 @@
  */
 
 import { rm, writeFile } from "node:fs/promises";
-import { MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
 import type { DiffsAgentResult } from "@autonoma/diffs";
+import { openModelSession, summarizeSessionCost } from "@autonoma/diffs";
 import { runDiffsAgentLocally } from "@autonoma/diffs/run-diffs-locally";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type BaseCliArgs, parseBaseCliArgs, prepareRepo, readTestFiles, resolveCommits } from "./isolated-utils";
@@ -57,10 +57,8 @@ async function run(args: CliArgs): Promise<void> {
 
         const existingTests = await readTestFiles(args.testsDir);
 
-        const registry = new ModelRegistry({
-            models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-        });
-        const model = registry.getModel({ model: "flash", tag: "diffs-isolated" });
+        const session = openModelSession();
+        const model = session.getModel({ model: "smart-visual", tag: "diffs-isolated" });
 
         const startTime = Date.now();
         const result: DiffsAgentResult = await runDiffsAgentLocally({
@@ -76,7 +74,7 @@ async function run(args: CliArgs): Promise<void> {
             elapsed: `${elapsed}s`,
             affectedTests: result.affectedTests.length,
             testCandidates: result.testCandidates.length,
-            modelUsage: registry.modelUsage,
+            modelCost: summarizeSessionCost(session.costCollector),
         });
 
         const json = JSON.stringify(result, null, 2) + "\n";

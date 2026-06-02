@@ -11,8 +11,8 @@ interface UploadConversationParams {
 }
 
 /**
- * Upload a diffs-job conversation to S3 and return its URL. Returns undefined
- * on failure - the conversation is for debugging and must not fail the job.
+ * Upload a diffs conversation to S3 and return its URL. Returns undefined
+ * on failure - the conversation is for debugging and must not fail the flow.
  */
 export async function uploadConversation({
     storage,

@@ -15,7 +15,7 @@
  *   7. Summarize - collect everything into pipeline-result.json
  *
  * Usage:
- *   tsx src/run-full-pipeline-isolated.ts \
+ *   tsx src/local-dev/run-full-pipeline-isolated.ts \
  *     --repo <url-or-local-path> \
  *     --url <application-url-to-test-against> \
  *     [--tests-dir <path>]       dir with qa-tests/ (defaults to fixtures/)
@@ -34,8 +34,9 @@
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CostCollector, MODEL_ENTRIES, ModelRegistry } from "@autonoma/ai";
-import type { DiffsAgentResult, RunReviewVerdict } from "@autonoma/diffs";
+import { CostCollector } from "@autonoma/ai";
+import type { DiffsAgentResult, RunReviewVerdict, SessionCostSummary } from "@autonoma/diffs";
+import { openModelSession, summarizeSessionCost } from "@autonoma/diffs";
 import { runDiffsAgentLocally } from "@autonoma/diffs/run-diffs-locally";
 import { runResolutionAgentLocally } from "@autonoma/diffs/run-resolution-locally";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -89,6 +90,36 @@ function slugify(name: string): string {
         .replace(/^-|-$/g, "");
 }
 
+/**
+ * Sum every per-session/per-engine collector into a single pipeline-wide total.
+ *
+ * Each phase meters into its own {@link CostCollector} (the diffs phases via
+ * {@link openModelSession}, the replay/generation phases via the engine
+ * registry). The pipeline total is the sum of each collector's
+ * {@link summarizeSessionCost}, so it spans both the diffs-side and the
+ * engine-side calls - the old shared-collector summary only saw the former.
+ */
+function aggregatePipelineCost(collectors: CostCollector[]): SessionCostSummary {
+    return collectors.map(summarizeSessionCost).reduce<SessionCostSummary>(
+        (acc, summary) => ({
+            callCount: acc.callCount + summary.callCount,
+            costMicrodollars: acc.costMicrodollars + summary.costMicrodollars,
+            inputTokens: acc.inputTokens + summary.inputTokens,
+            outputTokens: acc.outputTokens + summary.outputTokens,
+            reasoningTokens: acc.reasoningTokens + summary.reasoningTokens,
+            cacheReadTokens: acc.cacheReadTokens + summary.cacheReadTokens,
+        }),
+        {
+            callCount: 0,
+            costMicrodollars: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            cacheReadTokens: 0,
+        },
+    );
+}
+
 // ---- Pipeline --------------------------------------------------------------
 
 async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
@@ -114,18 +145,24 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
         const existingTests = await readTestFiles(args.testsDir);
 
-        // Model registry shared across all steps
-        const registry = new ModelRegistry({
-            models: { flash: MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW },
-        });
-        const model = registry.getModel({ model: "flash", tag: "pipeline-isolated" });
-        const costCollector = new CostCollector();
+        // Every phase meters into its own collector; we sum them at the end for a
+        // pipeline-wide total. The diffs phases each open a metered session; the
+        // replay/generation phases share one engine collector.
+        const costCollectors: CostCollector[] = [];
+        const openTrackedSession = () => {
+            const session = openModelSession();
+            costCollectors.push(session.costCollector);
+            return session;
+        };
+        const engineCollector = new CostCollector();
+        costCollectors.push(engineCollector);
 
         // ---- Step 1: Analyze diffs ----
         logger.info("Step 1: Analyzing diffs");
+        const analysisModel = openTrackedSession().getModel({ model: "smart-visual", tag: "pipeline-analysis" });
         const startStep1 = Date.now();
         const step1Result: DiffsAgentResult = await runDiffsAgentLocally({
-            model,
+            model: analysisModel,
             repoDir,
             baseSha,
             headSha,
@@ -161,7 +198,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
                 testSlug: affected.slug,
                 outputDir: join(outputDir, "step2-replays"),
                 headless: args.headless,
-                costCollector,
+                costCollector: engineCollector,
             });
             replayResults.set(affected.slug, result);
             logger.info("Replay finished", { slug: affected.slug, success: result.success });
@@ -172,6 +209,10 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
         // ---- Step 3: Review failed replays ----
         logger.info("Step 3: Reviewing failed replays");
+        const replayReviewModel = openTrackedSession().getModel({
+            model: "smart-visual",
+            tag: "pipeline-replay-review",
+        });
         const verdicts: RunReviewVerdict[] = [];
 
         for (const [slug, replayResult] of replayResults) {
@@ -181,7 +222,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
             if (test == null) continue;
 
             logger.info("Reviewing failed replay", { slug });
-            const reviewResult = await runReviewLocally(model, {
+            const reviewResult = await runReviewLocally(replayReviewModel, {
                 testSlug: slug,
                 testInstruction: test.prompt,
                 testName: test.name,
@@ -212,8 +253,9 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
         // ---- Step 4: Resolve ----
         logger.info("Step 4: Running resolution agent");
+        const resolutionModel = openTrackedSession().getModel({ model: "smart-visual", tag: "pipeline-resolution" });
         const step4Result = await runResolutionAgentLocally({
-            model,
+            model: resolutionModel,
             repoDir,
             existingTests,
             verdicts,
@@ -246,6 +288,10 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
 
             if (allTestsToGenerate.length > 0) {
                 logger.info("Step 5: Running generations", { count: allTestsToGenerate.length });
+                const generationReviewModel = openTrackedSession().getModel({
+                    model: "smart-visual",
+                    tag: "pipeline-generation-review",
+                });
 
                 for (const test of allTestsToGenerate) {
                     logger.info("Generating test", { slug: test.slug });
@@ -255,14 +301,14 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
                         testSlug: test.slug,
                         outputDir: join(outputDir, "step5-generations"),
                         headless: args.headless,
-                        costCollector,
+                        costCollector: engineCollector,
                     });
 
                     logger.info("Generation finished", { slug: test.slug, success: genResult.success });
 
                     if (!genResult.success) {
                         logger.info("Step 6: Reviewing failed generation", { slug: test.slug });
-                        const genReview = await runReviewLocally(model, {
+                        const genReview = await runReviewLocally(generationReviewModel, {
                             testSlug: test.slug,
                             testInstruction: test.instruction,
                             testName: test.name,
@@ -318,7 +364,7 @@ async function runFullPipeline(args: PipelineCliArgs): Promise<void> {
                 reportedBugs: step4Result.reportedBugs.length,
                 newTests: step4Result.newTests.length,
             },
-            modelUsage: registry.modelUsage,
+            cost: aggregatePipelineCost(costCollectors),
         };
         await writeJSON(join(outputDir, "pipeline-result.json"), summary);
 

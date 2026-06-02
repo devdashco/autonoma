@@ -21,7 +21,7 @@ export interface ExistingTestWithSteps extends ExistingTestInfo {
 }
 
 export const execFileAsync = promisify(execFile);
-export const DEFAULT_TESTS_DIR = fileURLToPath(new URL("../fixtures", import.meta.url));
+export const DEFAULT_TESTS_DIR = fileURLToPath(new URL("./fixtures", import.meta.url));
 
 // ---- CLI -------------------------------------------------------------------
 

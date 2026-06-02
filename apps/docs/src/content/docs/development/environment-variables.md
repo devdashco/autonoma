@@ -259,18 +259,19 @@ The mobile engine extends the AI, database, logger, and storage environments. Al
 | `ENGINE_BILLING_SECRET` | No | - | Shared secret for authenticating billing-related calls. |
 | `STRIPE_ENABLED` | No | `false` | Whether to process billing events on run completion. |
 
-### Diffs
+### Worker - Diffs
 
-**Source:** `apps/jobs/diffs/src/env.ts`
+**Source:** `apps/workers/diffs/src/env.ts`
+
+Diffs analysis and resolution run as Temporal activities in the `@autonoma/worker-diffs` worker. AI model keys come from the AI Services section; this worker adds the GitHub App credentials it needs to clone repositories and read PRs.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `BRANCH_ID` | Yes | - | Branch identifier for computing diffs. |
-| `GEMINI_API_KEY` | Yes | - | Gemini API key for AI-powered diff analysis. |
 | `GITHUB_APP_ID` | Yes | - | GitHub App ID for repository access. |
 | `GITHUB_APP_PRIVATE_KEY` | Yes | - | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`). |
 | `GITHUB_APP_WEBHOOK_SECRET` | Yes | - | GitHub App webhook secret for verifying events. |
-| `AGENT_VERSION` | No | `latest` | Version tag for the diff agent. |
+| `GITHUB_APP_SLUG` | Yes | - | GitHub App slug (URL-friendly name). |
+| `SENTRY_DSN_WORKER_DIFFS` | No | - | Sentry DSN for the diffs worker. |
 
 ### Review Jobs (Generation Reviewer, Replay Reviewer)
 
@@ -282,7 +283,7 @@ Both the generation reviewer and replay reviewer jobs re-export from `@autonoma/
 
 ## GitHub App
 
-These variables appear in `.env.example` and are used by the API server and the diffs job for GitHub integration features (repository connections, PR-triggered test runs).
+These variables appear in `.env.example` and are used by the API server and the diffs worker for GitHub integration features (repository connections, PR-triggered test runs).
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |

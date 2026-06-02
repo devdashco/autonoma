@@ -47,13 +47,6 @@ jobs:
             prepare: mkdir -p pruned && cp -r apps/jobs/scenario/dist pruned/dist
             context: ./pruned
 
-          - name: Diffs
-            image: diffs
-            dockerfile: apps/jobs/diffs/Dockerfile
-            turbo-filter: "@autonoma/job-diffs..."
-            prepare: mkdir -p pruned && cp -r apps/jobs/diffs/dist pruned/dist
-            context: ./pruned
-
           - name: Run Completion Notification
             image: run-completion-notification
             dockerfile: apps/jobs/run-completion-notification/Dockerfile

@@ -2,12 +2,12 @@ import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import type { AffectedTest, Codebase } from "@autonoma/diffs";
 import { type AffectedTestSpec, prepareRuns } from "@autonoma/diffs/prepare-runs";
-import { createDiffsServices } from "@autonoma/job-diffs/create-services";
-import { loadBranchData, loadDiffsContext } from "@autonoma/job-diffs/load-context";
-import { uploadConversation } from "@autonoma/job-diffs/upload-conversation";
 import { logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { PreparedRunInfo } from "@autonoma/workflow/activities";
+import { createDiffsServices } from "../create-services";
+import { uploadConversation } from "../upload-conversation";
+import { loadBranchData, loadDiffsContext } from "./load-context";
 import { runMergeFlow } from "./merge-flow";
 import { runDiffsAgent } from "./run-diffs-agent";
 

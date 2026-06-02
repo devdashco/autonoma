@@ -1,11 +1,11 @@
 import { db } from "@autonoma/db";
 import type { Codebase, TestCandidateInput } from "@autonoma/diffs";
 import { FlowIndex, buildVerdicts, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
-import { createDiffsServices } from "@autonoma/job-diffs/create-services";
-import { uploadConversation } from "@autonoma/job-diffs/upload-conversation";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
+import { createDiffsServices } from "../create-services";
+import { uploadConversation } from "../upload-conversation";
 import { type AcceptedCandidateLink, runResolutionAgent } from "./run-resolution-agent";
 
 export interface RunDiffsResolutionParams {
