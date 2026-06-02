@@ -1,11 +1,14 @@
+import type { AuthCaller, CallerAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Deployer } from "../deployer/deployer";
-import type { PullRequestEvent } from "../git-provider/git-provider";
+import type { GitProvider, PullRequestEvent } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import type { PreviewPipeline } from "../pipeline/preview-pipeline";
 import type { TeardownPipeline } from "../pipeline/teardown-pipeline";
+
+export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
 
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
@@ -26,10 +29,16 @@ interface EnvironmentsRouteDeps {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
     deployer: Deployer;
+    gitProvider: GitProvider;
 }
 
-export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, deployer }: EnvironmentsRouteDeps) {
-    return new Hono()
+export function createEnvironmentsRoute({
+    previewPipeline,
+    teardownPipeline,
+    deployer,
+    gitProvider,
+}: EnvironmentsRouteDeps) {
+    return new Hono<{ Variables: CallerAuthVariables }>()
         .post("/environments", async (c) => {
             const body = await c.req.json().catch(() => undefined);
             const parsed = deployRequestSchema.safeParse(body);
@@ -65,12 +74,119 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
             );
         })
 
+        .post("/applications/:applicationId/0", async (c) => {
+            /**
+             * Deploys the Application's main branch into environment 0.
+             *
+             * Normal preview environments use their GitHub PR number in the URL. Since
+             * GitHub PR numbers start at 1, `/0` gives each Application a stable,
+             * non-PR preview environment while keeping the environment-number route
+             * convention intact.
+             */
+            const applicationId = c.req.param("applicationId");
+            const orgId = callerOrgId(c.var.authCaller);
+
+            const application = await db.application.findFirst({
+                where: {
+                    id: applicationId,
+                    ...(orgId != null ? { organizationId: orgId } : {}),
+                },
+                select: {
+                    id: true,
+                    disabled: true,
+                    organizationId: true,
+                    githubRepositoryId: true,
+                    mainBranch: { select: { name: true } },
+                    mainBranchInfo: { select: { githubRef: true } },
+                },
+            });
+
+            if (application == null) {
+                return c.json({ error: "Application not found" }, 404);
+            }
+
+            if (application.disabled) {
+                return c.json({ error: "Application is disabled and cannot be deployed" }, 409);
+            }
+
+            if (application.githubRepositoryId == null) {
+                return c.json({ error: "Application is not linked to a GitHub repository" }, 409);
+            }
+
+            const installation = await db.gitHubInstallation.findUnique({
+                where: { organizationId: application.organizationId },
+                select: { installationId: true, status: true },
+            });
+
+            if (installation == null) {
+                return c.json({ error: "Organization has no GitHub installation" }, 409);
+            }
+
+            if (installation.status !== "active") {
+                return c.json({ error: `GitHub installation is ${installation.status}` }, 409);
+            }
+
+            const repo = await gitProvider
+                .getRepository(installation.installationId, application.githubRepositoryId)
+                .catch((err) => {
+                    if (errorStatus(err) === 404) return undefined;
+                    throw err;
+                });
+            if (repo == null) {
+                return c.json({ error: "Linked GitHub repository not found or inaccessible" }, 404);
+            }
+
+            const mainRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name ?? repo.defaultBranch;
+            const branchName = normalizeBranchName(mainRef);
+            const headSha = await gitProvider.getBranchHead(repo.fullName, branchName).catch((err) => {
+                if (errorStatus(err) === 404) return undefined;
+                throw err;
+            });
+            if (headSha == null) {
+                return c.json({ error: `Main branch ref '${mainRef}' not found on GitHub` }, 404);
+            }
+
+            const event: PullRequestEvent = {
+                action: "synchronize",
+                prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+                repoFullName: repo.fullName,
+                organizationId: application.organizationId,
+                githubRepositoryId: application.githubRepositoryId,
+                headSha,
+                headRef: branchName,
+                baseSha: headSha,
+                baseRef: branchName,
+                cloneUrl: `https://github.com/${repo.fullName}.git`,
+            };
+
+            previewPipeline.deploy(event).catch((err) => {
+                logger.error("Main branch deploy failed", err, {
+                    applicationId: application.id,
+                    repo: event.repoFullName,
+                    branch: branchName,
+                });
+            });
+
+            return c.json(
+                {
+                    accepted: true,
+                    applicationId: application.id,
+                    repoFullName: event.repoFullName,
+                    branch: branchName,
+                    headSha,
+                    prNumber: event.prNumber,
+                    statusUrl: `/v1/environments/${event.repoFullName}/${event.prNumber}`,
+                },
+                202,
+            );
+        })
+
         .get("/environments/:owner/:repo/:pr", async (c) => {
             const owner = c.req.param("owner");
             const repo = c.req.param("repo");
-            const pr = Number(c.req.param("pr"));
-            if (!Number.isInteger(pr) || pr <= 0) {
-                return c.json({ error: "pr must be a positive integer" }, 400);
+            const pr = parseEnvironmentNumber(c.req.param("pr"));
+            if (pr == null) {
+                return c.json({ error: "pr must be a non-negative integer" }, 400);
             }
 
             const repoFullName = `${owner}/${repo}`;
@@ -95,9 +211,9 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
         .delete("/environments/:owner/:repo/:pr", async (c) => {
             const owner = c.req.param("owner");
             const repo = c.req.param("repo");
-            const pr = Number(c.req.param("pr"));
-            if (!Number.isInteger(pr) || pr <= 0) {
-                return c.json({ error: "pr must be a positive integer" }, 400);
+            const pr = parseEnvironmentNumber(c.req.param("pr"));
+            if (pr == null) {
+                return c.json({ error: "pr must be a non-negative integer" }, 400);
             }
 
             const organizationId = c.req.query("organizationId");
@@ -134,9 +250,9 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
         .post("/environments/:owner/:repo/:pr/redeploy", async (c) => {
             const owner = c.req.param("owner");
             const repo = c.req.param("repo");
-            const pr = Number(c.req.param("pr"));
-            if (!Number.isInteger(pr) || pr <= 0) {
-                return c.json({ error: "pr must be a positive integer" }, 400);
+            const pr = parseEnvironmentNumber(c.req.param("pr"));
+            if (pr == null) {
+                return c.json({ error: "pr must be a non-negative integer" }, 400);
             }
 
             const repoFullName = `${owner}/${repo}`;
@@ -182,4 +298,26 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, dep
 
             return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
         });
+}
+
+function callerOrgId(caller: AuthCaller): string | undefined {
+    return caller.kind === "user" ? caller.organizationId : undefined;
+}
+
+function parseEnvironmentNumber(raw: string): number | undefined {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0) return undefined;
+    return value;
+}
+
+function normalizeBranchName(ref: string): string {
+    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+}
+
+function errorStatus(error: unknown): number | undefined {
+    if (error instanceof Error && "status" in error) {
+        const status = (error as { status?: unknown }).status;
+        return typeof status === "number" ? status : undefined;
+    }
+    return undefined;
 }

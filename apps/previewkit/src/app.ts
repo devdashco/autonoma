@@ -2,6 +2,7 @@ import { type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth
 import { db } from "@autonoma/db";
 import { Hono } from "hono";
 import type { Deployer } from "./deployer/deployer";
+import type { GitProvider } from "./git-provider/git-provider";
 import type { PreviewPipeline } from "./pipeline/preview-pipeline";
 import type { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { docsRoute } from "./routes/docs.route";
@@ -17,6 +18,7 @@ interface AppOptions {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
     deployer: Deployer;
+    gitProvider: GitProvider;
     secretsService: PreviewkitSecretsService;
     /** Shared secret for service-to-service calls (autonoma -> previewkit).
      *  Unset disables the service-secret path; only API-key callers will
@@ -41,6 +43,7 @@ export function createApp(options: AppOptions) {
             previewPipeline: options.previewPipeline,
             teardownPipeline: options.teardownPipeline,
             deployer: options.deployer,
+            gitProvider: options.gitProvider,
         }),
     );
     app.route("/v1", createSecretsRoute(options.secretsService));

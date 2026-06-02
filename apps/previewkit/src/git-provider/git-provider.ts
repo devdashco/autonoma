@@ -16,8 +16,20 @@ export interface PullRequestEvent {
     cloneUrl: string;
 }
 
+export interface GitRepository {
+    id: number;
+    name: string;
+    fullName: string;
+    defaultBranch: string;
+    private: boolean;
+}
+
 export interface GitProvider {
     readonly name: string;
+
+    getRepository(installationId: number, repositoryId: number): Promise<GitRepository>;
+
+    getBranchHead(repoFullName: string, branchName: string): Promise<string>;
 
     fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined>;
 

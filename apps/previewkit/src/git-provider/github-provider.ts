@@ -4,7 +4,7 @@ import { createGunzip } from "node:zlib";
 import { App } from "@octokit/app";
 import { extract as extractTar } from "tar-fs";
 import { logger } from "../logger";
-import type { GitProvider } from "./git-provider";
+import type { GitProvider, GitRepository } from "./git-provider";
 
 function parseRepo(repoFullName: string): { owner: string; repo: string } {
     const [owner, repo] = repoFullName.split("/");
@@ -35,6 +35,37 @@ export class GitHubProvider implements GitProvider {
             repo,
         });
         return this.app.getInstallationOctokit(installation.id);
+    }
+
+    private getInstallationOctokitById(installationId: number) {
+        return this.app.getInstallationOctokit(installationId);
+    }
+
+    async getRepository(installationId: number, repositoryId: number): Promise<GitRepository> {
+        const octokit = await this.getInstallationOctokitById(installationId);
+        const { data } = await octokit.request("GET /repositories/{repository_id}", {
+            repository_id: repositoryId,
+        });
+
+        return {
+            id: data.id,
+            name: data.name,
+            fullName: data.full_name,
+            defaultBranch: data.default_branch,
+            private: data.private,
+        };
+    }
+
+    async getBranchHead(repoFullName: string, branchName: string): Promise<string> {
+        const { owner, repo } = parseRepo(repoFullName);
+        const octokit = await this.getInstallationOctokit(repoFullName);
+        const { data } = await octokit.request("GET /repos/{owner}/{repo}/branches/{branch}", {
+            owner,
+            repo,
+            branch: branchName,
+        });
+
+        return data.commit.sha;
     }
 
     async fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined> {

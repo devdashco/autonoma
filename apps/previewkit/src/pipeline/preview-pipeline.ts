@@ -138,9 +138,11 @@ export class PreviewPipeline {
         }
 
         // 1c. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
-        const feedbackEnabled = await isGithubFeedbackEnabledForOrg(organizationId);
+        // Synthetic non-PR environments (currently prNumber 0 for an Application's main branch)
+        // are always quiet because there is no PR thread to comment on.
+        const feedbackEnabled = prNumber > 0 && (await isGithubFeedbackEnabledForOrg(organizationId));
         if (!feedbackEnabled) {
-            logger.info("GitHub feedback disabled for organization; skipping comments + commit statuses", {
+            logger.info("GitHub feedback disabled for deployment; skipping comments + commit statuses", {
                 organizationId,
                 repo: repoFullName,
                 pr: prNumber,

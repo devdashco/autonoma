@@ -164,6 +164,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         previewPipeline,
         teardownPipeline,
         deployer,
+        gitProvider: githubProvider,
         secretsService,
         serviceSecret: env.AUTONOMA_SERVICE_SECRET,
     });

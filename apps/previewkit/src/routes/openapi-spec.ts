@@ -18,8 +18,8 @@ const prParam = {
     name: "pr",
     in: "path",
     required: true,
-    schema: { type: "integer", minimum: 1 },
-    description: "Pull request number",
+    schema: { type: "integer", minimum: 0 },
+    description: "Pull request number. 0 is reserved for an Application main-branch environment.",
 } as const;
 
 const applicationIdParam = {
@@ -118,6 +118,34 @@ export const openApiSpec = {
                 },
             },
         },
+        "/v1/applications/{applicationId}/0": {
+            post: {
+                tags: ["Environments"],
+                summary: "Deploy an Application's main-branch preview environment",
+                description:
+                    "Fire-and-forget. Resolves the Application's linked GitHub repository and main branch ref, deploys the current branch head as a stable Previewkit environment, and returns the normal environment status URL. The environment uses prNumber 0 because GitHub PR numbers start at 1.",
+                parameters: [applicationIdParam],
+                responses: {
+                    "202": {
+                        description: "Main-branch deploy accepted, running in background",
+                        content: {
+                            "application/json": {
+                                schema: { $ref: "#/components/schemas/ApplicationEnvironmentDeployAccepted" },
+                            },
+                        },
+                    },
+                    "404": {
+                        description: "Application, linked repository, or main branch ref not found",
+                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    },
+                    "409": {
+                        description:
+                            "Application cannot be deployed because it is disabled, unlinked, or has no active GitHub installation",
+                        content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
+                    },
+                },
+            },
+        },
         "/v1/environments/{owner}/{repo}/{pr}": {
             get: {
                 tags: ["Environments"],
@@ -135,7 +163,7 @@ export const openApiSpec = {
                         },
                     },
                     "400": {
-                        description: "pr must be a positive integer",
+                        description: "pr must be a non-negative integer",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                     "404": {
@@ -159,7 +187,7 @@ export const openApiSpec = {
                         },
                     },
                     "400": {
-                        description: "pr must be a positive integer",
+                        description: "pr must be a non-negative integer",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
                     },
                 },
@@ -306,6 +334,23 @@ export const openApiSpec = {
                     statusUrl: { type: "string", example: "/v1/environments/acme-corp/my-repo/42" },
                 },
                 required: ["accepted", "repoFullName", "prNumber", "statusUrl"],
+            },
+            ApplicationEnvironmentDeployAccepted: {
+                type: "object",
+                properties: {
+                    accepted: { type: "boolean", example: true },
+                    applicationId: { type: "string" },
+                    repoFullName: { type: "string", example: "acme-corp/my-repo" },
+                    branch: { type: "string", example: "main" },
+                    headSha: { type: "string", example: "abc1234deadbeef..." },
+                    prNumber: {
+                        type: "integer",
+                        example: 0,
+                        description: "Synthetic environment number for the Application main branch.",
+                    },
+                    statusUrl: { type: "string", example: "/v1/environments/acme-corp/my-repo/0" },
+                },
+                required: ["accepted", "applicationId", "repoFullName", "branch", "headSha", "prNumber", "statusUrl"],
             },
             TeardownAccepted: {
                 type: "object",
