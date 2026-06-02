@@ -301,13 +301,14 @@ export class DiffsTriggerService extends Service {
         } catch (error) {
             if (!(error instanceof BranchAlreadyHasPendingSnapshotError)) throw error;
 
-            this.logger.info("Cancelling existing diffs job and discarding pending snapshot", { branchId });
+            this.logger.info("Cancelling existing diffs job and superseding pending snapshot", { branchId });
 
             const staleUpdater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
             await this.cancelDiffsJob(staleUpdater.snapshotId);
-            await staleUpdater.discard();
+            await staleUpdater.cancel();
+            await this.markDiffsJobSuperseded(staleUpdater.snapshotId);
 
-            this.logger.info("Stale snapshot discarded, starting fresh update", {
+            this.logger.info("Stale snapshot cancelled, starting fresh update", {
                 branchId,
                 staleSnapshotId: staleUpdater.snapshotId,
             });
@@ -330,5 +331,21 @@ export class DiffsTriggerService extends Service {
             data: { snapshotId, organizationId, status: "pending" },
         });
         this.logger.info("DiffsJob created", { snapshotId });
+    }
+
+    private async markDiffsJobSuperseded(snapshotId: string): Promise<void> {
+        try {
+            await this.db.diffsJob.update({
+                where: { snapshotId },
+                data: {
+                    status: "failed",
+                    failureReason: "Superseded by a newer diffs request",
+                    completedAt: new Date(),
+                },
+            });
+            this.logger.info("Stale DiffsJob marked as superseded", { snapshotId });
+        } catch (error) {
+            this.logger.warn("Failed to mark stale DiffsJob as superseded", { snapshotId, extra: { error } });
+        }
     }
 }

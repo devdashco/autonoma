@@ -613,11 +613,15 @@ export class SnapshotDraft {
     }
 
     /**
-     * Discards this pending snapshot, removing all its assignments, generations,
-     * and clearing the branch pointer.
+     * Cancels this pending snapshot without destroying its data.
+     *
+     * The snapshot's status is moved to "cancelled" and the branch's pending
+     * pointer is cleared, freeing the branch to start a new snapshot. All
+     * generations, assignments, and runs are intentionally preserved so the
+     * cancelled snapshot remains available for observability.
      */
-    public async discard() {
-        this.logger.info("Discarding pending snapshot");
+    public async cancel() {
+        this.logger.info("Cancelling pending snapshot");
 
         await this.db.$transaction(async (tx) => {
             const snapshot = await tx.branchSnapshot.findUniqueOrThrow({
@@ -633,17 +637,17 @@ export class SnapshotDraft {
                 throw new SnapshotNotPendingError(this.snapshotId, snapshot.status);
             }
 
-            await tx.testGeneration.deleteMany({ where: { snapshotId: this.snapshotId } });
-            await tx.testCaseAssignment.deleteMany({ where: { snapshotId: this.snapshotId } });
+            await tx.branchSnapshot.update({
+                where: { id: this.snapshotId },
+                data: { status: "cancelled" },
+            });
 
             await tx.branch.update({
                 where: { id: this.branchId },
                 data: { pendingSnapshotId: null },
             });
-
-            await tx.branchSnapshot.delete({ where: { id: this.snapshotId } });
         });
 
-        this.logger.info("Pending snapshot discarded");
+        this.logger.info("Pending snapshot cancelled");
     }
 }

@@ -138,7 +138,9 @@ export class BranchesService extends Service {
         this.logger.info("Listing snapshots", { branchId });
 
         const snapshots = await this.db.branchSnapshot.findMany({
-            where: { branchId, branch: { application: { organizationId } } },
+            // Cancelled snapshots are abandoned drafts kept only for observability; they are
+            // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
+            where: { branchId, branch: { application: { organizationId } }, status: { not: "cancelled" } },
             select: {
                 id: true,
                 status: true,
@@ -474,6 +476,9 @@ export class BranchesService extends Service {
                 id: true,
                 activeSnapshotId: true,
                 snapshots: {
+                    // Exclude cancelled snapshots so the PR-wide rollup reflects the real
+                    // lineage; a cancelled draft must never become the latest rollup target.
+                    where: { status: { not: "cancelled" } },
                     select: snapshotSelect,
                     orderBy: { createdAt: "asc" },
                 },

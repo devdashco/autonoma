@@ -178,9 +178,9 @@ apiTestSuite({
             expect(branch.pendingSnapshotId).toBeNull();
         });
 
-        test("discard removes the pending snapshot", async ({ harness }) => {
+        test("discard clears the pending pointer and marks the snapshot cancelled", async ({ harness }) => {
             const { branchId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.discard({ branchId });
 
@@ -189,6 +189,17 @@ apiTestSuite({
                 select: { pendingSnapshotId: true },
             });
             expect(branch.pendingSnapshotId).toBeNull();
+
+            // The snapshot is preserved for observability (reachable by id), marked cancelled.
+            const snapshot = await harness.db.branchSnapshot.findUnique({
+                where: { id: snapshotId },
+                select: { status: true },
+            });
+            expect(snapshot?.status).toBe("cancelled");
+
+            // But it is hidden from the user-facing history list.
+            const history = await harness.services.branches.listSnapshots(branchId, harness.organizationId);
+            expect(history.map((s) => s.id)).not.toContain(snapshotId);
         });
 
         test("start throws NOT_FOUND for a non-existent branch", async ({ harness }) => {

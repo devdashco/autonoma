@@ -18,6 +18,9 @@ export interface SnapshotHealthResult {
 }
 
 export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHealthCounts): SnapshotHealth {
+    // A cancelled snapshot was abandoned (superseded by a newer request); its
+    // partial run results are not meaningful health signal.
+    if (snapshotStatus === "cancelled") return "unknown";
     if (snapshotStatus === "failed") return "critical";
     if (counts.failing > 0 || counts.quarantined > 0) return "critical";
     if (counts.running > 0 || snapshotStatus === "processing") return "running";

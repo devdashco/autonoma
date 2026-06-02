@@ -380,12 +380,12 @@ testUpdateSuite({
                 description: "first",
                 plan: "first",
             });
-            await first.discard();
+            await first.cancel();
 
             // Branch now has no pending snapshot; start a fresh one
             const second = await SnapshotDraft.start({ db: harness.db, branchId });
 
-            // loadById for first (which was discarded) should throw - but loadById for second works
+            // loadById for first (which was cancelled) should throw - but loadById for second works
             await expect(SnapshotDraft.loadById({ db: harness.db, snapshotId: first.snapshotId })).rejects.toThrow(
                 SnapshotNotPendingError,
             );
@@ -550,9 +550,9 @@ testUpdateSuite({
             expect(findTestCase(updated, "batch-b").steps?.id).toBe(stepsB.id);
         });
 
-        // -- discard() --
+        // -- cancel() --
 
-        test("discard: removes snapshot and clears branch pointer", async ({
+        test("cancel: marks snapshot cancelled and clears branch pointer, preserving data", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
@@ -561,14 +561,14 @@ testUpdateSuite({
 
             await draft.addTestCase({
                 folderId,
-                name: "Discard test",
-                slug: "discard-test",
-                description: "Will be discarded",
+                name: "Cancel test",
+                slug: "cancel-test",
+                description: "Will be cancelled",
                 plan: "Some plan",
                 scenarioId: undefined as unknown as string,
             });
 
-            await draft.discard();
+            await draft.cancel();
 
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: branchId },
@@ -578,17 +578,24 @@ testUpdateSuite({
 
             const snapshot = await harness.db.branchSnapshot.findUnique({
                 where: { id: draft.snapshotId },
+                select: { status: true },
             });
-            expect(snapshot).toBeNull();
+            expect(snapshot?.status).toBe(SnapshotStatus.cancelled);
+
+            // Assignments are preserved for observability, not deleted.
+            const assignmentCount = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: draft.snapshotId },
+            });
+            expect(assignmentCount).toBeGreaterThan(0);
         });
 
-        test("discard: after discard, loadPending throws", async ({
+        test("cancel: after cancel, loadPending throws", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
             const branchId = await harness.createBranch(organizationId, applicationId);
             const draft = await SnapshotDraft.start({ db: harness.db, branchId });
-            await draft.discard();
+            await draft.cancel();
 
             await expect(SnapshotDraft.loadPending({ db: harness.db, branchId })).rejects.toThrow(
                 SnapshotNotPendingError,

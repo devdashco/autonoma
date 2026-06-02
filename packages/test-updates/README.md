@@ -82,14 +82,15 @@ const { assigned, failed } = await updater.assignGenerationResults(["gen-1", "ge
 const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
 ```
 
-### Finalizing or discarding
+### Finalizing or cancelling
 
 ```ts
 // Activate the snapshot (fails if incomplete generations remain)
 await updater.finalize();
 
-// Or discard the entire draft
-await updater.discard();
+// Or cancel the draft - marks the snapshot "cancelled" and clears the branch
+// pointer, preserving its generations, assignments, and runs for observability
+await updater.cancel();
 ```
 
 ### Inspecting current state

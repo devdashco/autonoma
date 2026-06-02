@@ -283,11 +283,14 @@ export class TestSuiteUpdater {
         return this.generationManager.getGenerationSummary();
     }
 
-    /** Discards the pending snapshot, removing all assignments and generations. */
-    public async discard() {
-        this.logger.info("Discarding snapshot");
-        await this.snapshotDraft.discard();
-        this.logger.info("Snapshot discarded");
+    /**
+     * Cancels the pending snapshot, marking it "cancelled" and clearing the
+     * branch pointer while preserving its assignments, generations, and runs.
+     */
+    public async cancel() {
+        this.logger.info("Cancelling snapshot");
+        await this.snapshotDraft.cancel();
+        this.logger.info("Snapshot cancelled");
     }
 
     /**

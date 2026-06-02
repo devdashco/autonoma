@@ -239,7 +239,7 @@ export class SnapshotEditService extends Service {
 
         const updater = await this.continueUpdate(branchId, organizationId);
 
-        await updater.discard();
+        await updater.cancel();
 
         this.logger.info("Edit session discarded", { branchId });
     }

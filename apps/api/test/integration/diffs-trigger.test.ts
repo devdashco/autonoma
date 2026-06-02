@@ -160,14 +160,30 @@ apiTestSuite({
             expect(second.branchId).toBe(first.branchId);
             expect(second.snapshotId).not.toBe(first.snapshotId);
 
-            // discard() deletes the old snapshot record
+            // The old snapshot is preserved for observability, marked cancelled
             const oldSnapshot = await harness.db.branchSnapshot.findUnique({ where: { id: first.snapshotId } });
-            expect(oldSnapshot).toBeNull();
+            expect(oldSnapshot).not.toBeNull();
+            expect(oldSnapshot!.status).toBe("cancelled");
+
+            // Its DiffsJob is marked failed with a superseded reason
+            const oldDiffsJob = await harness.db.diffsJob.findUnique({ where: { snapshotId: first.snapshotId } });
+            expect(oldDiffsJob!.status).toBe("failed");
+            expect(oldDiffsJob!.failureReason).toBe("Superseded by a newer diffs request");
 
             // The new snapshot should be processing
             const newSnapshot = await harness.db.branchSnapshot.findUnique({ where: { id: second.snapshotId } });
             expect(newSnapshot).not.toBeNull();
             expect(newSnapshot!.status).toBe("processing");
+
+            // The cancelled snapshot is hidden from the user-facing history list...
+            const history = await harness.services.branches.listSnapshots(second.branchId, harness.organizationId);
+            expect(history.map((s) => s.id)).not.toContain(first.snapshotId);
+            expect(history.map((s) => s.id)).toContain(second.snapshotId);
+
+            // ...but still reachable directly by id (URL access preserved).
+            const detail = await harness.services.branches.getSnapshotDetail(first.snapshotId, harness.organizationId);
+            expect(detail.snapshot.id).toBe(first.snapshotId);
+            expect(detail.snapshot.status).toBe("cancelled");
 
             // cancelDiffsJob was called with the stale snapshot's id, and the second
             // triggerDiffsJob call carries the new snapshot id.

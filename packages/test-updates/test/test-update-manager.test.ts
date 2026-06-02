@@ -275,9 +275,9 @@ testUpdateSuite({
             expect(added?.testCaseName).toBe("New test");
         });
 
-        // -- discard() --
+        // -- cancel() --
 
-        test("discard: cleans up snapshot and allows new edit session", async ({
+        test("cancel: marks snapshot cancelled and allows new edit session", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
@@ -285,7 +285,7 @@ testUpdateSuite({
             const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
             const snapshotId = updater.snapshotId;
 
-            await updater.discard();
+            await updater.cancel();
 
             // Branch should have no pending snapshot
             const branch = await harness.db.branch.findUniqueOrThrow({
@@ -294,9 +294,12 @@ testUpdateSuite({
             });
             expect(branch.pendingSnapshotId).toBeNull();
 
-            // Snapshot should be deleted
-            const snapshot = await harness.db.branchSnapshot.findUnique({ where: { id: snapshotId } });
-            expect(snapshot).toBeNull();
+            // Snapshot should be preserved, marked cancelled
+            const snapshot = await harness.db.branchSnapshot.findUnique({
+                where: { id: snapshotId },
+                select: { status: true },
+            });
+            expect(snapshot?.status).toBe("cancelled");
 
             // Should be able to start a new session
             const newUpdater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
