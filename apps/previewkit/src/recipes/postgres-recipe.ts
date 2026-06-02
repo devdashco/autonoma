@@ -3,8 +3,17 @@ import { z } from "zod";
 import type { ServiceConfig } from "../config/schema";
 import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
+// Allowlist of accepted image prefixes for options.image.
+const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:"];
+
 const optionsSchema = z.object({
     databases: z.array(z.string()).default([]),
+    image: z
+        .string()
+        .refine((img) => ALLOWED_IMAGE_PREFIXES.some((prefix) => img.startsWith(prefix)), {
+            message: `Image is not allowed. Accepted prefixes: ${ALLOWED_IMAGE_PREFIXES.join(", ")}`,
+        })
+        .optional(),
 });
 
 const DEFAULT_VERSION = "16-alpine";
@@ -21,7 +30,7 @@ export class PostgresRecipe extends BaseRecipe {
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
         const options = optionsSchema.parse(config.options);
         const version = config.version ?? DEFAULT_VERSION;
-        const image = `postgres:${version}`;
+        const image = options.image ?? `postgres:${version}`;
         const labels = {
             "previewkit.dev/managed-by": "previewkit",
             "previewkit.dev/service": config.name,
