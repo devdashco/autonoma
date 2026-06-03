@@ -5,7 +5,7 @@ import type { Codebase } from "../../codebase";
 import { buildDiffAnalysis } from "../../diff-analysis";
 import type { ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
-import { PLAN_AUTHORING_GUIDE } from "../../healing/plan-authoring";
+import { PLAN_AUTHORING_GUIDE } from "../../healing";
 import {
     BashTool,
     GlobTool,

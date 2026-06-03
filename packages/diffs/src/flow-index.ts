@@ -16,6 +16,17 @@ export class FlowIndex {
         this.flowsByName = new Map(flows.map((f) => [f.name.toLowerCase(), f]));
     }
 
+    /**
+     * The underlying flow array this index was built from.
+     *
+     * Used to serialize the index back to its raw form (e.g. when freezing a
+     * `DiffsAgentInput` into an on-disk eval fixture) so it can be
+     * reconstructed later via `new FlowIndex(array)`.
+     */
+    toArray(): FlowInfo[] {
+        return this.flows;
+    }
+
     /** All flows with their names, descriptions, and test counts. */
     listFlows() {
         return this.flows.map((f) => ({

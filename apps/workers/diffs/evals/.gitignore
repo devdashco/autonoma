@@ -1,0 +1,5 @@
+# Repo cache for codebase rehydration (clone-once-then-fetch)
+.cache/
+
+# Per-eval JSON result files (pass-rate reports)
+**/results/

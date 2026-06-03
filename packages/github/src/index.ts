@@ -1,6 +1,7 @@
 export { OctokitGitHubApp, type GitHubApp, type GitHubAppCredentials, type GitHubAppInstallation } from "./github-app";
 export {
     OctokitGitHubInstallationClient,
+    parseRepoFullName,
     type GitHubInstallationClient,
     type CloneRepositoryParams,
     type Repository,
