@@ -7,11 +7,15 @@ import { protectedProcedure, router } from "../../trpc";
 export const previewAccessRouter = router({
     issueToken: protectedProcedure
         .input(z.object({ redirectUrl: z.string().url() }))
-        .mutation(async ({ input, ctx: { organizationId } }) => {
+        .mutation(async ({ input, ctx: { user } }) => {
             const instance = await db.previewkitAppInstance.findFirst({
                 where: {
                     url: input.redirectUrl,
-                    environment: { organizationId },
+                    environment: {
+                        organization: {
+                            members: { some: { userId: user.id } },
+                        },
+                    },
                 },
                 select: { environment: { select: { bypassToken: true } } },
             });
