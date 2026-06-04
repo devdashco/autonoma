@@ -1,8 +1,9 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import matter from "gray-matter";
-import type { z } from "zod";
+import { z } from "zod";
+import { CASE_SCHEMA_VERSION } from "./frontmatter";
 
 /**
  * A single eval case loaded from disk: the frozen, assembled agent input plus
@@ -22,8 +23,11 @@ export interface LoadedCase<TInput, TFrontmatter> {
 }
 
 export interface CaseLoaderConfig<TInput, TFrontmatter> {
-    /** Directory containing one folder per case. */
-    casesDir: string;
+    /**
+     * Directory containing one folder per case, or `undefined` when the corpus
+     * root (`DIFFS_EVAL_CASES_DIR`) is unset - in which case zero cases load.
+     */
+    casesDir: string | undefined;
     /** Schema for `input.json`. */
     inputSchema: z.ZodType<TInput>;
     /** Schema for the `expected.md` frontmatter. */
@@ -45,6 +49,11 @@ export function loadCases<TInput, TFrontmatter>(
 ): LoadedCase<TInput, TFrontmatter>[] {
     const logger = rootLogger.child({ name: "loadCases" });
     const { casesDir, inputSchema, frontmatterSchema } = config;
+
+    if (casesDir == null) {
+        logger.info("No cases directory configured; loading zero cases");
+        return [];
+    }
 
     let entries: string[];
     try {
@@ -72,6 +81,7 @@ export function loadCases<TInput, TFrontmatter>(
 
         const input = inputSchema.parse(JSON.parse(readFileSync(inputPath, "utf-8")));
         const { data, content } = matter(readFileSync(expectedPath, "utf-8"));
+        warnOnSchemaDrift(name, data, logger);
         const frontmatter = frontmatterSchema.parse(data);
 
         cases.push({ name, dir, input, frontmatter, rubric: content.trim() });
@@ -86,5 +96,26 @@ function fileExists(filePath: string): boolean {
         return statSync(filePath).isFile();
     } catch {
         return false;
+    }
+}
+
+const schemaVersionProbe = z.object({ schemaVersion: z.number().int().positive().optional() });
+
+/**
+ * Surface corpus-vs-harness drift: the cases corpus lives in a separate private
+ * repo, so a case authored against an older frontmatter schema can outlive a
+ * change here. This warns (never throws) when a case declares a `schemaVersion`
+ * different from {@link CASE_SCHEMA_VERSION}; a case with no declared version is
+ * treated as current and ignored.
+ */
+function warnOnSchemaDrift(name: string, data: unknown, logger: Logger): void {
+    const parsed = schemaVersionProbe.safeParse(data);
+    if (!parsed.success) return;
+
+    const declared = parsed.data.schemaVersion;
+    if (declared != null && declared !== CASE_SCHEMA_VERSION) {
+        logger.warn("Eval case schema version drift; re-capture or migrate the case", {
+            extra: { name, declaredVersion: declared, currentVersion: CASE_SCHEMA_VERSION },
+        });
     }
 }

@@ -1,18 +1,13 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { logger as rootLogger } from "@autonoma/logger";
 import { createGithubApp } from "../../src/create-services";
 import { assembleResolutionAgentInput } from "../../src/resolution/assemble-input";
+import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { serializeResolutionInput } from "../resolution/resolution-input";
 import { resolveSnapshotCoords } from "./snapshot-coords";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Where Resolution cases live - the same folder the eval suite loads from. */
-const CASES_DIR = path.resolve(__dirname, "..", "resolution", "cases");
 
 export interface CaptureResolutionParams {
     snapshotId: string;
@@ -41,7 +36,7 @@ export async function captureResolution(params: CaptureResolutionParams): Promis
     const logger = rootLogger.child({ name: "captureResolution" });
     const { snapshotId } = params;
     const name = params.name ?? snapshotId;
-    const caseDir = path.join(CASES_DIR, name);
+    const caseDir = path.join(requireCasesDir("resolution"), name);
 
     logger.info("Capturing resolution case", { extra: { snapshotId, name, caseDir } });
 

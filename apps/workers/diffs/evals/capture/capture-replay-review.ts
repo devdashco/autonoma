@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { db } from "@autonoma/db";
 import { StorageEvidenceLoader } from "@autonoma/diffs";
@@ -9,15 +8,11 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
 import { RunContextLoader } from "../../src/review/replay/context-loader";
+import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
 import { serializeReplayReviewInput } from "../replay-review/replay-review-input";
 import { resolveSnapshotCoords } from "./snapshot-coords";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Where replay review cases live - the same folder the eval suite loads from. */
-const CASES_DIR = path.resolve(__dirname, "..", "replay-review", "cases");
 
 export interface CaptureReplayReviewParams {
     runId: string;
@@ -43,7 +38,7 @@ export async function captureReplayReview(params: CaptureReplayReviewParams): Pr
     const logger = rootLogger.child({ name: "captureReplayReview" });
     const { runId } = params;
     const name = params.name ?? runId;
-    const caseDir = path.join(CASES_DIR, name);
+    const caseDir = path.join(requireCasesDir("replay-review"), name);
 
     logger.info("Capturing replay review case", { extra: { runId, name, caseDir } });
 

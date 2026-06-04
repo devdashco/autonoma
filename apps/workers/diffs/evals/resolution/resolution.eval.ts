@@ -1,12 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCases } from "../framework/case-loader";
+import { resolveCasesDir } from "../framework/cases-dir";
 import { ResolutionEvaluation } from "./resolution-evaluation";
 import { resolutionFrontmatterSchema } from "./resolution-frontmatter";
 import { resolutionCaseInputSchema } from "./resolution-input";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CASES_DIR = path.join(__dirname, "cases");
+const CASES_DIR = resolveCasesDir("resolution");
 const RESULTS_DIR = path.join(__dirname, "results");
 
 const cases = loadCases({

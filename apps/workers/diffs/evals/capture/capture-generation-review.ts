@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { db } from "@autonoma/db";
 import { StorageEvidenceLoader } from "@autonoma/diffs";
@@ -9,15 +8,11 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { createGithubApp } from "../../src/create-services";
 import { GenerationContextLoader } from "../../src/review/generation/context-loader";
+import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { probeEvidence } from "../framework/evidence-probe";
 import { serializeGenerationReviewInput } from "../generation-review/generation-review-input";
 import { resolveSnapshotCoords } from "./snapshot-coords";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Where generation review cases live - the same folder the eval suite loads from. */
-const CASES_DIR = path.resolve(__dirname, "..", "generation-review", "cases");
 
 export interface CaptureGenerationReviewParams {
     generationId: string;
@@ -41,7 +36,7 @@ export async function captureGenerationReview(params: CaptureGenerationReviewPar
     const logger = rootLogger.child({ name: "captureGenerationReview" });
     const { generationId } = params;
     const name = params.name ?? generationId;
-    const caseDir = path.join(CASES_DIR, name);
+    const caseDir = path.join(requireCasesDir("generation-review"), name);
 
     logger.info("Capturing generation review case", { extra: { generationId, name, caseDir } });
 

@@ -12,14 +12,61 @@ No media bytes are ever committed.
 
 Each step lives in its own subdirectory (`<step>/`) with the same four files
 (`<step>-input.ts` schema, `<step>-frontmatter.ts` deterministic checks,
-`<step>-evaluation.ts` Evaluation subclass, `<step>.eval.ts` vitest entry) plus a
-`cases/<name>/` folder per case. Step-agnostic primitives live in `framework/`;
-each step also has a `capture-<step>.ts` library and a `capture-<step>-cli.ts`
-entry under `capture/`, both wired through the package's `capture:<step>` scripts.
+`<step>-evaluation.ts` Evaluation subclass, `<step>.eval.ts` vitest entry).
+Step-agnostic primitives live in `framework/`; each step also has a
+`capture-<step>.ts` library and a `capture-<step>-cli.ts` entry under `capture/`,
+both wired through the package's `capture:<step>` scripts.
+
+## Where the cases live (private corpus)
+
+The eval **harness** (this directory) is open source. The eval **cases** are
+not: a captured case carries client data - test-plan prompts, plan/scenario
+content (including fixtures that may hold seeded credentials), client repo
+owner/name, S3 keys, and model conversations. So the corpus lives in a separate
+**private** repo (`autonoma/eval-cases`) and is **never committed here**. The
+`**/cases/` paths are gitignored as a safety net.
+
+The harness reads the corpus from a configurable, optional root,
+`DIFFS_EVAL_CASES_DIR`, validated in `evals/framework/env.ts`. The private repo
+mirrors the public `evals/<step>/cases` layout - `DIFFS_EVAL_CASES_DIR` simply
+stands in for the `evals/` prefix - so each step resolves its cases to
+`${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`.
+
+```
+some-parent/
+├── <this-repo>/apps/workers/diffs/evals/   # harness (public)
+└── eval-cases/                              # corpus (private), DIFFS_EVAL_CASES_DIR
+    ├── analysis/cases/<name>/
+    ├── resolution/cases/<name>/
+    ├── generation-review/cases/<name>/
+    ├── replay-review/cases/<name>/
+    └── healing/cases/<name>/
+```
+
+**Local setup:** clone the private repo alongside this one and point the env var
+at it:
+
+```bash
+git clone git@github.com:autonoma/eval-cases.git
+export DIFFS_EVAL_CASES_DIR="$(pwd)/eval-cases"
+```
+
+- **Unset / missing directory:** every suite resolves **zero cases and no-ops**
+  (it does not fail), so public CI and external contributors are never broken.
+  Public CI never sets the var.
+- **Set:** cases load from `${DIFFS_EVAL_CASES_DIR}/<step>/cases`.
+- Capture commands **write into the same root** and **error with a clear
+  message** when it is unset (capture genuinely needs somewhere to write).
+
+A case may carry an optional `schemaVersion` in its frontmatter; the loader
+**warns** (never fails) when it differs from `CASE_SCHEMA_VERSION` in
+`framework/frontmatter.ts`, surfacing corpus-vs-harness drift without coupling
+the two repos.
 
 ## The eval-case contract
 
-Each case is a folder under `<step>/cases/<name>/`:
+Each case is a folder under `${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/` (see
+[Where the cases live](#where-the-cases-live-private-corpus)):
 
 - **`input.json`** - the **frozen, assembled `XxxAgentInput`**, snapshotted at capture time so
   eval runs need no database. The codebase is stored as coordinates
@@ -134,12 +181,15 @@ capture time via `sanitizeConversation` so the fixture stays text-only.
 
 ## Running the evals
 
-Evals are gated behind `RUN_EVALS` and need real model credentials
+Evals are gated behind `RUN_EVALS` and need `DIFFS_EVAL_CASES_DIR` pointed at the
+private corpus (see [Where the cases live](#where-the-cases-live-private-corpus)) - with it
+unset the suites collect, resolve **zero cases, and pass**. They also need real model credentials
 (`GEMINI_API_KEY`, `GROQ_KEY`, `OPENROUTER_API_KEY`) plus `git` and `rg` on PATH. Private-repo
 cases also need the `GITHUB_APP_*` credentials to mint a clone token; public-repo cases and cases
 whose commits are already in the repo cache run without them.
 
 ```bash
+export DIFFS_EVAL_CASES_DIR=/path/to/eval-cases
 pnpm --filter @autonoma/worker-diffs eval
 ```
 
@@ -157,6 +207,11 @@ snapshot's (or iteration's) git coordinates, **validate both SHAs are fetchable*
 to disk. The reviewer captures additionally **probe every referenced S3 key** with the
 production evidence loader so a media-rotated fixture is never written. All capture
 commands read the DB; eval runs never touch it.
+
+Capture **writes into the private corpus** at
+`${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`, so `DIFFS_EVAL_CASES_DIR` must be
+set - the commands error with a clear message otherwise. After capturing, commit
+the new case in the private `eval-cases` repo, never here.
 
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis           <snapshotId>   [--name <case-name>] [--force]

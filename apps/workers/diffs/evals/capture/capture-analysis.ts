@@ -1,18 +1,13 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { logger as rootLogger } from "@autonoma/logger";
 import { assembleDiffsAgentInput } from "../../src/analysis/assemble-input";
 import { createGithubApp } from "../../src/create-services";
 import { serializeAnalysisInput } from "../analysis/analysis-input";
+import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { resolveSnapshotCoords } from "./snapshot-coords";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Where Analysis cases live - the same folder the eval suite loads from. */
-const CASES_DIR = path.resolve(__dirname, "..", "analysis", "cases");
 
 export interface CaptureAnalysisParams {
     snapshotId: string;
@@ -40,7 +35,7 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     const logger = rootLogger.child({ name: "captureAnalysis" });
     const { snapshotId } = params;
     const name = params.name ?? snapshotId;
-    const caseDir = path.join(CASES_DIR, name);
+    const caseDir = path.join(requireCasesDir("analysis"), name);
 
     logger.info("Capturing analysis case", { extra: { snapshotId, name, caseDir } });
 

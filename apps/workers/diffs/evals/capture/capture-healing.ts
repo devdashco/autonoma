@@ -1,19 +1,14 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { bucketIterationOutcomes } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { createGithubApp } from "../../src/create-services";
 import { assembleHealingInput } from "../../src/refinement/assemble-healing-input";
+import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { serializeHealingInput } from "../healing/healing-input";
 import { resolveSnapshotCoords } from "./snapshot-coords";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-/** Where Healing cases live - the same folder the eval suite loads from. */
-const CASES_DIR = path.resolve(__dirname, "..", "healing", "cases");
 
 export interface CaptureHealingParams {
     iterationId: string;
@@ -38,7 +33,7 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     const logger = rootLogger.child({ name: "captureHealing" });
     const { iterationId } = params;
     const name = params.name ?? iterationId;
-    const caseDir = path.join(CASES_DIR, name);
+    const caseDir = path.join(requireCasesDir("healing"), name);
 
     logger.info("Capturing healing case", { extra: { iterationId, name, caseDir } });
 
