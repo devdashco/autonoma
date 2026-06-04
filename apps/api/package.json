@@ -35,7 +35,7 @@
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@aws-sdk/client-secrets-manager": "^3.1045.0",
-        "@better-auth/api-key": "^1.6.5",
+        "@better-auth/api-key": "catalog:",
         "@better-auth/redis-storage": "^1.5.3",
         "@hono/node-server": "^1.19.14",
         "@octokit/app": "^16.1.2",
