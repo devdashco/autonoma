@@ -1,14 +1,8 @@
-import { type PrismaClient, db } from "@autonoma/db";
+import { db } from "@autonoma/db";
 import {
     type Codebase,
     HealingAgent,
-    type FailureRecord,
-    type FlowSummary,
     type HealingAction,
-    type HealingReviewLink,
-    type PlanAuthoringInput,
-    ScenarioIndex,
-    healingActionSchema,
     openModelSession,
     summarizeSessionCost,
 } from "@autonoma/diffs";
@@ -20,15 +14,16 @@ import type {
     RunHealingAgentForRefinementInput,
     RunHealingAgentForRefinementOutput,
 } from "@autonoma/workflow/activities";
+import { assembleHealingInput } from "./assemble-healing-input";
 import { uploadHealingConversation } from "./upload-conversation";
 
 /**
  * Orchestrates a single refinement-mode HealingAgent run inside a codebase
- * already acquired by the activity. Opens a model session, loads prior actions
- * / plan-authoring input / failure records, runs the agent, persists each
- * emitted action as a RefinementAction row, uploads the conversation, and logs
- * aggregated cost. Returns the persisted rows so the workflow can dispatch
- * apply* activities.
+ * already acquired by the activity. Opens a model session, assembles the agent
+ * input via the shared {@link assembleHealingInput} loader (which also powers
+ * eval capture), runs the agent, persists each emitted action as a
+ * RefinementAction row, uploads the conversation, and logs aggregated cost.
+ * Returns the persisted rows so the workflow can dispatch apply* activities.
  */
 export async function runRefinementHealing(
     input: RunHealingAgentForRefinementInput,
@@ -42,36 +37,31 @@ export async function runRefinementHealing(
         },
     });
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
+    // Defense-in-depth: throws SnapshotNotPendingError if the snapshot has been
+    // finalized / cancelled between activity scheduling and execution, or if
+    // input.organizationId doesn't own it. Without this guard a replayed or
+    // mis-routed activity could persist RefinementAction rows + a conversation
+    // URL onto a terminal iteration context. Returned updater is discarded -
+    // assembleHealingInput is the source of truth for the agent input.
+    await TestSuiteUpdater.continueUpdateBySnapshot({
         db,
         snapshotId: input.snapshotId,
         organizationId: input.organizationId,
     });
 
-    const priorActions = await loadPriorActions(input.iterationId);
-    const failures = collectFailureRecords(input);
-    const reportableReviewLinks = computeReportableReviewLinks(input);
-    const planAuthoring = await loadPlanAuthoringInput({
-        db,
-        applicationId: updater.applicationId,
+    const { agentInput } = await assembleHealingInput({
+        iterationId: input.iterationId,
+        iterationNumber: input.iteration,
         snapshotId: input.snapshotId,
+        failuresAtGeneration: input.failuresAtGeneration,
+        failuresAtReplay: input.failuresAtReplay,
     });
 
     const session = openModelSession();
     const model = session.getModel({ model: "smart-visual", tag: "healing-refinement" });
 
     const agent = new HealingAgent({ model });
-    const { result, conversation } = await agent.run({
-        iteration: input.iteration,
-        priorActions,
-        failures,
-        reportableReviewLinks,
-        codebase,
-        planAuthoring,
-        snapshotId: input.snapshotId,
-        applicationId: updater.applicationId,
-        organizationId: input.organizationId,
-    });
+    const { result, conversation } = await agent.run({ ...agentInput, codebase });
 
     const persisted = await persistActions(input.iterationId, result.actions);
 
@@ -93,74 +83,6 @@ export async function runRefinementHealing(
     logger.info("Refinement healing run finished", { extra: { actionCount: persisted.length } });
 
     return { persistedActions: persisted, reasoning: result.reasoning };
-}
-
-async function loadPriorActions(currentIterationId: string): Promise<HealingAction[]> {
-    const current = await db.refinementIteration.findUniqueOrThrow({
-        where: { id: currentIterationId },
-        select: { loopId: true, number: true },
-    });
-
-    const priorRows = await db.refinementAction.findMany({
-        where: { iteration: { loopId: current.loopId, number: { lt: current.number } } },
-        select: { kind: true, payload: true },
-        orderBy: { createdAt: "asc" },
-    });
-
-    return priorRows.map((row) => healingActionSchema.parse({ kind: row.kind, ...(row.payload as object) }));
-}
-
-/**
- * Map each reportable testCaseId to the source review its report action links
- * evidence to. A generation failure links to its generation review, a replay
- * failure to its run review; when a test case failed at both stages the
- * generation review wins.
- */
-function computeReportableReviewLinks(input: RunHealingAgentForRefinementInput): Map<string, HealingReviewLink> {
-    const reviewLinks = new Map<string, HealingReviewLink>();
-    for (const f of input.failuresAtGeneration) {
-        if (f.generationReviewId != null && !reviewLinks.has(f.testCaseId)) {
-            reviewLinks.set(f.testCaseId, { generationReviewId: f.generationReviewId });
-        }
-    }
-    for (const f of input.failuresAtReplay) {
-        if (f.runReviewId != null && !reviewLinks.has(f.testCaseId)) {
-            reviewLinks.set(f.testCaseId, { runReviewId: f.runReviewId });
-        }
-    }
-    return reviewLinks;
-}
-
-function collectFailureRecords(input: RunHealingAgentForRefinementInput): FailureRecord[] {
-    const fromGen: FailureRecord[] = input.failuresAtGeneration.map((f) => ({
-        key: f.failureKey,
-        source: "generation" as const,
-        testCaseId: f.testCaseId,
-        testCaseSlug: f.testCaseSlug,
-        testCaseName: f.testCaseName,
-        planId: f.planId,
-        planPrompt: f.planPrompt,
-        verdict: f.verdict,
-        verdictKind: f.verdictKind,
-        sourceId: f.sourceId,
-        sourceStatus: f.sourceStatus,
-        reviewReasoning: f.reviewReasoning,
-    }));
-    const fromRun: FailureRecord[] = input.failuresAtReplay.map((f) => ({
-        key: f.failureKey,
-        source: "replay" as const,
-        testCaseId: f.testCaseId,
-        testCaseSlug: f.testCaseSlug,
-        testCaseName: f.testCaseName,
-        planId: f.planId,
-        planPrompt: f.planPrompt,
-        verdict: f.verdict,
-        verdictKind: f.verdictKind,
-        sourceId: f.sourceId,
-        sourceStatus: f.sourceStatus,
-        reviewReasoning: f.reviewReasoning,
-    }));
-    return [...fromGen, ...fromRun];
 }
 
 async function persistActions(iterationId: string, actions: HealingAction[]): Promise<PersistedHealingAction[]> {
@@ -196,92 +118,4 @@ function actionReasoning(a: HealingAction): string {
 function actionPayload(a: HealingAction): Record<string, unknown> {
     const { kind: _kind, ...rest } = a;
     return rest as unknown as Record<string, unknown>;
-}
-
-async function loadPlanAuthoringInput({
-    db,
-    applicationId,
-    snapshotId,
-}: {
-    db: PrismaClient;
-    applicationId: string;
-    snapshotId: string;
-}): Promise<PlanAuthoringInput> {
-    const [scenarios, flows, application] = await Promise.all([
-        loadScenarioIndex(db, applicationId),
-        loadFlowSummaries(db, applicationId, snapshotId),
-        db.application.findUniqueOrThrow({
-            where: { id: applicationId },
-            select: { testScopeGuidelines: true },
-        }),
-    ]);
-    return {
-        scenarios,
-        flows,
-        testScopeGuidelines: application.testScopeGuidelines ?? undefined,
-    };
-}
-
-async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
-    const scenarios = await db.scenario.findMany({
-        where: { applicationId, isDisabled: false },
-        select: {
-            id: true,
-            name: true,
-            description: true,
-            activeRecipeVersion: {
-                select: { fingerprint: true, fixtureJson: true, validationStatus: true },
-            },
-            instances: {
-                where: { status: "UP_SUCCESS" },
-                orderBy: { upAt: "desc" },
-                take: 3,
-                select: { metadata: true },
-            },
-        },
-    });
-
-    const details = scenarios.map((s) => {
-        const sample = s.instances.find((i) => i.metadata != null);
-        return {
-            id: s.id,
-            name: s.name,
-            description: s.description ?? undefined,
-            activeRecipe:
-                s.activeRecipeVersion != null
-                    ? {
-                          fingerprint: s.activeRecipeVersion.fingerprint,
-                          fixtureJson: s.activeRecipeVersion.fixtureJson,
-                          validationStatus: s.activeRecipeVersion.validationStatus,
-                      }
-                    : undefined,
-            sampleMetadata: sample?.metadata ?? undefined,
-        };
-    });
-
-    return new ScenarioIndex(details);
-}
-
-async function loadFlowSummaries(db: PrismaClient, applicationId: string, snapshotId: string): Promise<FlowSummary[]> {
-    const folders = await db.folder.findMany({
-        where: { applicationId },
-        select: { id: true, name: true, description: true },
-    });
-
-    const assignments = await db.testCaseAssignment.findMany({
-        where: { snapshotId },
-        select: { testCase: { select: { folderId: true } } },
-    });
-
-    const counts = new Map<string, number>();
-    for (const a of assignments) {
-        counts.set(a.testCase.folderId, (counts.get(a.testCase.folderId) ?? 0) + 1);
-    }
-
-    return folders.map((f) => ({
-        id: f.id,
-        name: f.name,
-        description: f.description ?? undefined,
-        testCount: counts.get(f.id) ?? 0,
-    }));
 }

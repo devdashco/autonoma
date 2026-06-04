@@ -1,0 +1,306 @@
+{
+    "codebase": {
+        "owner": "Autonoma-Labs",
+        "repo": "v0-kanban-board-creation-2",
+        "installationId": 136418389,
+        "baseSha": "87bce86fe113d45086b8f4bf9b40a9505ce3ecb9",
+        "headSha": "92c399312a234891b4603269bcebc6d8801b8b6f"
+    },
+    "iteration": 1,
+    "snapshotId": "cmpx15r7t00bm01b76s2l5tyd",
+    "applicationId": "cmod0u9uo01x401c17sbuj9u9",
+    "organizationId": "cmmkw3zp00000019gzl1x04ql",
+    "priorActions": [],
+    "failures": [],
+    "reportableReviewLinks": [],
+    "planAuthoring": {
+        "scenarios": [
+            {
+                "id": "cmod38rfa02e501c1evz87b5f",
+                "name": "standard",
+                "description": "Realistic Kanban board with tasks across all statuses and priorities for core workflow testing",
+                "activeRecipe": {
+                    "fingerprint": "c9a6408b31729ec6cc1ad0f2341b036808cbf255c8b151f52f4253b61675451a",
+                    "fixtureJson": {
+                        "name": "standard",
+                        "create": {
+                            "User": [
+                                {
+                                    "todos": [
+                                        {
+                                            "title": "Design landing page",
+                                            "status": "todo",
+                                            "assignee": "Alice",
+                                            "priority": "high",
+                                            "description": "Create mockups for the new landing page"
+                                        },
+                                        {
+                                            "title": "Write unit tests",
+                                            "status": "todo",
+                                            "assignee": "Bob",
+                                            "priority": "medium",
+                                            "description": "Add test coverage for auth module"
+                                        },
+                                        {
+                                            "title": "Set up CI pipeline",
+                                            "status": "todo",
+                                            "assignee": "Bob",
+                                            "priority": "high",
+                                            "description": "Configure GitHub Actions for automated tests"
+                                        },
+                                        {
+                                            "title": "Fix login bug",
+                                            "status": "in-progress",
+                                            "assignee": "Alice",
+                                            "priority": "high",
+                                            "description": "Session cookie not persisting on Safari"
+                                        },
+                                        {
+                                            "title": "Update dependencies",
+                                            "status": "in-progress",
+                                            "assignee": "Charlie",
+                                            "priority": "low",
+                                            "description": "Bump Next.js and Drizzle to latest"
+                                        },
+                                        {
+                                            "title": "Database migration",
+                                            "status": "in-progress",
+                                            "assignee": "Alice",
+                                            "priority": "medium",
+                                            "description": "Add index on todos.user_id column"
+                                        },
+                                        {
+                                            "title": "Deploy staging build",
+                                            "status": "done",
+                                            "assignee": "Alice",
+                                            "priority": "medium",
+                                            "description": "Push current branch to staging environment"
+                                        },
+                                        {
+                                            "title": "Review PR #42",
+                                            "status": "done",
+                                            "assignee": "Bob",
+                                            "priority": "low",
+                                            "description": "Code review for the dashboard refactor"
+                                        }
+                                    ],
+                                    "_alias": "alice",
+                                    "username": "{{username_alice}}"
+                                }
+                            ]
+                        },
+                        "variables": {
+                            "username_alice": {
+                                "format": "alice-{testRunId}",
+                                "source": "testRunId",
+                                "strategy": "derived"
+                            }
+                        },
+                        "validation": {
+                            "phase": "ok",
+                            "up_ms": 45,
+                            "method": "endpoint-up-down",
+                            "status": "validated",
+                            "down_ms": 15
+                        },
+                        "description": "Realistic Kanban board with tasks across all statuses and priorities for core workflow testing"
+                    },
+                    "validationStatus": "validated"
+                }
+            },
+            {
+                "id": "cmod38rfh02e701c1s7k2ltc6",
+                "name": "empty",
+                "description": "Single authenticated user with no tasks for empty state and onboarding testing",
+                "activeRecipe": {
+                    "fingerprint": "c5e99366824f478d20fbdef6ea9ae6068576adb754b9eb27905c639bb2d8e336",
+                    "fixtureJson": {
+                        "name": "empty",
+                        "create": {
+                            "User": [
+                                {
+                                    "_alias": "emptyuser",
+                                    "username": "{{username_empty}}"
+                                }
+                            ]
+                        },
+                        "variables": {
+                            "username_empty": {
+                                "format": "emptyuser-{testRunId}",
+                                "source": "testRunId",
+                                "strategy": "derived"
+                            }
+                        },
+                        "validation": {
+                            "phase": "ok",
+                            "up_ms": 12,
+                            "method": "endpoint-up-down",
+                            "status": "validated",
+                            "down_ms": 8
+                        },
+                        "description": "Single authenticated user with no tasks for empty state and onboarding testing"
+                    },
+                    "validationStatus": "validated"
+                }
+            },
+            {
+                "id": "cmod38rfl02e901c15az9j9m3",
+                "name": "large",
+                "description": "Moderately loaded board with 12 tasks to verify column rendering with more content",
+                "activeRecipe": {
+                    "fingerprint": "61559355f19bf2fff2bcd96a75446d2c71680ace928baaccc2122c83394749e7",
+                    "fixtureJson": {
+                        "name": "large",
+                        "create": {
+                            "User": [
+                                {
+                                    "todos": [
+                                        {
+                                            "title": "Task 1",
+                                            "status": "todo",
+                                            "assignee": "Alice",
+                                            "priority": "low",
+                                            "description": "Description for task 1"
+                                        },
+                                        {
+                                            "title": "Task 2",
+                                            "status": "todo",
+                                            "assignee": "Bob",
+                                            "priority": "medium",
+                                            "description": "Description for task 2"
+                                        },
+                                        {
+                                            "title": "Task 3",
+                                            "status": "todo",
+                                            "assignee": "Charlie",
+                                            "priority": "high",
+                                            "description": "Description for task 3"
+                                        },
+                                        {
+                                            "title": "Task 4",
+                                            "status": "todo",
+                                            "assignee": "Dana",
+                                            "priority": "low",
+                                            "description": "Description for task 4"
+                                        },
+                                        {
+                                            "title": "Task 5",
+                                            "status": "in-progress",
+                                            "assignee": "Alice",
+                                            "priority": "medium",
+                                            "description": "Description for task 5"
+                                        },
+                                        {
+                                            "title": "Task 6",
+                                            "status": "in-progress",
+                                            "assignee": "Bob",
+                                            "priority": "high",
+                                            "description": "Description for task 6"
+                                        },
+                                        {
+                                            "title": "Task 7",
+                                            "status": "in-progress",
+                                            "assignee": "Charlie",
+                                            "priority": "low",
+                                            "description": "Description for task 7"
+                                        },
+                                        {
+                                            "title": "Task 8",
+                                            "status": "in-progress",
+                                            "assignee": "Dana",
+                                            "priority": "medium",
+                                            "description": "Description for task 8"
+                                        },
+                                        {
+                                            "title": "Task 9",
+                                            "status": "done",
+                                            "assignee": "Alice",
+                                            "priority": "high",
+                                            "description": "Description for task 9"
+                                        },
+                                        {
+                                            "title": "Task 10",
+                                            "status": "done",
+                                            "assignee": "Bob",
+                                            "priority": "low",
+                                            "description": "Description for task 10"
+                                        },
+                                        {
+                                            "title": "Task 11",
+                                            "status": "done",
+                                            "assignee": "Charlie",
+                                            "priority": "medium",
+                                            "description": "Description for task 11"
+                                        },
+                                        {
+                                            "title": "Task 12",
+                                            "status": "done",
+                                            "assignee": "Dana",
+                                            "priority": "high",
+                                            "description": "Description for task 12"
+                                        }
+                                    ],
+                                    "_alias": "largeuser",
+                                    "username": "{{username_large}}"
+                                }
+                            ]
+                        },
+                        "variables": {
+                            "username_large": {
+                                "format": "largeuser-{testRunId}",
+                                "source": "testRunId",
+                                "strategy": "derived"
+                            }
+                        },
+                        "validation": {
+                            "phase": "ok",
+                            "up_ms": 85,
+                            "method": "endpoint-up-down",
+                            "status": "validated",
+                            "down_ms": 20
+                        },
+                        "description": "Moderately loaded board with 12 tasks to verify column rendering with more content"
+                    },
+                    "validationStatus": "validated"
+                }
+            }
+        ],
+        "flows": [
+            {
+                "id": "cmod3m8tr02gb01c1bfmue5ka",
+                "name": "move-task",
+                "testCount": 2
+            },
+            {
+                "id": "cmod3m8v802gk01c1xh48e46i",
+                "name": "delete-task",
+                "testCount": 2
+            },
+            {
+                "id": "cmod3m8w702gt01c1lq0e5jqa",
+                "name": "logout",
+                "testCount": 2
+            },
+            {
+                "id": "cmod3m8x502h201c171y3x3f8",
+                "name": "journey",
+                "testCount": 1
+            },
+            {
+                "id": "cmod3m8xq02h701c1apmybo1n",
+                "name": "create-task",
+                "testCount": 3
+            },
+            {
+                "id": "cmod3m8z902hk01c1pecuuqqp",
+                "name": "kanban-board",
+                "testCount": 3
+            },
+            {
+                "id": "cmod3m90902ht01c1kog4jqyk",
+                "name": "login",
+                "testCount": 2
+            }
+        ]
+    }
+}

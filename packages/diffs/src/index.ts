@@ -123,6 +123,7 @@ export {
 } from "./codebase";
 
 export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
+export { bucketIterationOutcomes, type BucketedIterationOutcomes } from "./refinement/bucket-iteration-outcomes";
 export {
     healingActionSchema,
     type HealingAction,

@@ -4,62 +4,27 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Four steps are currently under eval: **Diff Analysis**, **Diff Resolution**,
-**Generation Review**, and **Replay Review**. The reviewer evals additionally
-exercise the **multimedia rehydration path** - they download screenshots + the
-recording from S3 at run time via the production evidence loader. No media
-bytes are ever committed.
+Five steps are currently under eval: **Diff Analysis**, **Diff Resolution**,
+**Generation Review**, **Replay Review**, and **Diff Healing**. The reviewer evals
+additionally exercise the **multimedia rehydration path** - they download
+screenshots + the recording from S3 at run time via the production evidence loader.
+No media bytes are ever committed.
 
-```
-evals/
-├── framework/                  # step-agnostic machinery
-│   ├── codebase-cache.ts       #   ensureCachedCheckout: rehydrate a Codebase from git coords
-│   ├── case-loader.ts          #   load input.json + expected.md per case folder
-│   ├── frontmatter.ts          #   shared deterministic-check primitives (sets, counts, bands, enum-equality)
-│   ├── evidence-probe.ts       #   probeEvidence: assert S3 keys are still downloadable
-│   └── judge.ts                #   output-only LLM judge with its own CostCollector
-├── analysis/                   # the Diff Analysis step
-│   ├── analysis-input.ts       # frozen-input schema (codebase coords + flow array)
-│   ├── analysis-frontmatter.ts # affected.* / candidates.* checks
-│   ├── analysis-evaluation.ts  # the Evaluation subclass
-│   ├── analysis.eval.ts        # vitest entry (gated by RUN_EVALS)
-│   └── cases/<name>/           # one folder per case: input.json + expected.md
-├── resolution/                 # the Diff Resolution step
-│   ├── resolution-input.ts          # frozen-input schema (coords + flow + scenario arrays + verdicts + candidates)
-│   ├── resolution-frontmatter.ts    # modified / removed / newTests / reportedBugs / acceptsCandidate checks
-│   ├── resolution-evaluation.ts     # the Evaluation subclass
-│   ├── resolution.eval.ts           # vitest entry (gated by RUN_EVALS)
-│   └── cases/<name>/                # one folder per case
-├── generation-review/          # the Generation Reviewer step
-│   ├── generation-review-input.ts        # frozen-input schema (codebase coords + GenerationContext, media as S3 keys)
-│   ├── generation-review-frontmatter.ts  # verdict enum check
-│   ├── generation-review-evaluation.ts   # the Evaluation subclass
-│   ├── generation-review.eval.ts         # vitest entry (gated by RUN_EVALS)
-│   └── cases/<name>/                     # one folder per case
-├── replay-review/              # the Replay Reviewer step (mirrors generation-review)
-│   ├── replay-review-input.ts
-│   ├── replay-review-frontmatter.ts
-│   ├── replay-review-evaluation.ts
-│   ├── replay-review.eval.ts
-│   └── cases/<name>/
-└── capture/                    # DB -> fixture capture (per step)
-    ├── snapshot-coords.ts             # shared snapshotId -> CodebaseCoords resolver
-    ├── capture-analysis.ts            # captureAnalysis(params)
-    ├── capture-analysis-cli.ts        # `capture:analysis <snapshotId>`
-    ├── capture-resolution.ts          # captureResolution(params)
-    ├── capture-resolution-cli.ts      # `capture:resolution <snapshotId>`
-    ├── capture-generation-review.ts   # `capture:generation-review <generationId>`
-    └── capture-replay-review.ts       # `capture:replay-review <runId>`
-```
+Each step lives in its own subdirectory (`<step>/`) with the same four files
+(`<step>-input.ts` schema, `<step>-frontmatter.ts` deterministic checks,
+`<step>-evaluation.ts` Evaluation subclass, `<step>.eval.ts` vitest entry) plus a
+`cases/<name>/` folder per case. Step-agnostic primitives live in `framework/`;
+each step also has a `capture-<step>.ts` library and a `capture-<step>-cli.ts`
+entry under `capture/`, both wired through the package's `capture:<step>` scripts.
 
 ## The eval-case contract
 
-Each case is a folder under `analysis/cases/<name>/`:
+Each case is a folder under `<step>/cases/<name>/`:
 
-- **`input.json`** - the **frozen, assembled `DiffsAgentInput`**, snapshotted at capture time so
+- **`input.json`** - the **frozen, assembled `XxxAgentInput`**, snapshotted at capture time so
   eval runs need no database. The codebase is stored as coordinates
-  `{ owner, repo, installationId, baseSha, headSha }`; the `FlowIndex` is stored as its underlying
-  array and reconstructed at load.
+  `{ owner, repo, installationId, baseSha, headSha }`; the `FlowIndex` / `ScenarioIndex` are
+  stored as their underlying arrays and reconstructed at load.
 - **`expected.md`** - YAML frontmatter holds the **deterministic checks**; the body holds the
   **LLM-judge rubric**. A case passes iff **all frontmatter checks pass AND the judge passes**.
 
@@ -132,6 +97,29 @@ the deterministic verdict check cannot: does the reasoning cite the actual failu
 point, no hallucinated steps, correct engine-vs-app attribution?
 ```
 
+### Healing frontmatter
+
+```yaml
+---
+description: "what this case exercises"
+skip: false
+expectedActions:               # one entry per failing test case in input.json
+  tc-abc: update_plan          # the kind the agent must emit for this test case
+  tc-def: report_bug
+  tc-ghi: remove_test
+---
+
+Free-text judge rubric. Grade qualities the deterministic check cannot:
+  - For each update_plan: does the newPrompt actually address the cited failure?
+  - For each report_bug / report_engine_limitation: is the triage correct?
+  - For each remove_test: is the cited reason plausible given the failure context?
+```
+
+Healing's runtime invariant is that every input failure is handled by exactly one
+action (the agent loop throws otherwise). The eval mirrors that: the `expectedActions`
+keyset must equal the set of `failures[].testCaseId` in `input.json`. A partial or
+mismatched map throws at load time rather than at run time.
+
 ### Multimedia rehydration
 
 The reviewer evals download every step screenshot + the run video from S3 at
@@ -165,17 +153,18 @@ pnpm --filter @autonoma/worker-diffs eval
 ## Capturing a case
 
 Each per-step eval has its own capture command. They all resolve the relevant
-snapshot's git coordinates, **validate both SHAs are fetchable** (refusing to write a
-case with a dead SHA), and freeze the production loader's output to disk. The
-reviewer captures additionally **probe every referenced S3 key** with the production
-evidence loader so a media-rotated fixture is never written. All capture commands
-read the DB; eval runs never touch it.
+snapshot's (or iteration's) git coordinates, **validate both SHAs are fetchable**
+(refusing to write a case with a dead SHA), and freeze the production loader's output
+to disk. The reviewer captures additionally **probe every referenced S3 key** with the
+production evidence loader so a media-rotated fixture is never written. All capture
+commands read the DB; eval runs never touch it.
 
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis           <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:resolution         <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:generation-review  <generationId> [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:replay-review      <runId>        [--name <case-name>] [--force]
+pnpm --filter @autonoma/worker-diffs capture:healing            <iterationId>  [--name <case-name>] [--force]
 ```
 
 (Replay review is failure-only - it refuses runs whose status is not `"failed"`,
@@ -199,6 +188,13 @@ silently drop the verdicts that resolution itself quarantined via `reportBug`.
 candidates regardless of status so capture recovers the same input shape the agent saw - the
 candidate `id`/`name`/`instruction`/`reasoning` fields are immutable.
 
+**Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
+`bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
+time). Those reads only touch rows that the rest of the pipeline never mutates by id
+(`TestGeneration`, `Run`, their reviews; `update_plan` creates a *new* `TestPlan` rather than
+mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
+filtered out). The bucketing reproduces exactly.
+
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
 schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -
@@ -215,14 +211,17 @@ and what production saw:
   name may not match what the run originally executed. Doesn't influence the verdict; just a
   display string.
 
-**Live application-level reads (Analysis + Resolution).** A few fields are not snapshot-scoped
-and are read live from the application at capture time:
+**Live application-level reads (Analysis + Resolution + Healing).** A few fields are not
+snapshot-scoped and are read live from the application at capture time:
 
-- `testScopeGuidelines` (both steps) - free-text guidelines on the `Application` row. If the owner
-  edits them between capture and eval run, the captured value will diverge from what production
-  saw at the time.
-- `scenarioIndex` (resolution only) - the application's enabled scenarios. Scenarios are
+- `testScopeGuidelines` (all three steps) - free-text guidelines on the `Application` row. If the
+  owner edits them between capture and eval run, the captured value will diverge from what
+  production saw at the time.
+- `scenarioIndex` (resolution + healing) - the application's enabled scenarios. Scenarios are
   referenced by id, so if one is deleted between capture and eval run the frozen ids become stale.
+- `folder list + names/descriptions` (analysis + healing, via `loadFlows` / the healing
+  `planAuthoring` block) - the per-folder *test slugs* are snapshot-scoped, but the folder
+  metadata itself is read live. Folders cannot currently be product-edited, so this rarely drifts.
 
 A capture against a freshly-finished snapshot is always faithful; an older snapshot may pick up
 these drifts. Treat them the same way you treat flow / test ids in analysis cases: stable enough

@@ -1301,6 +1301,9 @@ importers:
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
+      '@autonoma/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@5.9.3)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)

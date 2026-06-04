@@ -11,8 +11,9 @@ import type { CodebaseCoords } from "../framework/codebase-cache";
  * refuses to write a case it cannot rehydrate later.
  *
  * Shared by every `capture:*` command (analysis, resolution, generation
- * review, replay review) so every frozen input agrees on how a snapshot
- * maps to a clone.
+ * review, replay review, healing) so every frozen input agrees on how a
+ * snapshot maps to a clone. Healing capture derives the snapshotId from the
+ * iteration first; the other commands pass it directly.
  */
 export async function resolveSnapshotCoords(snapshotId: string, githubApp: GitHubApp): Promise<CodebaseCoords> {
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({

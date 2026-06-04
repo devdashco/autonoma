@@ -30,6 +30,7 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
+        "@autonoma/workflow": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "glob": "^11.1.0",
