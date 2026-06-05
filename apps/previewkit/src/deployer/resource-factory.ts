@@ -2,12 +2,6 @@ import { createHmac } from "node:crypto";
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
 
-export interface GatewayRef {
-    name: string;
-    namespace: string;
-    listener: string;
-}
-
 interface AppResourceOptions {
     app: AppConfig;
     namespace: string;
@@ -24,7 +18,7 @@ interface AppRouteOptions {
     repoFullName: string;
     domain: string;
     secret: string;
-    gateway: GatewayRef;
+    ingressClassName: string;
 }
 
 const BASE_LABELS = {
@@ -36,16 +30,6 @@ export const NGINX_SERVICE_PORT = 80;
 export const NGINX_CONTAINER_PORT = 80;
 export const NGINX_CONFIGMAP_NAME = "previewkit-nginx-config";
 export const NGINX_HEALTH_PATH = "/nginx-health";
-
-export const HTTP_ROUTE_GROUP = "gateway.networking.k8s.io";
-export const HTTP_ROUTE_VERSION = "v1";
-export const HTTP_ROUTE_PLURAL = "httproutes";
-export const HTTP_ROUTE_API_VERSION = `${HTTP_ROUTE_GROUP}/${HTTP_ROUTE_VERSION}`;
-
-export const TARGET_GROUP_CONFIG_GROUP = "gateway.k8s.aws";
-export const TARGET_GROUP_CONFIG_VERSION = "v1beta1";
-export const TARGET_GROUP_CONFIG_PLURAL = "targetgroupconfigurations";
-export const TARGET_GROUP_CONFIG_API_VERSION = `${TARGET_GROUP_CONFIG_GROUP}/${TARGET_GROUP_CONFIG_VERSION}`;
 
 export function buildAppHostname(
     appName: string,
@@ -160,73 +144,51 @@ export function buildAppService(opts: AppResourceOptions): k8s.V1Service {
     };
 }
 
-export function buildAppHttpRoute(opts: AppRouteOptions): HttpRoute {
-    const { app, namespace, prNumber, repoFullName, domain, secret, gateway } = opts;
+/**
+ * Per-preview routing is a plain Ingress consumed by the shared in-cluster
+ * ingress-nginx — NOT a Gateway HTTPRoute. The ALB Gateway forwards all of
+ * `*.preview.autonoma.app` to ingress-nginx through one static HTTPRoute, and
+ * ingress-nginx fans out by Host header. This keeps the ALB at a fixed 1 rule +
+ * 1 target group no matter how many previews exist, sidestepping the per-ALB
+ * 100-rule / 100-target-group quotas that one-route-per-preview would hit.
+ *
+ * The Ingress targets this namespace's `previewkit-nginx` Service (which still
+ * does preview-auth gating); TLS terminates upstream at the ALB, so the Ingress
+ * declares no `tls` block.
+ */
+export function buildAppIngress(opts: AppRouteOptions): k8s.V1Ingress {
+    const { app, namespace, prNumber, repoFullName, domain, secret, ingressClassName } = opts;
     const host = buildAppHostname(app.name, prNumber, repoFullName, domain, secret);
 
     return {
-        apiVersion: HTTP_ROUTE_API_VERSION,
-        kind: "HTTPRoute",
+        apiVersion: "networking.k8s.io/v1",
+        kind: "Ingress",
         metadata: {
             name: app.name,
             namespace,
             labels: routeLabels(app.name, prNumber),
         },
         spec: {
-            parentRefs: [
-                {
-                    group: HTTP_ROUTE_GROUP,
-                    kind: "Gateway",
-                    name: gateway.name,
-                    namespace: gateway.namespace,
-                    sectionName: gateway.listener,
-                },
-            ],
-            hostnames: [host],
+            ingressClassName,
             rules: [
                 {
-                    matches: [{ path: { type: "PathPrefix", value: "/" } }],
-                    backendRefs: [
-                        {
-                            group: "",
-                            kind: "Service",
-                            name: NGINX_SERVICE_NAME,
-                            port: NGINX_SERVICE_PORT,
-                            weight: 1,
-                        },
-                    ],
+                    host,
+                    http: {
+                        paths: [
+                            {
+                                path: "/",
+                                pathType: "Prefix",
+                                backend: {
+                                    service: {
+                                        name: NGINX_SERVICE_NAME,
+                                        port: { number: NGINX_SERVICE_PORT },
+                                    },
+                                },
+                            },
+                        ],
+                    },
                 },
             ],
-        },
-    };
-}
-
-export function buildAppTargetGroupConfig(opts: AppRouteOptions): TargetGroupConfiguration {
-    const { app, namespace, prNumber } = opts;
-
-    return {
-        apiVersion: TARGET_GROUP_CONFIG_API_VERSION,
-        kind: "TargetGroupConfiguration",
-        metadata: {
-            name: app.name,
-            namespace,
-            labels: routeLabels(app.name, prNumber),
-        },
-        spec: {
-            targetReference: {
-                group: "",
-                kind: "Service",
-                name: NGINX_SERVICE_NAME,
-            },
-            defaultConfiguration: {
-                targetType: "ip",
-                protocol: "HTTP",
-                protocolVersion: "HTTP1",
-                healthCheckConfig: {
-                    healthCheckPath: NGINX_HEALTH_PATH,
-                    healthCheckProtocol: "HTTP",
-                },
-            },
         },
     };
 }
@@ -420,61 +382,5 @@ function routeLabels(appName: string, prNumber: number): Record<string, string> 
         ...BASE_LABELS,
         app: appName,
         "previewkit.dev/pr-number": String(prNumber),
-    };
-}
-
-export interface HttpRoute {
-    apiVersion: string;
-    kind: "HTTPRoute";
-    metadata: {
-        name: string;
-        namespace: string;
-        labels?: Record<string, string>;
-    };
-    spec: {
-        parentRefs: Array<{
-            group: string;
-            kind: "Gateway";
-            name: string;
-            namespace: string;
-            sectionName?: string;
-        }>;
-        hostnames: string[];
-        rules: Array<{
-            matches: Array<{ path: { type: "PathPrefix" | "Exact"; value: string } }>;
-            backendRefs: Array<{
-                group: string;
-                kind: "Service";
-                name: string;
-                port: number;
-                weight: number;
-            }>;
-        }>;
-    };
-}
-
-export interface TargetGroupConfiguration {
-    apiVersion: string;
-    kind: "TargetGroupConfiguration";
-    metadata: {
-        name: string;
-        namespace: string;
-        labels?: Record<string, string>;
-    };
-    spec: {
-        targetReference: {
-            group: string;
-            kind: "Service";
-            name: string;
-        };
-        defaultConfiguration: {
-            targetType: "ip" | "instance";
-            protocol?: "HTTP" | "HTTPS";
-            protocolVersion?: "HTTP1" | "HTTP2" | "GRPC";
-            healthCheckConfig?: {
-                healthCheckPath?: string;
-                healthCheckProtocol?: "HTTP" | "HTTPS";
-            };
-        };
     };
 }

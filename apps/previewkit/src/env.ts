@@ -42,11 +42,15 @@ export const env = createEnv({
         // per (app, PR, repo) but unguessable without this secret.
         PREVIEW_URL_SECRET: z.string().min(1),
 
-        // Shared Gateway that every HTTPRoute attaches to. One Gateway = one ALB
-        // for the whole cluster; routes come and go with per-PR namespaces.
-        GATEWAY_NAME: z.string().default("gateway"),
-        GATEWAY_NAMESPACE: z.string().default("system"),
-        GATEWAY_LISTENER: z.string().default("https"),
+        // Shared in-cluster ingress controller. Every preview gets a plain Ingress
+        // with this class; ingress-nginx (running in INGRESS_NAMESPACE) fans out by
+        // Host header. The shared ALB Gateway forwards *.preview.autonoma.app to this
+        // controller through a single static HTTPRoute, so per-preview routing never
+        // touches the ALB's per-load-balancer 100-rule / 100-target-group quotas.
+        // INGRESS_NAMESPACE doubles as the NetworkPolicy ingress source for preview
+        // pods; it shares the Gateway's `system` namespace so both live together.
+        INGRESS_CLASS_NAME: z.string().default("nginx"),
+        INGRESS_NAMESPACE: z.string().default("system"),
 
         // Kubernetes. Empty means use in-cluster config.
         KUBECONFIG: z.string().optional(),
@@ -59,10 +63,6 @@ export const env = createEnv({
         AWS_REGION: z.string().optional(),
         EKS_CLUSTER_ENDPOINT: z.string().url().optional(),
         EKS_CLUSTER_CA: z.string().optional(),
-
-        // Comma-separated CIDRs for the ALB subnets so the ALB can reach pods directly
-        // in IP mode (AWS Gateway API Controller). Required when network policies are enforced.
-        GATEWAY_SUBNET_CIDRS: z.string().default(""),
 
         // External Secrets Operator: name of the ClusterSecretStore that points to AWS Secrets Manager.
         // Required only when AWS secret registrations are present for any organization.

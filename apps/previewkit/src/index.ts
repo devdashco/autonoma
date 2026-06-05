@@ -94,12 +94,6 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         storage,
     });
 
-    const gatewaySubnetCidrs = env.GATEWAY_SUBNET_CIDRS
-        ? env.GATEWAY_SUBNET_CIDRS.split(",")
-              .map((s) => s.trim())
-              .filter(Boolean)
-        : [];
-
     // AWS Secrets Manager -> K8s ExternalSecret bridge. Every per-app secret
     // bundle lands in the preview namespace as a K8s Secret and is mounted
     // into the Deployment via `envFrom: secretRef`. There is no separate
@@ -122,12 +116,12 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     const deployer = new Deployer(
         kc,
         env.PREVIEW_DOMAIN,
-        { name: env.GATEWAY_NAME, namespace: env.GATEWAY_NAMESPACE, listener: env.GATEWAY_LISTENER },
         env.PREVIEW_URL_SECRET,
-        gatewaySubnetCidrs,
         awsExternalSecretManager,
         env.NGINX_IMAGE,
         env.APP_URL,
+        env.INGRESS_CLASS_NAME,
+        env.INGRESS_NAMESPACE,
     );
 
     // Addon plugin registry + manager. Built-in providers are registered

@@ -3,13 +3,10 @@ import type { AppConfig } from "../../src/config/schema";
 import {
     buildAppDeployment,
     buildAppHostname,
-    buildAppHttpRoute,
+    buildAppIngress,
     buildAppService,
-    buildAppTargetGroupConfig,
-    NGINX_HEALTH_PATH,
     NGINX_SERVICE_NAME,
     NGINX_SERVICE_PORT,
-    type GatewayRef,
 } from "../../src/deployer/resource-factory";
 
 const baseApp: AppConfig = {
@@ -20,7 +17,7 @@ const baseApp: AppConfig = {
     build_secrets: [],
     env: {},
     replicas: 1,
-    resources: { cpu: "250m", memory: "256Mi" },
+    resources: { cpu: "1000m", memory: "1Gi" },
 };
 
 const baseOpts = {
@@ -31,12 +28,6 @@ const baseOpts = {
     prNumber: 42,
 };
 
-const gateway: GatewayRef = {
-    name: "preview-gateway",
-    namespace: "gateway-system",
-    listener: "https",
-};
-
 const baseRouteOpts = {
     app: baseApp,
     namespace: "preview-my-org-my-repo-pr-42",
@@ -44,7 +35,7 @@ const baseRouteOpts = {
     repoFullName: "my-org/my-repo",
     domain: "preview.autonoma.app",
     secret: "test-secret",
-    gateway,
+    ingressClassName: "nginx",
 };
 
 describe("buildAppDeployment", () => {
@@ -141,69 +132,37 @@ describe("buildAppHostname", () => {
     });
 });
 
-describe("buildAppHttpRoute", () => {
-    it("attaches to the shared Gateway's HTTPS listener", () => {
-        const route = buildAppHttpRoute(baseRouteOpts);
-        expect(route.apiVersion).toBe("gateway.networking.k8s.io/v1");
-        expect(route.kind).toBe("HTTPRoute");
-        expect(route.metadata.name).toBe("web");
-        expect(route.metadata.namespace).toBe("preview-my-org-my-repo-pr-42");
-
-        const parent = route.spec.parentRefs[0]!;
-        expect(parent.name).toBe("preview-gateway");
-        expect(parent.namespace).toBe("gateway-system");
-        expect(parent.sectionName).toBe("https");
-        expect(parent.kind).toBe("Gateway");
+describe("buildAppIngress", () => {
+    it("creates an nginx-class Ingress in the preview namespace", () => {
+        const ing = buildAppIngress(baseRouteOpts);
+        expect(ing.apiVersion).toBe("networking.k8s.io/v1");
+        expect(ing.kind).toBe("Ingress");
+        expect(ing.metadata?.name).toBe("web");
+        expect(ing.metadata?.namespace).toBe("preview-my-org-my-repo-pr-42");
+        expect(ing.spec?.ingressClassName).toBe("nginx");
     });
 
-    it("uses the masked single-label hostname from buildAppHostname", () => {
-        const route = buildAppHttpRoute(baseRouteOpts);
-        expect(route.spec.hostnames).toEqual([
-            buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret"),
-        ]);
+    it("declares no TLS block — the ALB terminates TLS upstream", () => {
+        const ing = buildAppIngress(baseRouteOpts);
+        expect(ing.spec?.tls).toBeUndefined();
     });
 
-    it("routes / to the shared nginx Service", () => {
-        const route = buildAppHttpRoute(baseRouteOpts);
-        const rule = route.spec.rules[0]!;
-        expect(rule.matches[0]!.path).toEqual({ type: "PathPrefix", value: "/" });
-        const backend = rule.backendRefs[0]!;
-        expect(backend.kind).toBe("Service");
-        expect(backend.name).toBe(NGINX_SERVICE_NAME);
-        expect(backend.port).toBe(NGINX_SERVICE_PORT);
-    });
-});
+    it("routes the masked single-label host to the shared nginx Service", () => {
+        const ing = buildAppIngress(baseRouteOpts);
+        const rule = ing.spec!.rules![0]!;
+        expect(rule.host).toBe(buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret"));
 
-describe("buildAppTargetGroupConfig", () => {
-    it("pins targetType to ip so the ALB hits pods directly", () => {
-        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
-        expect(tgc.apiVersion).toBe("gateway.k8s.aws/v1beta1");
-        expect(tgc.kind).toBe("TargetGroupConfiguration");
-        expect(tgc.spec.defaultConfiguration.targetType).toBe("ip");
+        const path = rule.http!.paths[0]!;
+        expect(path.path).toBe("/");
+        expect(path.pathType).toBe("Prefix");
+        expect(path.backend.service!.name).toBe(NGINX_SERVICE_NAME);
+        expect(path.backend.service!.port!.number).toBe(NGINX_SERVICE_PORT);
     });
 
-    it("references the shared nginx Service by name", () => {
-        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
-        expect(tgc.spec.targetReference.kind).toBe("Service");
-        expect(tgc.spec.targetReference.name).toBe(NGINX_SERVICE_NAME);
-    });
-
-    it("uses the nginx health check even when the app declares one", () => {
-        const tgc = buildAppTargetGroupConfig({
-            ...baseRouteOpts,
-            app: { ...baseApp, health_check: "/health" },
-        });
-        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toEqual({
-            healthCheckPath: NGINX_HEALTH_PATH,
-            healthCheckProtocol: "HTTP",
-        });
-    });
-
-    it("uses the nginx health check when the app declares none", () => {
-        const tgc = buildAppTargetGroupConfig(baseRouteOpts);
-        expect(tgc.spec.defaultConfiguration.healthCheckConfig).toEqual({
-            healthCheckPath: NGINX_HEALTH_PATH,
-            healthCheckProtocol: "HTTP",
-        });
+    it("does not leak the service or repo name into the routed host", () => {
+        const ing = buildAppIngress(baseRouteOpts);
+        const subdomain = ing.spec!.rules![0]!.host!.split(".")[0]!;
+        expect(subdomain).not.toContain("web");
+        expect(subdomain).not.toContain("my-org");
     });
 });

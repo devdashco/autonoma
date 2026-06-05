@@ -12,21 +12,11 @@ import { buildNetworkPolicies } from "./network-policy-factory";
 import {
     buildAppDeployment,
     buildAppHostname,
-    buildAppHttpRoute,
+    buildAppIngress,
     buildAppService,
-    buildAppTargetGroupConfig,
     buildNginxConfigMap,
     buildNginxDeployment,
     buildNginxService,
-    HTTP_ROUTE_GROUP,
-    HTTP_ROUTE_PLURAL,
-    HTTP_ROUTE_VERSION,
-    TARGET_GROUP_CONFIG_GROUP,
-    TARGET_GROUP_CONFIG_PLURAL,
-    TARGET_GROUP_CONFIG_VERSION,
-    type GatewayRef,
-    type HttpRoute,
-    type TargetGroupConfiguration,
 } from "./resource-factory";
 
 /**
@@ -97,7 +87,6 @@ export class Deployer {
     private coreApi: k8s.CoreV1Api;
     private appsApi: k8s.AppsV1Api;
     private networkingApi: k8s.NetworkingV1Api;
-    private customApi: k8s.CustomObjectsApi;
     private namespaceManager: NamespaceManager;
     private envInjector: EnvInjector;
     private recipeRegistry: RecipeRegistry;
@@ -105,17 +94,21 @@ export class Deployer {
     constructor(
         private kc: k8s.KubeConfig,
         private domain: string,
-        private gateway: GatewayRef,
         private secret: string,
-        private gatewaySubnetCidrs: string[] = [],
         private awsExternalSecretManager?: AwsExternalSecretManager,
         private nginxImage: string = "nginx:alpine",
         private appUrl: string = "https://app.autonoma.app",
+        // Shared in-cluster ingress controller. Per-preview Ingresses carry this
+        // class and ingress-nginx (in ingressNamespace) routes them by Host; the
+        // ALB only ever sees the one static wildcard route to this controller.
+        // ingressNamespace shares the Gateway's `system` namespace and is also the
+        // NetworkPolicy ingress source allowed to reach preview pods.
+        private ingressClassName: string = "nginx",
+        private ingressNamespace: string = "system",
     ) {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
         this.networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
-        this.customApi = kc.makeApiClient(k8s.CustomObjectsApi);
         this.namespaceManager = new NamespaceManager(kc);
         this.recipeRegistry = new RecipeRegistry();
         this.envInjector = new EnvInjector(this.recipeRegistry);
@@ -476,16 +469,19 @@ export class Deployer {
             awsSecretName: awsSecretsByApp.get(app.name),
         });
         const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber });
-        const routeOpts = { app, namespace, prNumber, repoFullName, domain, secret, gateway: this.gateway };
-        const targetGroupConfig = buildAppTargetGroupConfig(routeOpts);
-        const httpRoute = buildAppHttpRoute(routeOpts);
+        const ingress = buildAppIngress({
+            app,
+            namespace,
+            prNumber,
+            repoFullName,
+            domain,
+            secret,
+            ingressClassName: this.ingressClassName,
+        });
 
         await this.applyDeployment(namespace, deployment);
         await this.applyService(namespace, service);
-        // TargetGroupConfig must exist before the HTTPRoute so the ALB
-        // controller picks up IP-target config on first reconcile.
-        await this.applyTargetGroupConfig(namespace, targetGroupConfig);
-        await this.applyHttpRoute(namespace, httpRoute);
+        await this.applyIngress(namespace, ingress);
 
         await this.waitForDeploymentReady(namespace, app.name);
 
@@ -713,8 +709,7 @@ export class Deployer {
         const policies = buildNetworkPolicies({
             namespace,
             organizationId,
-            ingressControllerNamespace: this.gateway.namespace,
-            gatewaySubnetCidrs: this.gatewaySubnetCidrs,
+            ingressControllerNamespace: this.ingressNamespace,
         });
         for (const policy of policies) {
             await this.applyNetworkPolicy(namespace, policy);
@@ -743,64 +738,16 @@ export class Deployer {
         }
     }
 
-    private async applyHttpRoute(namespace: string, route: HttpRoute): Promise<void> {
-        await this.applyCustomObject(namespace, HTTP_ROUTE_GROUP, HTTP_ROUTE_VERSION, HTTP_ROUTE_PLURAL, route);
-    }
-
-    private async applyTargetGroupConfig(namespace: string, config: TargetGroupConfiguration): Promise<void> {
-        await this.applyCustomObject(
-            namespace,
-            TARGET_GROUP_CONFIG_GROUP,
-            TARGET_GROUP_CONFIG_VERSION,
-            TARGET_GROUP_CONFIG_PLURAL,
-            config,
-        );
-    }
-
-    private async applyCustomObject(
-        namespace: string,
-        group: string,
-        version: string,
-        plural: string,
-        body: HttpRoute | TargetGroupConfiguration,
-    ): Promise<void> {
-        const name = body.metadata.name;
+    private async applyIngress(namespace: string, ingress: k8s.V1Ingress): Promise<void> {
+        const name = ingress.metadata!.name!;
         try {
-            await this.customApi.createNamespacedCustomObject({
-                group,
-                version,
-                namespace,
-                plural,
-                body,
-            });
+            await this.networkingApi.createNamespacedIngress({ namespace, body: ingress });
         } catch (err: unknown) {
-            if (!isConflict(err)) {
+            if (isConflict(err)) {
+                await this.networkingApi.replaceNamespacedIngress({ name, namespace, body: ingress });
+            } else {
                 throw err;
             }
-            // CustomObjectsApi rejects replace without a fresh resourceVersion,
-            // so read the existing object first and merge it in.
-            const existing = (await this.customApi.getNamespacedCustomObject({
-                group,
-                version,
-                namespace,
-                plural,
-                name,
-            })) as { metadata?: { resourceVersion?: string } };
-            const merged = {
-                ...body,
-                metadata: {
-                    ...body.metadata,
-                    resourceVersion: existing.metadata?.resourceVersion,
-                },
-            };
-            await this.customApi.replaceNamespacedCustomObject({
-                group,
-                version,
-                namespace,
-                plural,
-                name,
-                body: merged,
-            });
         }
     }
 
