@@ -10,6 +10,7 @@ export const env = createEnv({
     server: {
         REMOTE_BROWSER_URL: z.string().optional(),
         HEADLESS: z.string().optional(),
+        PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

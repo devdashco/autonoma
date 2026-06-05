@@ -7,8 +7,10 @@ import { GenerationAPIRunner, type PlanData, type TestCase, buildExecutionPrompt
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
+import { resolvePreviewkitBypassToken as decryptBypassToken } from "@autonoma/utils";
 import type { WebApplicationData, WebContext } from "../../platform";
 import { toPlaywrightCookies } from "../../platform/scenario-auth";
+import { env } from "../env";
 import type { WebCommandSpec } from "../web-agent";
 
 export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, WebContext, WebApplicationData> {
@@ -147,5 +149,7 @@ async function resolvePreviewkitBypassToken(url: string): Promise<string | undef
         where: { url },
         select: { environment: { select: { bypassToken: true } } },
     });
-    return instance?.environment.bypassToken ?? undefined;
+    const stored = instance?.environment.bypassToken;
+    if (stored == null) return undefined;
+    return decryptBypassToken(stored, env.PREVIEWKIT_BYPASS_TOKEN_KEY);
 }

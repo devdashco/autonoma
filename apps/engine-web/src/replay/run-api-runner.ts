@@ -7,7 +7,8 @@ import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import { AuthPayloadSchema } from "@autonoma/types";
-import type { WebContext } from "../platform";
+import { resolvePreviewkitBypassToken as decryptBypassToken } from "@autonoma/utils";
+import { env, type WebContext } from "../platform";
 import { toPlaywrightCookies } from "../platform/scenario-auth";
 import type { WebApplicationData } from "../platform/web-application-data";
 import type { ReplayWebCommandSpec } from "./web-command-spec";
@@ -101,5 +102,7 @@ async function resolvePreviewkitBypassToken(url: string): Promise<string | undef
         where: { url },
         select: { environment: { select: { bypassToken: true } } },
     });
-    return instance?.environment.bypassToken ?? undefined;
+    const stored = instance?.environment.bypassToken;
+    if (stored == null) return undefined;
+    return decryptBypassToken(stored, env.PREVIEWKIT_BYPASS_TOKEN_KEY);
 }
