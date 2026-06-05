@@ -78,7 +78,7 @@ export function SnapshotChangesDetail({ entry, prNumber }: { entry: TestEntry; p
       )}
       {entry.previousPlan != null && entry.previousPlan.trim().length > 0 && (
         <DetailSection label="Previous plan">
-          <Prose className="text-text-tertiary">{entry.previousPlan}</Prose>
+          <Prose className="text-text-secondary">{entry.previousPlan}</Prose>
         </DetailSection>
       )}
       {entry.generation != null && (
@@ -199,6 +199,6 @@ function RunActions({ run }: { run: NonNullable<TestEntry["run"]> }) {
 
 function Prose({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <p className={`whitespace-pre-wrap text-xs leading-relaxed text-text-secondary ${className ?? ""}`}>{children}</p>
+    <p className={`whitespace-pre-wrap text-xs leading-relaxed text-text-primary ${className ?? ""}`}>{children}</p>
   );
 }

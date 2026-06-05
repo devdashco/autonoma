@@ -155,7 +155,7 @@ function BugDetail() {
               <PanelTitle>Description</PanelTitle>
             </PanelHeader>
             <PanelBody>
-              <p className="text-sm leading-relaxed text-text-secondary whitespace-pre-wrap">{bug.description}</p>
+              <p className="text-sm leading-relaxed text-text-primary whitespace-pre-wrap">{bug.description}</p>
             </PanelBody>
           </Panel>
 

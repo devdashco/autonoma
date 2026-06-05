@@ -415,7 +415,7 @@ function RunDetailSidebar({
               Failure reason
             </span>
           </div>
-          <p className="text-sm leading-relaxed text-text-secondary">{reasoning}</p>
+          <p className="text-sm leading-relaxed text-text-primary">{reasoning}</p>
         </div>
       )}
     </div>

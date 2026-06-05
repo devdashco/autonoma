@@ -47,7 +47,7 @@ export function ReasoningMarkdown({ content }: { content: string }) {
           ),
           h2: ({ children }) => <h2 className="mb-2 mt-5 text-sm font-semibold text-text-primary">{children}</h2>,
           h3: ({ children }) => <h3 className="mb-1.5 mt-4 text-sm font-medium text-text-primary">{children}</h3>,
-          p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-text-secondary">{children}</p>,
+          p: ({ children }) => <p className="mb-3 text-sm leading-relaxed text-text-primary">{children}</p>,
           strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
           code: ({ children }) => (
             <code className="rounded bg-surface-base px-1.5 py-0.5 font-mono text-xs text-text-primary">
@@ -55,12 +55,12 @@ export function ReasoningMarkdown({ content }: { content: string }) {
             </code>
           ),
           ul: ({ children }) => (
-            <ul className="mb-3 list-inside list-disc space-y-1 text-sm text-text-secondary">{children}</ul>
+            <ul className="mb-3 list-inside list-disc space-y-1 text-sm text-text-primary">{children}</ul>
           ),
           ol: ({ children }) => (
-            <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-secondary">{children}</ol>
+            <ol className="mb-3 list-inside list-decimal space-y-1 text-sm text-text-primary">{children}</ol>
           ),
-          li: ({ children }) => <li className="text-sm text-text-secondary">{children}</li>,
+          li: ({ children }) => <li className="text-sm text-text-primary">{children}</li>,
         }}
       >
         {content}

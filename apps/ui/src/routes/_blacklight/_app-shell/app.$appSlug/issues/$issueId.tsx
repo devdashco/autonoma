@@ -177,7 +177,7 @@ function IssueDetailPage() {
                 )}
               </PanelHeader>
               <PanelBody className="p-5">
-                <p className="text-sm leading-relaxed text-text-secondary">{failurePoint.description}</p>
+                <p className="text-sm leading-relaxed text-text-primary">{failurePoint.description}</p>
               </PanelBody>
             </Panel>
           )}
@@ -212,7 +212,7 @@ function IssueDetailPage() {
                       <Badge variant="secondary" className="shrink-0 font-mono text-3xs uppercase">
                         {EVIDENCE_TYPE_LABEL[item.type] ?? item.type}
                       </Badge>
-                      <p className="text-sm leading-relaxed text-text-secondary">{item.description}</p>
+                      <p className="text-sm leading-relaxed text-text-primary">{item.description}</p>
                     </button>
                   ) : (
                     <div
@@ -222,7 +222,7 @@ function IssueDetailPage() {
                       <Badge variant="outline" className="shrink-0 font-mono text-3xs uppercase">
                         {EVIDENCE_TYPE_LABEL[item.type] ?? item.type}
                       </Badge>
-                      <p className="text-sm leading-relaxed text-text-secondary">{item.description}</p>
+                      <p className="text-sm leading-relaxed text-text-primary">{item.description}</p>
                     </div>
                   );
                 })}
@@ -252,7 +252,7 @@ function IssueDetailPage() {
             </PanelHeader>
             {reasoningOpen && (
               <PanelBody className="p-5">
-                <p className="text-xs leading-relaxed text-text-tertiary whitespace-pre-wrap">{issue.description}</p>
+                <p className="text-xs leading-relaxed text-text-primary whitespace-pre-wrap">{issue.description}</p>
               </PanelBody>
             )}
           </Panel>

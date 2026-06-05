@@ -76,7 +76,7 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
         <span className="font-mono text-2xs text-text-tertiary">{formatRelativeTime(test.latestRunAt)}</span>
       </div>
       {reviewReasoning.length > 0 && (
-        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-secondary">{reviewReasoning}</p>
+        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-primary">{reviewReasoning}</p>
       )}
     </div>
   );

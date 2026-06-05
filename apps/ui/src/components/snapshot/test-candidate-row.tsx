@@ -92,7 +92,7 @@ function ReasoningSection({ label, content }: { label: string; content: string }
   return (
     <div className="flex flex-col gap-1">
       <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-      <p className="whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{content}</p>
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-text-primary">{content}</p>
     </div>
   );
 }

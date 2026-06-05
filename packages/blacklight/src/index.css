@@ -22,7 +22,7 @@
   --secondary: #111111;
   --secondary-foreground: #EDEDED;
   --muted: #111111;
-  --muted-foreground: #888888;
+  --muted-foreground: #A7A7A7;
   --accent: #C2E812;
   --accent-foreground: #050505;
   --destructive: #FF3333;
@@ -59,10 +59,15 @@
   --border-mid: #333333;
   --border-highlight: #444444;
 
-  /* ── Text tiers ── */
+  /* ── Text tiers ──
+     Two-tier hierarchy: `primary` carries everything meant to be read (titles
+     AND paragraphs) at max contrast; `secondary` is the single supporting tone
+     for subtitles, labels, descriptions, and metadata. `tertiary` is kept as an
+     alias of `secondary` so existing usages stay readable - there is no longer a
+     dimmer third tier. */
   --text-primary: #EDEDED;
-  --text-secondary: #898989;
-  --text-tertiary: #707070;
+  --text-secondary: #A7A7A7;
+  --text-tertiary: #A7A7A7;
 
   /* ── Status colors ── */
   --status-critical: #FF3333;
@@ -126,8 +131,10 @@
   --border-mid: rgba(15, 3, 38, 0.3);
   --border-highlight: #0F0326;
 
+  /* Two-tier hierarchy (see dark theme note). secondary and tertiary share one
+     supporting tone; primary carries all reading text. */
   --text-primary: #0F0326;
-  --text-secondary: #2E1E4D;
+  --text-secondary: #60507A;
   --text-tertiary: #60507A;
 
   --status-critical: #C50326;

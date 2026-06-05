@@ -97,7 +97,7 @@ function UpdatePlanDetail({ newPrompt }: { newPrompt: string }) {
         {expanded ? "hide" : "show"} new prompt
       </button>
       {expanded && (
-        <pre className="whitespace-pre-wrap break-words border border-border-dim bg-surface-void px-3 py-2 font-mono text-xs leading-relaxed text-text-secondary">
+        <pre className="whitespace-pre-wrap break-words border border-border-dim bg-surface-void px-3 py-2 font-mono text-xs leading-relaxed text-text-primary">
           {newPrompt}
         </pre>
       )}
@@ -132,7 +132,7 @@ function ReportDetail({
         <CaretDownIcon size={12} className={cn("transition-transform", expanded && "rotate-180")} />
         {expanded ? "hide" : "show"} description
       </button>
-      {expanded && <p className="text-xs leading-relaxed text-text-secondary">{description}</p>}
+      {expanded && <p className="text-xs leading-relaxed text-text-primary">{description}</p>}
     </div>
   );
 }
@@ -141,7 +141,7 @@ function RemoveTestDetail({ reason }: { reason: string }) {
   return (
     <div className="flex flex-col gap-1">
       <SectionLabel label="Reason for removal" />
-      <p className="text-xs leading-relaxed text-text-secondary">{reason}</p>
+      <p className="text-xs leading-relaxed text-text-primary">{reason}</p>
     </div>
   );
 }
