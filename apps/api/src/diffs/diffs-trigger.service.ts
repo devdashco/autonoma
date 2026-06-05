@@ -253,13 +253,15 @@ export class DiffsTriggerService extends Service {
     }): Promise<string> {
         this.logger.info("Creating branch deployment", { branchId, url });
 
+        const mergedWebhookHeaders = await this.injectPreviewkitBypassHeader(url, webhookHeaders);
+
         return this.db.$transaction(async (tx) => {
             const deployment = await tx.branchDeployment.create({
                 data: {
                     branchId,
                     organizationId,
                     webhookUrl,
-                    webhookHeaders,
+                    webhookHeaders: mergedWebhookHeaders,
                     webDeployment: {
                         create: {
                             url,
@@ -279,6 +281,25 @@ export class DiffsTriggerService extends Service {
 
             return deployment.id;
         });
+    }
+
+    private async injectPreviewkitBypassHeader(
+        url: string,
+        webhookHeaders: Record<string, string> | undefined,
+    ): Promise<Record<string, string> | undefined> {
+        const instance = await this.db.previewkitAppInstance.findFirst({
+            where: { url },
+            select: { environment: { select: { bypassToken: true } } },
+        });
+
+        const bypassToken = instance?.environment.bypassToken;
+        if (bypassToken == null) {
+            this.logger.info("No previewkit bypass token for deployment URL; webhook headers unchanged", { url });
+            return webhookHeaders;
+        }
+
+        this.logger.info("Injecting previewkit bypass header into webhook headers", { url });
+        return { ...(webhookHeaders ?? {}), "x-previewkit-bypass": bypassToken };
     }
 
     private async createSnapshot(
