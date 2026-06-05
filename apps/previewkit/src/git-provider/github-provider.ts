@@ -186,6 +186,8 @@ export class GitHubProvider implements GitProvider {
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);
 
+        logger.info("Creating GitHub deployment", { repoFullName, environment, payload });
+
         const { data } = await octokit.request("POST /repos/{owner}/{repo}/deployments", {
             owner,
             repo,
