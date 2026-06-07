@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
 import type { AddonManager } from "../addons/addon-manager";
-import { isGithubFeedbackEnabledForNamespace, recordEnvironmentTornDown } from "../db";
+import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -44,13 +44,6 @@ export class TeardownPipeline {
             return;
         }
 
-        // 1. Resolve per-org feedback flag before deleting the namespace —
-        //    we look it up from the environment row, which goes away on teardown.
-        const feedbackEnabled = await isGithubFeedbackEnabledForNamespace(namespace);
-        if (!feedbackEnabled) {
-            logger.info("GitHub feedback disabled for this environment; skipping teardown feedback", { namespace });
-        }
-
         // 1. Read namespace annotations to find the comment ID
         const annotations = await this.deployer.getNamespaceAnnotations(repoFullName, prNumber);
 
@@ -84,18 +77,16 @@ export class TeardownPipeline {
         });
 
         // 4. Update the PR comment if we have a comment ID
-        if (feedbackEnabled && annotations?.commentId) {
+        if (annotations?.commentId) {
             await this.provider
                 .updateComment(repoFullName, annotations.commentId, this.buildTeardownComment(prNumber))
                 .catch((err) => logger.error("Failed to update teardown comment", err));
         }
 
         // 5. Set commit status
-        if (feedbackEnabled) {
-            await this.provider
-                .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
-                .catch((err) => logger.error("Failed to set teardown status", err));
-        }
+        await this.provider
+            .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
+            .catch((err) => logger.error("Failed to set teardown status", err));
 
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber });
     }

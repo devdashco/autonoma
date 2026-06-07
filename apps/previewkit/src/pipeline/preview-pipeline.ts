@@ -16,7 +16,6 @@ import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
 import {
     type AppBuildOutcome,
-    isGithubFeedbackEnabledForOrg,
     recordBuildFinished,
     recordEnvironmentCreated,
     recordEnvironmentManifest,
@@ -216,12 +215,11 @@ export class PreviewPipeline {
         const primaryConfig = resolved.config;
         const configRevisionId = resolved.revisionId;
 
-        // 1c. Per-org toggle: when false, the pipeline still runs end-to-end but stays quiet on GitHub.
-        // Synthetic non-PR environments (currently prNumber 0 for an Application's main branch)
-        // are always quiet because there is no PR thread to comment on.
-        const feedbackEnabled = prNumber > 0 && (await isGithubFeedbackEnabledForOrg(organizationId));
-        if (!feedbackEnabled) {
-            logger.info("GitHub feedback disabled for deployment; skipping comments + commit statuses", {
+        // 1c. Synthetic non-PR environments (currently prNumber 0 for an Application's main branch)
+        // stay quiet on GitHub because there is no PR thread to comment on.
+        const isPullRequest = prNumber > 0;
+        if (!isPullRequest) {
+            logger.info("Skipping GitHub comments + commit statuses; deployment is not for a pull request", {
                 organizationId,
                 repo: repoFullName,
                 pr: prNumber,
@@ -229,7 +227,7 @@ export class PreviewPipeline {
         }
 
         // 2. Set commit status to pending
-        if (feedbackEnabled) {
+        if (isPullRequest) {
             await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
         }
 
@@ -239,7 +237,7 @@ export class PreviewPipeline {
         //    that get many pushes. On the very first deploy this falls through
         //    to postComment; on subsequent deploys it updates in place.
         let commentId = "";
-        if (feedbackEnabled) {
+        if (isPullRequest) {
             const result = await postOrUpdateCommentOnGithub({
                 client: this.provider,
                 store: createPreviewkitCommentStore(db),
@@ -524,7 +522,7 @@ export class PreviewPipeline {
             );
 
             // 14. Update PR comment with per-app status table.
-            if (feedbackEnabled && commentId !== "") {
+            if (isPullRequest && commentId !== "") {
                 const fallbackDeps = dependencyEntries.filter((e) => e.usedFallback);
                 await postOrUpdateCommentOnGithub({
                     client: this.provider,
@@ -551,7 +549,7 @@ export class PreviewPipeline {
             // 15. Single global commit status. Success only when every app
             //     came up; otherwise failure with an "N/M ready" description.
             //     Per-app contexts (`previewkit/<app>`) are a Stage B follow-up.
-            if (feedbackEnabled) {
+            if (isPullRequest) {
                 const firstReadyUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
                 await this.provider.setCommitStatus(
                     repoFullName,
@@ -619,7 +617,7 @@ export class PreviewPipeline {
                 }),
             );
 
-            if (feedbackEnabled && commentId !== "") {
+            if (isPullRequest && commentId !== "") {
                 await postOrUpdateCommentOnGithub({
                     client: this.provider,
                     store: createPreviewkitCommentStore(db),
@@ -643,7 +641,7 @@ export class PreviewPipeline {
                 }).catch((e) => logger.error("Failed to update failure comment", e));
             }
 
-            if (feedbackEnabled) {
+            if (isPullRequest) {
                 await this.provider
                     .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
                     .catch((e) => logger.error("Failed to set failure status", e));

@@ -32,7 +32,6 @@ const generationForCommentSelect = {
                     organization: {
                         select: {
                             id: true,
-                            previewkitGithubFeedbackEnabled: true,
                             githubInstallation: {
                                 select: { installationId: true, status: true },
                             },
@@ -72,7 +71,6 @@ type GenerationForComment = {
             deployment: { webDeployment: { url: string } | null } | null;
             organization: {
                 id: string;
-                previewkitGithubFeedbackEnabled: boolean;
                 githubInstallation: { installationId: number; status: string } | null;
             };
         };
@@ -114,14 +112,6 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
             hasPrNumber: prNumber != null,
             hasGithubRepositoryId: githubRepositoryId != null,
             hasHeadSha: snapshot.headSha != null,
-        });
-        return;
-    }
-    if (!organization.previewkitGithubFeedbackEnabled) {
-        log.info("Skipped PR comment update - GitHub feedback is disabled for organization", {
-            organizationId: organization.id,
-            prNumber,
-            githubRepositoryId,
         });
         return;
     }
