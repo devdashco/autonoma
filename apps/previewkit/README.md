@@ -2,7 +2,7 @@
 
 Preview environments for pull requests. Deploy any stack to Kubernetes without changing your code.
 
-Previewkit listens for Git provider webhooks, builds container images from your repo, deploys them alongside infrastructure services (Postgres, Redis, etc.) to an isolated Kubernetes namespace, and posts the preview URL back to your PR.
+Previewkit builds container images from your repo and deploys them alongside infrastructure services (Postgres, Redis, etc.) into an isolated Kubernetes namespace, then posts the preview URL back to your PR. GitHub `pull_request` events are received by the autonoma API and forwarded to Previewkit.
 
 ## How It Works
 
@@ -10,7 +10,7 @@ Previewkit listens for Git provider webhooks, builds container images from your 
 PR opened/updated
       |
       v
-  Webhook received (/webhooks/github)
+  Webhook received by the autonoma API, forwarded to Previewkit
       |
       v
   Read .preview.yaml from repo
@@ -91,7 +91,9 @@ hooks:
 | `registry` | No | Container registry. Overrides `REGISTRY_URL` env var |
 | `apps` | Yes | List of app definitions (at least one) |
 | `services` | No | List of infrastructure services |
-| `hooks` | No | Lifecycle hooks |
+| `addons` | No | Third-party managed resources via provider plugins (e.g. Neon) |
+| `hooks` | No | Lifecycle hooks (`pre_deploy` / `post_deploy`) |
+| `config` | No | Advanced settings, e.g. `config.multirepo` for multi-repo dependencies |
 
 **App fields:**
 
@@ -100,12 +102,17 @@ hooks:
 | `name` | Yes | | Lowercase alphanumeric + hyphens. Used in K8s resource names and URLs |
 | `path` | No | `.` | Path to the app directory relative to repo root |
 | `port` | Yes | | Port the app listens on |
-| `dockerfile` | No | | Path to Dockerfile relative to repo root. If absent, Railpack auto-detects |
+| `dockerfile` | No | | Path to a Dockerfile relative to repo root. If absent, the build falls back to Turbo (when `monorepo` is set) or Railpack |
+| `build_context` | No | | Build context directory. Useful for monorepos |
+| `monorepo` | No | | Workspace build tool. Currently only `turbo`; builds from the repo root with a filter for this app |
 | `build_args` | No | `{}` | Docker build arguments |
+| `build_secrets` | No | `[]` | Names of uploaded secrets to expose at build time (e.g. `NEXT_PUBLIC_*`); each must already be uploaded via the secrets API |
 | `env` | No | `{}` | Environment variables. Supports `{{name.host}}` and `{{name.port}}` templates |
 | `command` | No | | Override the container command |
 | `health_check` | No | | HTTP path for readiness/liveness probes |
 | `replicas` | No | `1` | Number of pod replicas |
+| `primary` | No | | Marks this app as the environment's primary URL |
+| `depends_on` | No | | Names of apps/services this app waits for before starting |
 | `resources` | No | | **Deprecated and ignored.** Every container is allocated 1000m CPU / 1Gi memory. Still accepted so existing configs validate; remove it. |
 
 **Service fields:**
@@ -113,9 +120,10 @@ hooks:
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | Yes | | Name used in `{{name.host}}` templates |
-| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `docker-image` |
+| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `api-gateway`, `docker-image` |
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
+| `options` | No | `{}` | Recipe-specific options (e.g. `docker-image`'s `image` / `port` / `readiness`) |
 | `resources` | No | | **Deprecated and ignored** (see app fields). All containers get 1000m CPU / 1Gi memory. |
 
 ### Template Syntax
@@ -135,7 +143,7 @@ Templates resolve to Kubernetes service DNS names within the namespace (e.g. `db
 
 ## Secrets Management
 
-Secrets are stored as Kubernetes Secrets in the `previewkit` namespace, scoped per owner and app. They are never committed to your repository.
+Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`. They are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (`build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.
 
 At deploy time, secrets are merged with `.preview.yaml` env vars. The config file takes priority, allowing you to override connection strings for preview infrastructure while keeping API keys in the secret store:
 
@@ -147,18 +155,30 @@ After merge + resolve       -> { DATABASE_URL: "postgresql://preview:preview@db:
 
 ### API Routes
 
+> **The HTTP API now lives in the autonoma API**, under `/v1/previewkit/*`. Secrets and environment
+> status run in the API directly; deploy/teardown/redeploy are forwarded to Previewkit (which is
+> becoming a Temporal worker, after which its standalone HTTP server is retired). Point new
+> integrations at the autonoma API. Authenticate with an `Authorization: Bearer <api-key>` header;
+> keys are scoped to your organization.
+
 #### Secrets
 
+Per-app build + runtime secrets, scoped to your organization's applications:
+
 ```
-GET    /api/secrets/:owner/:app            List secret keys (values are not exposed)
-PUT    /api/secrets/:owner/:app/:key       Save a secret
-DELETE /api/secrets/:owner/:app/:key       Delete a secret
+GET    /v1/previewkit/secrets/:applicationId/:app          List keys (values never returned)
+PUT    /v1/previewkit/secrets/:applicationId/:app          Batch upsert ({"items":[{"key","value"},...]})
+PUT    /v1/previewkit/secrets/:applicationId/:app/:key     Save one secret ({"value":"..."})
+DELETE /v1/previewkit/secrets/:applicationId/:app/:key     Delete one secret
 ```
+
+`applicationId` is your autonoma Application id; `app` matches an app `name:` in `.preview.yaml`.
 
 **Save a secret:**
 
 ```bash
-curl -X PUT https://previewkit.example.com/api/secrets/acme-corp/api/OPENAI_API_KEY \
+curl -X PUT https://api.example.com/v1/previewkit/secrets/app_abc123/api/OPENAI_API_KEY \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"value": "sk-..."}'
 ```
@@ -166,45 +186,57 @@ curl -X PUT https://previewkit.example.com/api/secrets/acme-corp/api/OPENAI_API_
 **List secret keys:**
 
 ```bash
-curl https://previewkit.example.com/api/secrets/acme-corp/api
-# {"owner":"acme-corp","app":"api","keys":["OPENAI_API_KEY","STRIPE_KEY"]}
+curl https://api.example.com/v1/previewkit/secrets/app_abc123/api \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY"
+# {"applicationId":"app_abc123","app":"api","keys":[{"key":"OPENAI_API_KEY","maskedLength":8,"updatedAt":"2024-01-01T00:00:00.000Z"}]}
 ```
 
 **Delete a secret:**
 
 ```bash
-curl -X DELETE https://previewkit.example.com/api/secrets/acme-corp/api/STRIPE_KEY
+curl -X DELETE https://api.example.com/v1/previewkit/secrets/app_abc123/api/STRIPE_KEY \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY"
 ```
 
-Secrets are stored in K8s Secrets named `previewkit-secrets-{owner}-{app}`. Each app gets its own secret — the `api` container never sees `web` secrets and vice versa.
+Each app gets its own bundle - the `api` container never sees `web`'s secrets and vice versa.
 
 #### Webhooks
 
-```
-POST   /webhooks/:provider                Receive Git provider webhooks
-```
-
-Configure your GitHub App to send `pull_request` events to `https://previewkit.example.com/webhooks/github`.
+GitHub `pull_request` events are received by the autonoma API at `POST /v1/github/webhook`, which
+forwards deploy/teardown to Previewkit. Configure your GitHub App's webhook URL there.
 
 #### Health
 
 ```
-GET    /health                            Health check
+GET    /health                            Previewkit liveness probe (kubelet)
 ```
 
 ## Environment Variables
 
+Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env` (`S3_*`) and `@autonoma/logger/env` (`SENTRY_DSN`, `LOG_LEVEL`).
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PORT` | No | `3000` | HTTP server port |
-| `LOG_LEVEL` | No | `info` | Log level: `fatal`, `error`, `warn`, `info`, `debug`, `trace` |
 | `GITHUB_APP_ID` | Yes | | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | Yes | | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`) |
-| `GITHUB_WEBHOOK_SECRET` | Yes | | GitHub webhook secret for signature verification |
-| `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry |
-| `BUILDKIT_HOST` | No | `tcp://buildkitd.previewkit.svc.cluster.local:1234` | BuildKit daemon address |
-| `PREVIEW_DOMAIN` | No | `preview.example.com` | Base domain for preview URLs |
-| `KUBECONFIG` | No | | Path to kubeconfig file. If unset, uses in-cluster config |
+| `PREVIEW_URL_SECRET` | Yes | | HMAC key for deterministic, unguessable preview hostnames |
+| `PREVIEW_DOMAIN` | No | `preview.autonoma.app` | Base domain for preview URLs (wildcard DNS must point at the shared gateway) |
+| `REGISTRY_URL` | No | `registry.previewkit.svc.cluster.local:5000` | Container image registry (ECR in production) |
+| `BUILDKIT_BUILD_NAMESPACE` | No | `buildkit` | Namespace where per-build BuildKit Jobs are spawned |
+| `BUILDKIT_IMAGE` | No | `moby/buildkit:v0.21.1` | Image used for build Jobs |
+| `BUILDKIT_BUILDER_SERVICE_ACCOUNT` | No | `buildkitd` | ServiceAccount each build pod runs as (needs IRSA for the S3 cache) |
+| `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min) |
+| `INGRESS_CLASS_NAME` | No | `nginx` | Ingress class for preview Ingresses |
+| `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared ingress controller |
+| `NGINX_IMAGE` | No | `nginx:alpine` | Image for the per-namespace nginx access proxy |
+| `CLUSTER_SECRET_STORE_NAME` | No | `aws-secretsmanager` | ClusterSecretStore (External Secrets Operator) pointing at AWS Secrets Manager |
+| `APP_URL` | No | `https://beta.autonoma.app` | autonoma app base URL (used in PR comments) |
+| `AUTONOMA_SERVICE_SECRET` | No | | Shared secret for service-to-service calls from the autonoma API; must equal the API's `PREVIEWKIT_SERVICE_SECRET` |
+| `BYPASS_TOKEN_KEY` | No | | AES-256-GCM key (64 hex chars) for encrypting bypass tokens; must match the API's `PREVIEWKIT_BYPASS_TOKEN_KEY` |
+| `KUBECONFIG` | No | | Path to kubeconfig. If unset, uses in-cluster config |
+| `EKS_CLUSTER_NAME` | No | | Cross-cluster EKS target; when set, authenticates via the AWS SDK instead of `KUBECONFIG` |
+| `AWS_REGION` | No | | Required when `EKS_CLUSTER_NAME` is set (and for AWS Secrets Manager) |
 
 ## Preview URL Format
 
@@ -225,14 +257,15 @@ Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress 
 
 ## Building Images
 
-Previewkit supports two modes:
+Previewkit builds each app with BuildKit (rootless, no Docker daemon), choosing a strategy in this order:
 
-1. **Dockerfile** -- if your app has a `Dockerfile` (or you specify one via the `dockerfile` field), it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`.
-2. **Railpack** -- if no Dockerfile exists, [Railpack](https://railpack.com) auto-detects the language and framework, then builds directly via BuildKit LLB. Supports Node.js, Go, Python, PHP, Java, Ruby, and more.
+1. **Dockerfile** -- if you set the app's `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`.
+2. **Turbo monorepo** -- if the app sets `monorepo: turbo`, the build runs from the repo root with a Turbo filter for that app.
+3. **Railpack** -- otherwise [Railpack](https://railpack.com) auto-detects the language and framework and builds via BuildKit. Supports Node.js, Go, Python, PHP, Java, Ruby, and more.
 
-Both paths use BuildKit (rootless, no Docker daemon required) and push to the configured registry.
+All paths push to the configured registry.
 
-**Image tag format:** `{registry}/{owner}/{app-name}:pr-{N}-{short-sha}`
+**Image tag format:** `{registry}/{owner}/{repo}:{app-name}-pr-{N}-{short-sha}` (e.g. `ghcr.io/my-org/my-repo:api-pr-42-a1b2c3d4`)
 
 ## Infrastructure Recipes
 
@@ -240,10 +273,13 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 
 | Recipe | Image | Port | Notes |
 |--------|-------|------|-------|
-| `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default user/password/db: `preview` |
-| `redis` | `redis:{version}-alpine` | 6379 | Deployment, no persistence |
-| `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence |
+| `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default version `16-alpine`; user/password/db all `preview` |
+| `redis` | `redis:{version}-alpine` | 6379 | Deployment, no persistence. Default version `7-alpine` |
+| `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence. Default version `8-alpine` |
+| `mongodb` | `mongo:{version}` | 27017 | StatefulSet with PVC. Single-node replica set (Change Streams); connect with `directConnection=true`. Default version `7` |
 | `temporal` | `temporalio/temporal:{version}` | 7233 (gRPC), 8233 (UI) | Deployment, `start-dev` mode |
+| `upstash` | `hiett/serverless-redis-http` + `redis` sidecar | 8000 | Serverless-Redis-HTTP proxy over a Redis sidecar in one Pod. Default token `local-dev-token` |
+| `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
 
 ### `docker-image`
@@ -261,9 +297,6 @@ services:
       args: ["--database-engine=memory"]
       readiness:
         tcp: {}            # or: http: { path: "/health" }, or: exec: { command: ["..."] }
-    resources:
-      cpu: "100m"
-      memory: "256Mi"
 ```
 
 **`options` fields:**
@@ -299,42 +332,44 @@ On PR close, the entire namespace is deleted, cascading to all resources.
 
 ### Prerequisites
 
-- Kubernetes cluster with an ingress controller
-- Wildcard DNS record `*.preview.example.com` pointing to the ingress controller
-- A GitHub App with `pull_request` webhook events enabled
-- BuildKit daemon running in the cluster
+- An EKS cluster with the ingress-nginx controller and a wildcard DNS record `*.{PREVIEW_DOMAIN}` pointing at the shared gateway
+- Karpenter (build/preview node pools) and the External Secrets Operator (AWS Secrets Manager integration)
+- A GitHub App with `pull_request` webhook events enabled, pointed at the autonoma API's `/v1/github/webhook`
 
-### Install
+### Manifests
 
-```bash
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/buildkitd.yaml
-kubectl apply -f k8s/previewkit.yaml    # Edit secrets and domain first
-```
+Kubernetes manifests live under the repo's `deployment/` directory (applied with `kubectl apply`; there is no kustomization):
 
-The `k8s/` directory contains manifests for:
+- `deployment/apps/previewkit.yaml` -- the Previewkit Deployment, Service, RBAC/ServiceAccount, and its ExternalSecret.
+- `deployment/previewkit/cluster/` -- one-time cluster bootstrap:
+  - `config/` -- `namespace.yaml` (the shared `system` namespace), `storage-class.yaml`, `vpc-cni-network-policy.yaml`
+  - `secrets-manager/` -- `cluster-secret-store.yaml` + `service-account.yaml` (External Secrets Operator -> AWS Secrets Manager)
+  - `karpenter/` -- `nodepool.yaml`, `nodeclass.yaml`, `nodepool-buildkit.yaml` (dedicated build nodes)
+  - `ingress/` -- ingress-nginx values and the shared gateway HTTPRoute
 
-- `namespace.yaml` -- the `previewkit` namespace
-- `buildkitd.yaml` -- BuildKit daemon (rootless)
-- `previewkit.yaml` -- ServiceAccount, RBAC, Secret, Deployment, Service
+Per-build BuildKit runs as ephemeral Kubernetes Jobs created in-code (`builder/buildkit-job-manager.ts`), not a static daemon manifest.
 
 ### Local Development
 
+From the repo root:
+
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm --filter @autonoma/previewkit dev
 ```
 
-Requires a local Kubernetes cluster (minikube, kind, Docker Desktop) and the following env vars set:
+Requires access to a Kubernetes cluster and at least these env vars (see the table above):
 
 ```
 GITHUB_APP_ID=...
-GITHUB_PRIVATE_KEY=...
-GITHUB_WEBHOOK_SECRET=...
+GITHUB_PRIVATE_KEY=...      # base64-encoded PEM
+PREVIEW_URL_SECRET=...
 ```
 
 ### Running Tests
 
 ```bash
-npm test
+pnpm --filter @autonoma/previewkit test                 # unit tests, no Docker
+pnpm --filter @autonoma/previewkit test:integration     # Testcontainers (real Postgres), needs Docker
+pnpm --filter @autonoma/previewkit typecheck
 ```

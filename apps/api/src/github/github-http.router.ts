@@ -4,6 +4,7 @@ import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
+import { previewkitClient } from "../previewkit/previewkit-service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
@@ -205,11 +206,11 @@ async function forwardPullRequestToPreviewkit(
     organizationId: string,
     payload: Record<string, unknown>,
 ): Promise<void> {
-    if (env.PREVIEWKIT_URL == null) {
+    if (!previewkitClient.hasBaseUrl()) {
         logger.info("Skipping Previewkit forward: PREVIEWKIT_URL not configured", { op });
         return;
     }
-    if (env.PREVIEWKIT_SERVICE_SECRET == null) {
+    if (!previewkitClient.isConfigured()) {
         // Fail loudly: without the shared secret, Previewkit's auth
         // middleware will 401 every request, and a silent skip would
         // mask a real misconfiguration in production.
@@ -226,12 +227,8 @@ async function forwardPullRequestToPreviewkit(
         return;
     }
 
-    const base = env.PREVIEWKIT_URL.replace(/\/$/, "");
-    const authHeader = { authorization: `Bearer ${env.PREVIEWKIT_SERVICE_SECRET}` };
-
     if (op === "deploy") {
-        const url = `${base}/v1/environments`;
-        const body = {
+        await previewkitClient.deploy({
             repoFullName: repo.full_name,
             prNumber: pr.number,
             organizationId,
@@ -241,35 +238,14 @@ async function forwardPullRequestToPreviewkit(
             baseSha: pr.base.sha,
             baseRef: pr.base.ref,
             cloneUrl: repo.clone_url,
-        };
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json", ...authHeader },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(10_000),
         });
-        if (!res.ok) {
-            const text = await res.text().catch(() => "");
-            throw new Error(`Previewkit deploy returned ${res.status}: ${text}`);
-        }
-        logger.info("Forwarded PR deploy to Previewkit", { repo: repo.full_name, pr: pr.number });
         return;
     }
 
-    const [owner, name] = repo.full_name.split("/");
-    const teardownQuery = new URLSearchParams({
+    await previewkitClient.teardown({
+        repoFullName: repo.full_name,
+        prNumber: pr.number,
         organizationId,
-        githubRepositoryId: String(repo.id),
+        githubRepositoryId: repo.id,
     });
-    const url = `${base}/v1/environments/${owner}/${name}/${pr.number}?${teardownQuery.toString()}`;
-    const res = await fetch(url, {
-        method: "DELETE",
-        headers: authHeader,
-        signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok && res.status !== 404) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Previewkit teardown returned ${res.status}: ${text}`);
-    }
-    logger.info("Forwarded PR teardown to Previewkit", { repo: repo.full_name, pr: pr.number });
 }

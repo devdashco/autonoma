@@ -10,11 +10,16 @@ import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
+import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
 import { appRouter } from "./routes/router";
 import { stripeHttpRouter } from "./stripe/stripe-http.router";
 
 const ALLOWED_ORIGINS = env.ALLOWED_ORIGINS;
 const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook"]);
+// Prefixes whose request bodies must never be logged. Unlike the exact-match set
+// above, these cover routes with dynamic path segments - secret values flow
+// through PUT /v1/previewkit/secrets/:applicationId/:app[/:key].
+const BODY_LOG_BLOCKLIST_PREFIXES = ["/v1/previewkit/secrets"];
 
 const INTERNAL_DOMAIN_ESCAPED = env.INTERNAL_DOMAIN.replace(/\./g, "\\.");
 const PREVIEW_ORIGIN_PATTERN = new RegExp(`^https://[a-f0-9]+\\.preview\\.${INTERNAL_DOMAIN_ESCAPED}$`);
@@ -48,10 +53,13 @@ export function createApiApp() {
 
             let body: unknown;
             const contentType = c.req.header("content-type") ?? "";
+            const isBlocklistedBodyPath =
+                BODY_LOG_BLOCKLIST_PATHS.has(c.req.path) ||
+                BODY_LOG_BLOCKLIST_PREFIXES.some((prefix) => c.req.path.startsWith(prefix));
             const shouldLogBody =
                 ["POST", "PUT", "PATCH"].includes(method) &&
                 !contentType.startsWith("multipart/form-data") &&
-                !BODY_LOG_BLOCKLIST_PATHS.has(c.req.path);
+                !isBlocklistedBodyPath;
 
             if (shouldLogBody) {
                 try {
@@ -91,6 +99,10 @@ export function createApiApp() {
     // ─── GitHub ───────────────────────────────────────────────────────
 
     app.route("/v1/github", githubHttpRouter);
+
+    // ─── Previewkit ────────────────────────────────────────────────────
+
+    app.route("/v1/previewkit", previewkitHttpRouter);
 
     // ─── Stripe ───────────────────────────────────────────────────────
 

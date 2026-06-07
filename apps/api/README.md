@@ -58,6 +58,7 @@ Hono HTTP server
   ├── /health              - health check
   ├── /v1/auth/**          - better-auth (Google OAuth, sessions)
   ├── /v1/github/**        - GitHub webhooks and API endpoints
+  ├── /v1/previewkit/**    - Previewkit environments + secrets (secrets/status/schema native; deploy/teardown/redeploy forwarded to Previewkit)
   ├── /v1/setup/**         - test planner setup (API key): setups, events, artifacts, scenario-recipe-versions
   └── /v1/trpc/*           - tRPC fetch adapter
 ```

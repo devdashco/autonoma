@@ -1,4 +1,5 @@
 import { db, type PrismaClient } from "@autonoma/db";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     CreateSecretCommand,
     GetSecretValueCommand,
@@ -6,7 +7,6 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
-import { logger as rootLogger, type Logger } from "../logger";
 
 export interface SecretItem {
     key: string;
@@ -44,19 +44,18 @@ function sanitizeName(segment: string): string {
 }
 
 /**
- * CRUD over per-app AWS Secrets Manager bundles, served from Previewkit's
- * own HTTP surface so external tooling (CI, scripts) can manage secrets
- * without going through the autonoma API.
+ * CRUD over per-app AWS Secrets Manager bundles, served natively from the
+ * autonoma API's `/v1/previewkit/secrets/*` routes so external tooling (CI,
+ * scripts) can manage secrets directly. Ported verbatim from Previewkit; the
+ * logic needs only AWS Secrets Manager + the DB (no Kubernetes), so it runs in
+ * the API process unchanged.
  *
  * Each (applicationId, appName) pair maps to one AWS Secrets Manager
- * secret whose SecretString is a JSON map of key→value. Writing a new
+ * secret whose SecretString is a JSON map of key->value. Writing a new
  * bundle creates the AWS SM secret (named `previewkit/<orgSlug>/<application>/<appName>`)
  * and registers a `previewkit_secret` row pointing at the ARN. The
- * runtime ExternalSecret bridge picks up new keys on the next deploy.
- *
- * Mirrors the per-org tRPC `secrets.list/upsert/delete` route on the
- * autonoma API. Both surfaces are intentionally independent in v1; if
- * the duplication becomes painful we can fold both into a shared package.
+ * runtime ExternalSecret bridge (in Previewkit's deployer) picks up new keys
+ * on the next deploy.
  */
 export class PreviewkitSecretsService {
     private readonly client: SecretsManagerClient;
@@ -179,7 +178,7 @@ export class PreviewkitSecretsService {
      * Allocates a new AWS Secrets Manager secret for one (app, appName)
      * pair and registers the ARN as a PreviewkitSecret row. AWS SM names
      * follow `previewkit/<orgSlug>/<application>/<appName>` for tidy IAM
-     * scoping; identical to the convention the autonoma API uses.
+     * scoping.
      */
     private async createAppSecret(
         app: { id: string; name: string },
@@ -240,10 +239,14 @@ export class PreviewkitSecretsService {
 
             if (result.SecretString == null) return {};
 
-            const parsed = JSON.parse(result.SecretString) as unknown;
+            const parsed: unknown = JSON.parse(result.SecretString);
             if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) return {};
 
-            return parsed as Record<string, string>;
+            const values: Record<string, string> = {};
+            for (const [key, value] of Object.entries(parsed)) {
+                if (typeof value === "string") values[key] = value;
+            }
+            return values;
         } catch (err: unknown) {
             if (err instanceof ResourceNotFoundException) return {};
             throw err;

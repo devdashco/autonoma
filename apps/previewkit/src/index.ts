@@ -18,7 +18,6 @@ import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
-import { PreviewkitSecretsService } from "./secrets/secrets-service";
 
 runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // Kubernetes client
@@ -107,11 +106,6 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     // previewkit pod's existing IAM role is region-scoped to it.
     const awsSecretsFetcher = new AwsSecretsFetcher(env.S3_REGION);
 
-    // CRUD over the per-app AWS Secrets Manager bundles, exposed via the
-    // HTTP /v1/secrets routes. Mirrors the autonoma API's tRPC `secrets`
-    // route for callers that prefer curl over a typed client.
-    const secretsService = new PreviewkitSecretsService(env.S3_REGION);
-
     // Deployer
     const deployer = new Deployer(
         kc,
@@ -158,9 +152,7 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
     const app = createApp({
         previewPipeline,
         teardownPipeline,
-        deployer,
         gitProvider: githubProvider,
-        secretsService,
         serviceSecret: env.AUTONOMA_SERVICE_SECRET,
     });
 

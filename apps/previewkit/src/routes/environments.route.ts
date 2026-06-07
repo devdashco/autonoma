@@ -2,7 +2,6 @@ import type { AuthCaller, CallerAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { Hono } from "hono";
 import { z } from "zod";
-import type { Deployer } from "../deployer/deployer";
 import type { GitProvider, PullRequestEvent } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import type { PreviewPipeline } from "../pipeline/preview-pipeline";
@@ -28,16 +27,10 @@ const deployRequestSchema = z.object({
 interface EnvironmentsRouteDeps {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
-    deployer: Deployer;
     gitProvider: GitProvider;
 }
 
-export function createEnvironmentsRoute({
-    previewPipeline,
-    teardownPipeline,
-    deployer,
-    gitProvider,
-}: EnvironmentsRouteDeps) {
+export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, gitProvider }: EnvironmentsRouteDeps) {
     return new Hono<{ Variables: CallerAuthVariables }>()
         .post("/environments", async (c) => {
             const body = await c.req.json().catch(() => undefined);
@@ -179,33 +172,6 @@ export function createEnvironmentsRoute({
                 },
                 202,
             );
-        })
-
-        .get("/environments/:owner/:repo/:pr", async (c) => {
-            const owner = c.req.param("owner");
-            const repo = c.req.param("repo");
-            const pr = parseEnvironmentNumber(c.req.param("pr"));
-            if (pr == null) {
-                return c.json({ error: "pr must be a non-negative integer" }, 400);
-            }
-
-            const repoFullName = `${owner}/${repo}`;
-            const annotations = await deployer.getNamespaceAnnotations(repoFullName, pr);
-            if (!annotations) {
-                return c.json({ error: "Environment not found" }, 404);
-            }
-
-            return c.json({
-                repoFullName,
-                prNumber: pr,
-                status: annotations.status ?? "unknown",
-                phase: annotations.phase,
-                createdAt: annotations.createdAt,
-                updatedAt: annotations.updatedAt,
-                lastDeployedSha: annotations.lastDeployedSha,
-                urls: annotations.urls ?? {},
-                error: annotations.error,
-            });
         })
 
         .delete("/environments/:owner/:repo/:pr", async (c) => {

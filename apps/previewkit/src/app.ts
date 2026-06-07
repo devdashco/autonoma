@@ -1,15 +1,12 @@
 import { type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { Hono } from "hono";
-import type { Deployer } from "./deployer/deployer";
 import type { GitProvider } from "./git-provider/git-provider";
 import type { PreviewPipeline } from "./pipeline/preview-pipeline";
 import type { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { docsRoute } from "./routes/docs.route";
 import { createEnvironmentsRoute } from "./routes/environments.route";
 import { healthRoute } from "./routes/health.route";
-import { createSecretsRoute } from "./routes/secrets.route";
-import type { PreviewkitSecretsService } from "./secrets/secrets-service";
 
 /** Typed Hono environment so `c.var.authCaller` is inferred end-to-end. */
 export type PreviewkitHonoEnv = { Variables: CallerAuthVariables };
@@ -17,9 +14,7 @@ export type PreviewkitHonoEnv = { Variables: CallerAuthVariables };
 interface AppOptions {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
-    deployer: Deployer;
     gitProvider: GitProvider;
-    secretsService: PreviewkitSecretsService;
     /** Shared secret for service-to-service calls (autonoma -> previewkit).
      *  Unset disables the service-secret path; only API-key callers will
      *  succeed. Suitable for local dev. */
@@ -42,11 +37,9 @@ export function createApp(options: AppOptions) {
         createEnvironmentsRoute({
             previewPipeline: options.previewPipeline,
             teardownPipeline: options.teardownPipeline,
-            deployer: options.deployer,
             gitProvider: options.gitProvider,
         }),
     );
-    app.route("/v1", createSecretsRoute(options.secretsService));
     app.route("/v1", docsRoute);
 
     return app;

@@ -3,15 +3,15 @@ title: Secrets
 description: How to manage credentials, API keys, and other sensitive values for your Previewkit environments.
 ---
 
-Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in `.preview.yaml`. Manage it through the Previewkit API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
+Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in `.preview.yaml`. Manage it through the autonoma API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
 
 ## Managing secrets
 
 ```
-GET    /v1/secrets/:applicationId/:app                # list keys (no values)
-PUT    /v1/secrets/:applicationId/:app                # batch upsert; body: {"items":[{"key","value"},...]}
-PUT    /v1/secrets/:applicationId/:app/:key           # single upsert; body: {"value":"..."}
-DELETE /v1/secrets/:applicationId/:app/:key           # delete one key
+GET    /v1/previewkit/secrets/:applicationId/:app                # list keys (no values)
+PUT    /v1/previewkit/secrets/:applicationId/:app                # batch upsert; body: {"items":[{"key","value"},...]}
+PUT    /v1/previewkit/secrets/:applicationId/:app/:key           # single upsert; body: {"value":"..."}
+DELETE /v1/previewkit/secrets/:applicationId/:app/:key           # delete one key
 ```
 
 `applicationId` is your autonoma Application row id. Look it up once via the dashboard and hardcode it in your CI. `app` matches the `name:` field of an app inside `.preview.yaml`. For a single-app repo it's just that one name; for a monorepo each app has its own bundle.
@@ -21,27 +21,27 @@ DELETE /v1/secrets/:applicationId/:app/:key           # delete one key
 Every call needs an `Authorization: Bearer <api-key>` header. Create an API key from the autonoma dashboard (Settings → API keys); keys are scoped to your organization, so they can only see and modify your own applications' secrets. Treat them like a password.
 
 ```bash
-export PREVIEWKIT_API_KEY="ak_live_..."
+export AUTONOMA_API_KEY="ak_live_..."
 
 # Batch upsert
-curl -X PUT "https://previewkit.autonoma.app/v1/secrets/app_abc123/web" \
-  -H "Authorization: Bearer $PREVIEWKIT_API_KEY" \
+curl -X PUT "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web" \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"items":[{"key":"STRIPE_API_KEY","value":"sk_live_..."},{"key":"SENTRY_DSN","value":"https://..."}]}'
 
 # Single key upsert
-curl -X PUT "https://previewkit.autonoma.app/v1/secrets/app_abc123/web/STRIPE_API_KEY" \
-  -H "Authorization: Bearer $PREVIEWKIT_API_KEY" \
+curl -X PUT "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"value":"sk_live_..."}'
 
 # List keys (names only, never values)
-curl "https://previewkit.autonoma.app/v1/secrets/app_abc123/web" \
-  -H "Authorization: Bearer $PREVIEWKIT_API_KEY"
+curl "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web" \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY"
 
 # Delete
-curl -X DELETE "https://previewkit.autonoma.app/v1/secrets/app_abc123/web/STRIPE_API_KEY" \
-  -H "Authorization: Bearer $PREVIEWKIT_API_KEY"
+curl -X DELETE "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web/STRIPE_API_KEY" \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY"
 ```
 
 Calls without a valid Bearer token get a 401. Calls referencing an `applicationId` your key doesn't have access to are indistinguishable from "no secrets yet" - the API never reveals whether a foreign application exists.

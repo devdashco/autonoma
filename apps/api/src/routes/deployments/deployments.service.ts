@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { env } from "../../env";
+import { previewkitClient } from "../../previewkit/previewkit-service";
 import { Service } from "../service";
 import {
     buildServiceSummaries,
@@ -79,43 +79,13 @@ export class DeploymentsService extends Service {
             throw new NotFoundError("Preview environment not found");
         }
 
-        if (env.PREVIEWKIT_URL == null || env.PREVIEWKIT_SERVICE_SECRET == null) {
+        if (!previewkitClient.isConfigured()) {
             throw new Error(
                 "Preview environments are not configured: PREVIEWKIT_URL and PREVIEWKIT_SERVICE_SECRET must be set.",
             );
         }
 
-        const base = env.PREVIEWKIT_URL.replace(/\/$/, "");
-        const [owner, repo] = environment.repoFullName.split("/");
-        const url = `${base}/v1/environments/${owner}/${repo}/${environment.prNumber}/redeploy`;
-
-        const response = await fetch(url, {
-            method: "POST",
-            headers: { authorization: `Bearer ${env.PREVIEWKIT_SERVICE_SECRET}` },
-            signal: AbortSignal.timeout(10_000),
-        });
-
-        if (!response.ok) {
-            const payload: unknown = await response.json().catch(() => undefined);
-            const detail =
-                typeof payload === "object" &&
-                payload != null &&
-                "error" in payload &&
-                typeof payload.error === "string"
-                    ? payload.error
-                    : undefined;
-            this.logger.warn("Previewkit redeploy returned non-OK", {
-                status: response.status,
-                repoFullName: environment.repoFullName,
-                prNumber: environment.prNumber,
-            });
-            throw new Error(detail ?? `Previewkit redeploy failed with status ${response.status}.`);
-        }
-
-        this.logger.info("Triggered previewkit redeploy", {
-            repoFullName: environment.repoFullName,
-            prNumber: environment.prNumber,
-        });
+        await previewkitClient.redeploy(environment.repoFullName, environment.prNumber);
     }
 
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {

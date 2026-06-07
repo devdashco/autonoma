@@ -1,7 +1,6 @@
 import type { AuthCaller, CallerAuthVariables } from "@autonoma/auth";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Deployer } from "../../src/deployer/deployer";
 import type { GitProvider } from "../../src/git-provider/git-provider";
 import type { PreviewPipeline } from "../../src/pipeline/preview-pipeline";
 import type { TeardownPipeline } from "../../src/pipeline/teardown-pipeline";
@@ -43,7 +42,6 @@ function buildApp(authCaller: AuthCaller = { kind: "user", userId: "user_1", org
         deploy: vi.fn().mockResolvedValue(undefined),
     } as unknown as PreviewPipeline;
     const teardownPipeline = {} as TeardownPipeline;
-    const deployer = {} as Deployer;
     const gitProvider = {
         getRepository: vi.fn().mockResolvedValue(baseRepo),
         getBranchHead: vi.fn().mockResolvedValue("abcdef123456"),
@@ -59,7 +57,6 @@ function buildApp(authCaller: AuthCaller = { kind: "user", userId: "user_1", org
         createEnvironmentsRoute({
             previewPipeline,
             teardownPipeline,
-            deployer,
             gitProvider,
         }),
     );
