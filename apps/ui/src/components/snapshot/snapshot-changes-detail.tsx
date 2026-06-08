@@ -1,7 +1,8 @@
-import { Badge, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
+import { Badge, cn, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CATEGORY, type TestEntry } from "./snapshot-entries";
@@ -73,12 +74,12 @@ export function SnapshotChangesDetail({ entry, prNumber }: { entry: TestEntry; p
       )}
       {entry.plan != null && entry.plan.trim().length > 0 && (
         <DetailSection label="Plan">
-          <Prose>{entry.plan}</Prose>
+          <ClampedProse>{entry.plan}</ClampedProse>
         </DetailSection>
       )}
       {entry.previousPlan != null && entry.previousPlan.trim().length > 0 && (
         <DetailSection label="Previous plan">
-          <Prose className="text-text-secondary">{entry.previousPlan}</Prose>
+          <ClampedProse className="text-text-secondary">{entry.previousPlan}</ClampedProse>
         </DetailSection>
       )}
       {entry.generation != null && (
@@ -200,5 +201,44 @@ function RunActions({ run }: { run: NonNullable<TestEntry["run"]> }) {
 function Prose({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <p className={`whitespace-pre-wrap text-xs leading-relaxed text-text-primary ${className ?? ""}`}>{children}</p>
+  );
+}
+
+// Collapses long prose (e.g. test plans) to a fixed number of lines with a "Read more" toggle.
+function ClampedProse({ children, className }: { children: string; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el == null) return;
+    setOverflowing(el.scrollHeight > el.clientHeight + 1);
+  }, [children]);
+
+  const showToggle = overflowing || expanded;
+
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <p
+        ref={ref}
+        className={cn(
+          "whitespace-pre-wrap text-xs leading-relaxed text-text-primary",
+          !expanded && "line-clamp-5",
+          className,
+        )}
+      >
+        {children}
+      </p>
+      {showToggle && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="font-mono text-2xs uppercase tracking-widest text-text-tertiary transition-colors hover:text-text-primary"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
   );
 }

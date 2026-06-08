@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  cn,
   Panel,
   PanelBody,
   PanelHeader,
@@ -71,7 +72,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { changes, diffsJob, refinementLoop } = detail;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
       <header className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-text-tertiary">
           <AppLink
@@ -165,7 +166,13 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
         </TabsList>
       </Tabs>
 
-      {showingChanges ? <Outlet /> : <SnapshotReportBody report={report} detail={detail} />}
+      {showingChanges ? (
+        <div className="flex flex-col lg:min-h-0 lg:flex-1">
+          <Outlet />
+        </div>
+      ) : (
+        <SnapshotReportBody report={report} detail={detail} />
+      )}
 
       {isAdmin && pipelineOpen && (
         <PipelineStrip

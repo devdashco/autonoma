@@ -30,24 +30,24 @@ function ChangesLayout() {
   const total = sections.reduce((sum, s) => sum + s.entries.length, 0);
 
   return (
-    <Panel>
+    <Panel className="lg:h-full lg:min-h-0">
       <PanelHeader>
         <PanelTitle>Test suite changes</PanelTitle>
         <span className="font-mono text-2xs text-text-tertiary">
           {total} {total === 1 ? "test" : "tests"}
         </span>
       </PanelHeader>
-      <PanelBody className="p-0">
+      <PanelBody className="p-0 lg:min-h-0 lg:overflow-hidden">
         {total === 0 ? (
           <div className="px-5 py-8">
             <p className="text-xs text-text-tertiary">No test suite changes recorded for this checkpoint.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-px bg-border-dim lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-            <div className="bg-surface-base">
+          <div className="grid grid-cols-1 gap-px bg-border-dim lg:h-full lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:grid-rows-1">
+            <div className="bg-surface-base lg:min-h-0 lg:overflow-y-auto">
               <SnapshotChangesList sections={sections} prNumber={prNumber} snapshotId={snapshotId} />
             </div>
-            <div className="bg-surface-base">
+            <div className="bg-surface-base lg:min-h-0 lg:overflow-y-auto">
               <Outlet />
             </div>
           </div>
