@@ -32,7 +32,7 @@ import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
-import { logger } from "../logger";
+import { logger, withObservabilityContext } from "../logger";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 
@@ -167,6 +167,12 @@ export class PreviewPipeline {
     }
 
     async deploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
+        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, () =>
+            this.runDeploy(event, options),
+        );
+    }
+
+    private async runDeploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 

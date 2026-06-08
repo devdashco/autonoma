@@ -1,1 +1,1 @@
-export { logger, type Logger } from "@autonoma/logger";
+export { logger, type Logger, withObservabilityContext } from "@autonoma/logger";

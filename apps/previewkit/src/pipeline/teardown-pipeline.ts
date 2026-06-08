@@ -4,7 +4,7 @@ import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
-import { logger } from "../logger";
+import { logger, withObservabilityContext } from "../logger";
 
 interface TeardownPipelineOptions {
     provider: GitProvider;
@@ -24,6 +24,12 @@ export class TeardownPipeline {
     }
 
     async teardown(event: PullRequestEvent): Promise<void> {
+        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, () =>
+            this.runTeardown(event),
+        );
+    }
+
+    private async runTeardown(event: PullRequestEvent): Promise<void> {
         const { repoFullName, prNumber, headSha, organizationId } = event;
 
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber });
