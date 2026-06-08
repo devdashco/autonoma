@@ -16,5 +16,8 @@ const STEP_ROUTES: Record<string, OnboardingStep> = {
 
 export function navigateToOnboarding(applicationId: string, step: string | undefined, navigate: NavigateFn) {
     const resolvedStep: OnboardingStep = STEP_ROUTES[step ?? "webhook_configuring"] ?? "cli-setup";
-    void navigate({ to: "/onboarding", search: { step: resolvedStep, appId: applicationId } });
+    void navigate({
+        to: "/onboarding",
+        search: { step: resolvedStep, appId: applicationId, apiKey: undefined, setupId: undefined },
+    });
 }

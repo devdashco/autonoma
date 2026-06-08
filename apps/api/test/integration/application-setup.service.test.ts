@@ -169,6 +169,32 @@ apiTestSuite({
             expect(scenarios).toHaveLength(0);
         });
 
+        test("uploadArtifacts records the commit sha on the branch and pending snapshot", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Application Setup Commit Sha");
+            const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [{ name: "login.md", folder: "auth", content: "---\n---\n\nNavigate to /login" }],
+                commitSha: sha,
+            });
+
+            const branch = await harness.db.branch.findFirstOrThrow({
+                where: { applicationId: app.id },
+                select: { lastHandledSha: true, pendingSnapshotId: true },
+            });
+            expect(branch.lastHandledSha).toBe(sha);
+
+            const pendingSnapshotId = branch.pendingSnapshotId;
+            expect(pendingSnapshotId).not.toBeNull();
+            if (pendingSnapshotId == null) throw new Error("expected a pending snapshot");
+
+            const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: pendingSnapshotId },
+                select: { headSha: true },
+            });
+            expect(snapshot.headSha).toBe(sha);
+        });
+
         test("uploadArtifacts rejects scenario recipes in the generic artifact endpoint", async ({ harness }) => {
             const { setupId, service } = await createSetupFixture(harness, "Application Setup Reject Scenario Recipes");
 

@@ -30,7 +30,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DocLink } from "./-components/doc-link";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 export const Route = createFileRoute("/_blacklight/onboarding/scenario-dry-run")({
-  component: () => <Navigate to="/onboarding" search={{ step: "scenario-dry-run", appId: undefined }} />,
+  component: () => (
+    <Navigate
+      to="/onboarding"
+      search={{ step: "scenario-dry-run", appId: undefined, apiKey: undefined, setupId: undefined }}
+    />
+  ),
 });
 
 function StepNumber({ step, done }: { step: number; done: boolean }) {
@@ -423,7 +428,11 @@ export function DeployPage({ appId }: { appId?: string }) {
       { applicationId, productionUrl: appUrl },
       {
         onSuccess: () => {
-          void navigate({ to: "/onboarding", search: { step: "github", appId: applicationId }, replace: true });
+          void navigate({
+            to: "/onboarding",
+            search: { step: "github", appId: applicationId, apiKey: undefined, setupId: undefined },
+            replace: true,
+          });
         },
       },
     );

@@ -33,7 +33,11 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
   validateSearch: (search: Record<string, unknown>) => {
     const step = typeof search.step === "string" && isOnboardingStep(search.step) ? search.step : undefined;
     const appId = typeof search.appId === "string" ? search.appId : undefined;
-    return { step, appId };
+    // The CLI upload credentials for the setup step live in the URL (not
+    // localStorage) so a refresh keeps the same setup the CLI uploads to.
+    const apiKey = typeof search.apiKey === "string" ? search.apiKey : undefined;
+    const setupId = typeof search.setupId === "string" ? search.setupId : undefined;
+    return { step, appId, apiKey, setupId };
   },
   loader: async ({ context: { queryClient }, location }) => {
     const session = await ensureSessionData(queryClient);
@@ -82,7 +86,10 @@ function OnboardingLayout() {
 
   function handleReset() {
     setIsResetting(true);
-    void navigate({ to: "/onboarding", search: { step: "cli-setup", appId: undefined } });
+    void navigate({
+      to: "/onboarding",
+      search: { step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined },
+    });
     setConfirmReset(false);
     setIsResetting(false);
   }

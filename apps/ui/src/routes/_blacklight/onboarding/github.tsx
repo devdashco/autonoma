@@ -36,7 +36,7 @@ export const Route = createFileRoute("/_blacklight/onboarding/github")({
 
 function RouteComponent() {
   const { appId } = Route.useSearch();
-  return <Navigate to="/onboarding" search={{ step: "github", appId }} />;
+  return <Navigate to="/onboarding" search={{ step: "github", appId, apiKey: undefined, setupId: undefined }} />;
 }
 
 function getErrorMessage(error: string): string {
@@ -200,7 +200,10 @@ function RepoSelectionStep({ appId }: { appId: string }) {
       { applicationId: appId },
       {
         onSuccess: () => {
-          void navigate({ to: "/onboarding", search: { step: "complete", appId: appId } });
+          void navigate({
+            to: "/onboarding",
+            search: { step: "complete", appId: appId, apiKey: undefined, setupId: undefined },
+          });
         },
       },
     );

@@ -33,9 +33,10 @@ const StepDataSchema = z.object({
     name: z.string(),
 });
 
-const FileDataSchema = z.object({
+export const FileDataSchema = z.object({
     filePath: z.string(),
 });
+export type FileData = z.infer<typeof FileDataSchema>;
 
 const MessageDataSchema = z.object({
     message: z.string(),
@@ -107,9 +108,35 @@ export const UploadArtifactsBodySchema = z.object({
     skills: z.array(UploadFileSchema).optional(),
     testCases: z.array(UploadFileSchema).optional(),
     artifacts: z.array(UploadFileSchema).optional(),
+    /** The git commit the artifacts were generated from. Stamped onto the resulting snapshot + branch. */
+    commitSha: z.string().optional(),
 });
 export type UploadArtifactsBody = z.infer<typeof UploadArtifactsBodySchema>;
 
 /** Canonical body for `POST /v1/setup/setups/:id/scenario-recipe-versions`. */
 export const UploadScenarioRecipeVersionsBodySchema = ScenarioRecipesFileSchema;
 export type UploadScenarioRecipeVersionsBody = z.infer<typeof UploadScenarioRecipeVersionsBodySchema>;
+
+/**
+ * The set of artifacts the planner CLI uploads at the end of a run. The
+ * onboarding "Setup" step polls `applicationSetups.artifactStatus` and checks
+ * each one off as it arrives.
+ */
+export const ArtifactKeySchema = z.enum(["recipe", "tests", "kb", "scenarios"]);
+export type ArtifactKey = z.infer<typeof ArtifactKeySchema>;
+
+export const ArtifactStatusItemSchema = z.object({
+    key: ArtifactKeySchema,
+    received: z.boolean(),
+    /** Human-readable detail shown next to the row (e.g. "14 files", "3 scenarios"). */
+    meta: z.string().optional(),
+});
+export type ArtifactStatusItem = z.infer<typeof ArtifactStatusItemSchema>;
+
+/** Response shape for `applicationSetups.artifactStatus`. */
+export const ArtifactStatusSchema = z.object({
+    /** True once the CLI has finished uploading everything (setup marked completed). */
+    complete: z.boolean(),
+    artifacts: z.array(ArtifactStatusItemSchema),
+});
+export type ArtifactStatus = z.infer<typeof ArtifactStatusSchema>;

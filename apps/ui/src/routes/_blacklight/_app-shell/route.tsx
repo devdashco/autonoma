@@ -39,7 +39,10 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext) {
   const applications = await queryClient.fetchQuery(trpc.applications.list.queryOptions());
 
   if (applications.length === 0) {
-    throw redirect({ to: "/onboarding", search: { step: "cli-setup", appId: undefined } });
+    throw redirect({
+      to: "/onboarding",
+      search: { step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined },
+    });
   }
 
   return { user, organizations, activeOrganization, applications };

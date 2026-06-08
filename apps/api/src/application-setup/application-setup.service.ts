@@ -193,11 +193,40 @@ export class ApplicationSetupService {
         const updater = await this.getUpdater(branchId, organizationId);
         await this.applyTests(updater, body.testCases ?? [], setup.applicationId, organizationId);
         await this.createFileEvents(setupId, body);
+        if (body.commitSha != null) {
+            await this.recordCommit(branchId, body.commitSha);
+        }
 
         log.info("Uploaded artifacts", {
             setupId,
             testCases: body.testCases?.length ?? 0,
             artifacts: body.artifacts?.length ?? 0,
+        });
+    }
+
+    /**
+     * Stamps the commit the artifacts were generated from onto the branch
+     * (last_handled_sha) and the pending snapshot the updater just created
+     * (head_sha), mirroring how the GitHub diff flow records commits.
+     */
+    private async recordCommit(branchId: string, commitSha: string) {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: { pendingSnapshotId: true },
+        });
+
+        await this.db.$transaction(async (tx) => {
+            await tx.branch.update({ where: { id: branchId }, data: { lastHandledSha: commitSha } });
+            if (branch?.pendingSnapshotId != null) {
+                await tx.branchSnapshot.update({
+                    where: { id: branch.pendingSnapshotId },
+                    data: { headSha: commitSha },
+                });
+            }
+        });
+
+        log.info("Recorded commit for uploaded artifacts", {
+            extra: { branchId, commitSha, pendingSnapshotId: branch?.pendingSnapshotId },
         });
     }
 

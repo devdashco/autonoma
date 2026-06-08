@@ -4,7 +4,9 @@ import { Link, Navigate, createFileRoute, useNavigate } from "@tanstack/react-ro
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_blacklight/onboarding/complete")({
-  component: () => <Navigate to="/onboarding" search={{ step: "complete", appId: undefined }} />,
+  component: () => (
+    <Navigate to="/onboarding" search={{ step: "complete", appId: undefined, apiKey: undefined, setupId: undefined }} />
+  ),
 });
 
 export function CompletePage() {

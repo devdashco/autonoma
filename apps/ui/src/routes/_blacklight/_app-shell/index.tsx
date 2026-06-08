@@ -108,7 +108,7 @@ function AppSelector() {
       </Panel>
 
       <div className="mt-6 flex justify-center">
-        <Link to="/onboarding" search={{ step: "cli-setup", appId: undefined }}>
+        <Link to="/onboarding" search={{ step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined }}>
           <Button variant="outline" className="gap-2" aria-label="open-create-application-dialog">
             <PlusIcon size={14} />
             New application
