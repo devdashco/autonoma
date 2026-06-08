@@ -1,7 +1,9 @@
 import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
 import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
+import { Clipboard } from "@phosphor-icons/react/Clipboard";
 import { Cursor } from "@phosphor-icons/react/Cursor";
 import { CursorClick } from "@phosphor-icons/react/CursorClick";
+import { Eye } from "@phosphor-icons/react/Eye";
 import { Globe } from "@phosphor-icons/react/Globe";
 import { Keyboard } from "@phosphor-icons/react/Keyboard";
 import { Mouse } from "@phosphor-icons/react/Mouse";
@@ -112,6 +114,29 @@ const hoverUI: CommandUI = {
   color: commandColors.interact,
   badgeClassName: "bg-blue-50 text-blue-700 border-blue-200",
 };
+const readUI: CommandUI = {
+  name: "read",
+  instruction: (params) => (
+    <>
+      Read <strong>{params.description as string}</strong> into <strong>{params.variableName as string}</strong>
+    </>
+  ),
+  iconComponent: Eye,
+  color: commandColors.interact,
+  badgeClassName: "bg-blue-50 text-blue-700 border-blue-200",
+};
+
+const saveClipboardUI: CommandUI = {
+  name: "save-clipboard",
+  instruction: (params) => (
+    <>
+      Save the clipboard into <strong>{params.variableName as string}</strong>
+    </>
+  ),
+  iconComponent: Clipboard,
+  color: commandColors.interact,
+  badgeClassName: "bg-blue-50 text-blue-700 border-blue-200",
+};
 
 const displayCommand: Record<string, CommandUI> = {
   click: clickUI,
@@ -122,6 +147,8 @@ const displayCommand: Record<string, CommandUI> = {
   refresh: refreshUI,
   navigate: navigateUI,
   hover: hoverUI,
+  read: readUI,
+  "save-clipboard": saveClipboardUI,
 };
 
 const unknownCommandUI: CommandUI = {
