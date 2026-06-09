@@ -1,15 +1,47 @@
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
 import { App } from "@octokit/app";
-import { extract as extractTar } from "tar-fs";
 import { logger } from "../logger";
+import { extractTarballStream } from "./extract-tarball-stream";
 import type { GitProvider, GitRepository } from "./git-provider";
 
 function parseRepo(repoFullName: string): { owner: string; repo: string } {
     const [owner, repo] = repoFullName.split("/");
     if (!owner || !repo) throw new Error(`Invalid repo name: ${repoFullName}`);
     return { owner, repo };
+}
+
+/**
+ * Narrows octokit's `response.data` into a Node Readable for streaming. With
+ * `parseSuccessResponseBody:false`, octokit sets `data` to the fetch response's
+ * body - a web ReadableStream - though its static type still reflects the
+ * endpoint's parsed shape. A guard at this boundary keeps us honest without an
+ * `as` cast: if octokit ever changes the shape, this throws loudly instead of
+ * mis-streaming.
+ */
+function toNodeStream(data: unknown): Readable {
+    if (!(data instanceof ReadableStream)) {
+        throw new Error("Expected a streaming response body (ReadableStream) from the GitHub tarball endpoint");
+    }
+    return Readable.from(readWebStream(data));
+}
+
+/**
+ * Bridges a web ReadableStream to an async iterable of chunks via its reader.
+ * Going through the stream's own `getReader()` keeps us on a single
+ * ReadableStream type, sidestepping the DOM-vs-`node:stream/web` mismatch that
+ * `Readable.fromWeb` trips over under strict TS.
+ */
+async function* readWebStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
+    const reader = stream.getReader();
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value != null) yield value;
+        }
+    } finally {
+        reader.releaseLock();
+    }
 }
 
 interface GitHubProviderOptions {
@@ -99,31 +131,20 @@ export class GitHubProvider implements GitProvider {
 
         logger.info("Downloading repo tarball", { repoFullName, ref });
 
-        // The tarball endpoint returns the gzipped archive body as ArrayBuffer.
+        // parseSuccessResponseBody:false tells octokit not to buffer the body,
+        // so `response.data` is the response's ReadableStream and we can stream
+        // its gzip straight through gunzip + tar extraction instead of holding
+        // the whole archive in memory (see extractTarballStream for why that matters).
         const response = await octokit.request("GET /repos/{owner}/{repo}/tarball/{ref}", {
             owner,
             repo,
             ref,
+            request: { parseSuccessResponseBody: false },
         });
 
-        // Octokit returns the binary body as an ArrayBuffer for this endpoint.
-        const buffer = Buffer.from(response.data as ArrayBuffer);
+        await extractTarballStream(toNodeStream(response.data), targetDir);
 
-        // GitHub wraps every tarball in a single top-level directory like
-        // `owner-repo-<short-sha>/`. Strip it so files land directly under `targetDir`.
-        const extractor = extractTar(targetDir, {
-            map: (header) => {
-                const firstSlash = header.name.indexOf("/");
-                if (firstSlash >= 0) {
-                    header.name = header.name.slice(firstSlash + 1);
-                }
-                return header;
-            },
-        });
-
-        await pipeline(Readable.from(buffer), createGunzip(), extractor);
-
-        logger.info("Repo tarball extracted", { repoFullName, ref, targetDir, bytes: buffer.length });
+        logger.info("Repo tarball extracted", { repoFullName, ref, targetDir });
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {

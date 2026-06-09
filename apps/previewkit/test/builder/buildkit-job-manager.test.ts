@@ -328,6 +328,37 @@ describe("BuildKitJobManager", () => {
         expect((err as BuildError).isTransient).toBe(true);
     });
 
+    it("times out (transient) using the configured readinessTimeoutMs when the pod never becomes Ready", async () => {
+        const { kc, core, batch } = makeKc();
+        // Pod exists but stays perpetually pending (no Ready condition, no
+        // failure reason) - the real-world "Karpenter is still bringing a node
+        // online" case the readiness timeout exists to bound.
+        core.podListSequence = [{ items: [{ metadata: { name: "p1" }, status: { conditions: [] } }] }];
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            readinessTimeoutMs: 5_000,
+            dial: dialAlwaysOk,
+        });
+
+        const promise = mgr.provision();
+        const caught = promise.catch((e) => e);
+        await vi.runAllTimersAsync();
+        const err = await caught;
+
+        expect(err).toBeInstanceOf(BuildError);
+        // Error message reports the configured timeout, not the 90s default.
+        expect(err.message).toMatch(/become ready after 5000ms/);
+        // Transient: the builder's retry loop should try again (a fresh node
+        // may be ready by then) rather than failing the environment outright.
+        expect((err as BuildError).isTransient).toBe(true);
+        // Failure still cleans up the Job it created - no leak.
+        expect(batch.deletedJobs).toHaveLength(1);
+    });
+
     it("retries the TCP dial until the Service is reachable (covers kube-proxy lag)", async () => {
         const { kc, core } = makeKc();
         core.podListSequence = [{ items: [podWith({ ready: true })] }];

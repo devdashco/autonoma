@@ -37,6 +37,11 @@ interface BuildKitJobManagerOptions {
      *  Job.spec.activeDeadlineSeconds so K8s self-terminates stuck builds
      *  even if previewkit crashed before calling release(). */
     activeDeadlineSeconds: number;
+    /** How long to wait for the build pod to report Ready before treating the
+     *  attempt as a (transient) failure. Defaults to
+     *  DEFAULT_READINESS_TIMEOUT_MS; production wires it from
+     *  BUILD_READINESS_TIMEOUT_MS so it can outlast a Karpenter node scale-up. */
+    readinessTimeoutMs?: number;
     /** Override the TCP dial probe used after Pod becomes Ready. Production
      *  uses the default (node:net createConnection); tests inject a fake
      *  that resolves without doing real I/O. */
@@ -184,8 +189,9 @@ export class BuildKitJobManager {
         const start = Date.now();
         const { namespace } = this.options;
         const selector = `${LABEL_BUILD_ID}=${buildId}`;
+        const readinessTimeoutMs = this.options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
 
-        while (Date.now() - start < DEFAULT_READINESS_TIMEOUT_MS) {
+        while (Date.now() - start < readinessTimeoutMs) {
             const pods = await this.coreApi.listNamespacedPod({ namespace, labelSelector: selector });
             const pod = pods.items[0];
 
@@ -206,7 +212,7 @@ export class BuildKitJobManager {
         // autoscaler is still bringing a node online for the build, and
         // a fresh provision on the next attempt is likely to schedule.
         throw new BuildError(
-            `Timed out waiting for buildkit Job (build-id=${buildId}) to become ready after ${DEFAULT_READINESS_TIMEOUT_MS}ms`,
+            `Timed out waiting for buildkit Job (build-id=${buildId}) to become ready after ${readinessTimeoutMs}ms`,
             { isTransient: true },
         );
     }
