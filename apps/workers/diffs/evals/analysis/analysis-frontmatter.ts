@@ -1,5 +1,4 @@
 import type { DiffsAgentResult } from "@autonoma/diffs";
-import type { z } from "zod";
 import {
     type CheckFailure,
     baseFrontmatterSchema,
@@ -7,7 +6,8 @@ import {
     checkIdentifierSet,
     countBoundsSchema,
     identifierSetCheckSchema,
-} from "../framework/frontmatter";
+} from "@autonoma/evals";
+import type { z } from "zod";
 
 /**
  * Deterministic checks for an Analysis case, layered on the shared base.

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadCases } from "../framework/case-loader";
+import { loadCases } from "@autonoma/evals";
 import { resolveCasesDir } from "../framework/cases-dir";
 import { HealingEvaluation, validateHealingCase } from "./healing-evaluation";
 import { healingFrontmatterSchema } from "./healing-frontmatter";

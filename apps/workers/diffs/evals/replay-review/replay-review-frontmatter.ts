@@ -1,6 +1,6 @@
+import { type CheckFailure, baseFrontmatterSchema, checkEnumEquality } from "@autonoma/evals";
 import { type ReplayVerdict, replayVerdictKindSchema } from "@autonoma/types";
 import type { z } from "zod";
-import { type CheckFailure, baseFrontmatterSchema, checkEnumEquality } from "../framework/frontmatter";
 
 /**
  * Deterministic checks for a replay review case.

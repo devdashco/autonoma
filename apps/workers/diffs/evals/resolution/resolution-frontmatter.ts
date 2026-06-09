@@ -1,5 +1,4 @@
 import type { ResolutionAgentResult } from "@autonoma/diffs";
-import { z } from "zod";
 import {
     type CheckFailure,
     baseFrontmatterSchema,
@@ -7,7 +6,8 @@ import {
     checkIdentifierSet,
     countBoundsSchema,
     identifierSetCheckSchema,
-} from "../framework/frontmatter";
+} from "@autonoma/evals";
+import { z } from "zod";
 
 /**
  * Deterministic checks for a Resolution case, layered on the shared base.

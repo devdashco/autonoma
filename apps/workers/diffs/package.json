@@ -24,6 +24,7 @@
         "@autonoma/diffs": "workspace:*",
         "@autonoma/engine": "workspace:*",
         "@autonoma/engine-web": "workspace:*",
+        "@autonoma/evals": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",

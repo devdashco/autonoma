@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadCases } from "../framework/case-loader";
+import { loadCases } from "@autonoma/evals";
 import { resolveCasesDir } from "../framework/cases-dir";
 import { ReplayReviewEvaluation } from "./replay-review-evaluation";
 import { replayReviewFrontmatterSchema } from "./replay-review-frontmatter";

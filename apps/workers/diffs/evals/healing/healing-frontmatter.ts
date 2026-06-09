@@ -1,6 +1,6 @@
 import type { HealingResult } from "@autonoma/diffs";
+import { type CheckFailure, baseFrontmatterSchema } from "@autonoma/evals";
 import { z } from "zod";
-import { type CheckFailure, baseFrontmatterSchema } from "../framework/frontmatter";
 
 const ACTION_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "remove_test"] as const;
 

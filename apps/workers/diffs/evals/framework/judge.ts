@@ -1,28 +1,7 @@
 import { ObjectGenerator } from "@autonoma/ai";
-import { type DiffsModelName, type SessionCostSummary, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { type DiffsModelName, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { type JudgeParams, type JudgeResult, judgeVerdictSchema } from "@autonoma/evals";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { z } from "zod";
-
-export const judgeVerdictSchema = z.object({
-    /** Whether the agent output conforms to the rubric. */
-    passed: z.boolean(),
-    /** Short justification, citing the specific rubric points that did or did not hold. */
-    reasoning: z.string(),
-});
-
-export type JudgeVerdict = z.infer<typeof judgeVerdictSchema>;
-
-export interface JudgeResult extends JudgeVerdict {
-    /** Cost of this single judge call, metered into the judge's own session collector. */
-    cost: SessionCostSummary;
-}
-
-export interface JudgeParams {
-    /** The step's structured agent output (serialized to JSON for the judge). */
-    output: unknown;
-    /** The authored rubric (the `expected.md` body) - the ground truth the judge grades against. */
-    rubric: string;
-}
 
 const SYSTEM_PROMPT = `You are a strict grader for an automated test-engineering agent.
 

@@ -1,6 +1,6 @@
+import { type CheckFailure, baseFrontmatterSchema, checkEnumEquality } from "@autonoma/evals";
 import { type GenerationVerdict, generationVerdictKindSchema } from "@autonoma/types";
 import type { z } from "zod";
-import { type CheckFailure, baseFrontmatterSchema, checkEnumEquality } from "../framework/frontmatter";
 
 /**
  * Deterministic checks for a generation review case.

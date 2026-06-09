@@ -1,14 +1,8 @@
-import { Evaluation, type RunCaseHelpers } from "@autonoma/ai/evaluation";
 import { ResolutionAgent, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
-import {
-    type CodebaseCoords,
-    DiffsJudge,
-    type LoadedCase,
-    UnfetchableShaError,
-    ensureCachedCheckout,
-} from "../framework";
+import { type CodebaseCoords, DiffsJudge, UnfetchableShaError, ensureCachedCheckout } from "../framework";
 import { type ResolutionFrontmatter, checkResolutionResult } from "./resolution-frontmatter";
 import { type ResolutionCaseInput, rehydrateResolutionInput } from "./resolution-input";
 

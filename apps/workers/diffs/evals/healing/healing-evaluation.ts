@@ -1,14 +1,8 @@
-import { Evaluation, type RunCaseHelpers } from "@autonoma/ai/evaluation";
 import { HealingAgent, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
-import {
-    type CodebaseCoords,
-    DiffsJudge,
-    type LoadedCase,
-    UnfetchableShaError,
-    ensureCachedCheckout,
-} from "../framework";
+import { type CodebaseCoords, DiffsJudge, UnfetchableShaError, ensureCachedCheckout } from "../framework";
 import { type HealingFrontmatter, checkHealingResult } from "./healing-frontmatter";
 import { type HealingCaseInput, rehydrateHealingInput } from "./healing-input";
 

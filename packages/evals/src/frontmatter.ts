@@ -12,9 +12,8 @@ import { z } from "zod";
 
 /**
  * Current eval-case frontmatter schema version. The corpus lives in a separate
- * private repo (see `evals/README.md`); bump this whenever a frontmatter change
- * could make older corpus cases load wrong, so the loader can warn on drift
- * without coupling the two repos.
+ * private repo; bump this whenever a frontmatter change could make older corpus
+ * cases load wrong, so the loader can warn on drift without coupling the two repos.
  */
 export const CASE_SCHEMA_VERSION = 1;
 

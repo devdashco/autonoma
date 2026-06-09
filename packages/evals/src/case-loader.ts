@@ -25,7 +25,7 @@ export interface LoadedCase<TInput, TFrontmatter> {
 export interface CaseLoaderConfig<TInput, TFrontmatter> {
     /**
      * Directory containing one folder per case, or `undefined` when the corpus
-     * root (`DIFFS_EVAL_CASES_DIR`) is unset - in which case zero cases load.
+     * root is unset - in which case zero cases load.
      */
     casesDir: string | undefined;
     /** Schema for `input.json`. */

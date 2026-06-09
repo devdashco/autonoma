@@ -1,6 +1,5 @@
 import { VideoProcessor } from "@autonoma/ai";
 import { env as aiEnv } from "@autonoma/ai/env";
-import { Evaluation, type RunCaseHelpers } from "@autonoma/ai/evaluation";
 import {
     type EvidenceLoader,
     openModelSession,
@@ -8,6 +7,7 @@ import {
     StorageEvidenceLoader,
     summarizeSessionCost,
 } from "@autonoma/diffs";
+import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ReplayVerdict } from "@autonoma/types";
@@ -16,11 +16,10 @@ import { expect } from "vitest";
 import {
     type CodebaseCoords,
     DiffsJudge,
-    ensureCachedCheckout,
-    type LoadedCase,
     MissingEvidenceError,
-    probeEvidence,
     UnfetchableShaError,
+    ensureCachedCheckout,
+    probeEvidence,
 } from "../framework";
 import { type ReplayReviewFrontmatter, checkReplayReviewResult } from "./replay-review-frontmatter";
 import { type ReplayReviewCaseInput, rehydrateReplayReviewInput } from "./replay-review-input";
