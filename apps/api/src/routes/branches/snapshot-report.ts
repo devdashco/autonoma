@@ -4,6 +4,7 @@ import type { Logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
+import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
 import { aggregateSnapshotHealth, computeSnapshotHealth } from "./snapshot-health";
 import { loadBugsForSnapshot } from "./snapshot-report-bugs";
 import { buildResultsBlock } from "./snapshot-report-results";
@@ -75,11 +76,12 @@ export async function loadSnapshotReport({
     };
     const health = healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts);
 
-    const [trigger, results, bugs] = await Promise.all([
+    const [trigger, executedTests, bugs] = await Promise.all([
         buildTriggerBlock({ snapshot, github, organizationId, logger }),
-        buildResultsBlock(db, snapshotId, logger),
+        listExecutedTestsForSnapshot(db, snapshotId),
         loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
     ]);
+    const results = buildResultsBlock(executedTests, logger);
 
     const selected: SnapshotReportSelectedTest[] = (snapshot.diffsJob?.affectedTests ?? []).map((t) => ({
         testCaseId: t.testCase.id,

@@ -1,73 +1,53 @@
-import type { PrismaClient } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
-import type { SnapshotReportResults, SnapshotReportTestResult, ReportTestStatus } from "@autonoma/types";
+import type { ReportTestStatus, SnapshotReportResults, SnapshotReportTestResult } from "@autonoma/types";
+import type { SnapshotExecutedTest } from "./snapshot-executed-tests";
 
-function runStatusToTestStatus(status: string): ReportTestStatus {
-    if (status === "success") return "passed";
-    if (status === "failed") return "failed";
-    if (status === "running") return "running";
-    return "pending";
-}
-
-export async function buildResultsBlock(
-    db: PrismaClient,
-    snapshotId: string,
-    parentLogger: Logger,
-): Promise<SnapshotReportResults> {
+// The checkpoint report header ("X tests run, Y passed, Z failed"), the executed-tests list
+// rendered below it, the checkpoint history rail, and the cumulative PR card must all agree.
+// They diverged because this block counted raw `Run` rows directly (ignoring the refinement
+// loop and quarantine, and counting superseded runs), while every other surface derives from
+// `listExecutedTestsForSnapshot`. We now build the results block from that same canonical
+// source so every surface reports the same numbers.
+export function buildResultsBlock(executedTests: SnapshotExecutedTest[], parentLogger: Logger): SnapshotReportResults {
     const logger = parentLogger.child({ name: "buildResultsBlock" });
 
-    const runs = await db.run.findMany({
-        where: { assignment: { snapshotId } },
-        select: {
-            id: true,
-            status: true,
-            startedAt: true,
-            completedAt: true,
-            createdAt: true,
-            assignment: {
-                select: {
-                    testCaseId: true,
-                    testCase: { select: { name: true, slug: true } },
-                },
-            },
-        },
-    });
-
-    type RunRow = (typeof runs)[number];
-    const latestByTest = new Map<string, RunRow>();
-    for (const run of runs) {
-        const testId = run.assignment.testCaseId;
-        const existing = latestByTest.get(testId);
-        if (existing == null || timeOf(run) > timeOf(existing)) latestByTest.set(testId, run);
-    }
-
-    const tests: SnapshotReportTestResult[] = Array.from(latestByTest.values()).map((run) => ({
-        testCaseId: run.assignment.testCaseId,
-        name: run.assignment.testCase.name,
-        slug: run.assignment.testCase.slug,
-        status: runStatusToTestStatus(run.status),
-        runId: run.id,
-        durationMs:
-            run.startedAt != null && run.completedAt != null
-                ? run.completedAt.getTime() - run.startedAt.getTime()
-                : undefined,
+    const tests: SnapshotReportTestResult[] = executedTests.map((test) => ({
+        testCaseId: test.testCase.id,
+        name: test.testCase.name,
+        slug: test.testCase.slug,
+        status: reportStatusForExecutedTest(test),
+        runId: test.runId ?? undefined,
+        durationMs: durationForTest(test),
     }));
 
-    const phaseDurationMs = runPhaseDuration(runs);
-    logger.info("Built results block", {
-        snapshotId,
-        runs: runs.length,
-        latestTests: tests.length,
-        phaseDurationMs,
-    });
-
+    const phaseDurationMs = runPhaseDuration(executedTests);
     const counts = countResults(tests);
+
+    logger.info("Built results block", {
+        extra: { executedTests: executedTests.length, phaseDurationMs },
+    });
 
     return {
         durationMs: phaseDurationMs != null && phaseDurationMs > 0 ? phaseDurationMs : undefined,
-        ...counts,
+        passed: counts.passed,
+        failed: counts.failed,
+        pending: counts.pending,
+        running: counts.running,
+        total: tests.length,
         tests,
     };
+}
+
+function reportStatusForExecutedTest(test: SnapshotExecutedTest): ReportTestStatus {
+    if (test.finalOutcome === "passed") return "passed";
+    if (test.finalOutcome === "failed") return "failed";
+    if (test.status === "running" || test.status === "queued") return "running";
+    return "pending";
+}
+
+function durationForTest(test: SnapshotExecutedTest): number | undefined {
+    if (test.startedAt == null || test.completedAt == null) return undefined;
+    return test.completedAt.getTime() - test.startedAt.getTime();
 }
 
 function countResults(tests: SnapshotReportTestResult[]) {
@@ -83,15 +63,11 @@ function countResults(tests: SnapshotReportTestResult[]) {
         else pending += 1;
     }
 
-    return { passed, failed, pending, running, total: tests.length };
+    return { passed, failed, pending, running };
 }
 
-function timeOf(run: { startedAt: Date | null; createdAt: Date }): number {
-    return run.startedAt?.getTime() ?? run.createdAt.getTime();
-}
-
-function runPhaseDuration(runs: Array<{ startedAt: Date | null; completedAt: Date | null }>): number | undefined {
-    const startTimes = runs.map((r) => r.startedAt?.getTime()).filter((t): t is number => t != null);
-    const endTimes = runs.map((r) => r.completedAt?.getTime()).filter((t): t is number => t != null);
+function runPhaseDuration(tests: Array<{ startedAt: Date | null; completedAt: Date | null }>): number | undefined {
+    const startTimes = tests.map((t) => t.startedAt?.getTime()).filter((t): t is number => t != null);
+    const endTimes = tests.map((t) => t.completedAt?.getTime()).filter((t): t is number => t != null);
     return startTimes.length > 0 && endTimes.length > 0 ? Math.max(...endTimes) - Math.min(...startTimes) : undefined;
 }

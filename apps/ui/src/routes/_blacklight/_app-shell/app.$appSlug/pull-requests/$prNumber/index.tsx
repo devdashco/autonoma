@@ -442,15 +442,18 @@ function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: P
     }
   }
 
+  // Include in-flight (unresolved) tests so this card agrees with the checkpoint report header
+  // and the checkpoint history rail, which never drop running tests. Dropping them here made the
+  // PR card report fewer tests than the rest of the UI while a checkpoint was still running.
   const sections = new Map<string, PRTestRunSection>([
     ["failed", { key: "failed", title: "Failed", entries: [] }],
+    ["running", { key: "running", title: "Running", entries: [] }],
     ["passed", { key: "passed", title: "Passed", entries: [] }],
   ]);
   const seen = new Set<string>();
 
   for (const detail of details) {
     for (const test of detail.executedTests) {
-      if (test.finalOutcome === "unresolved") continue;
       if (seen.has(test.testCase.id)) continue;
       seen.add(test.testCase.id);
 
@@ -468,7 +471,8 @@ function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: P
 
 function groupKeyForExecutedTest(test: PRExecutedTest): string {
   if (test.finalOutcome === "failed") return "failed";
-  return "passed";
+  if (test.finalOutcome === "passed") return "passed";
+  return "running";
 }
 
 function sortExecutedTests(tests: PRExecutedTest[]): PRExecutedTest[] {
@@ -493,9 +497,7 @@ function CompactTestsRun({ sections, prNumber }: { sections: PRTestRunSection[];
 
   if (sections.length === 0) {
     return (
-      <div className="bg-surface-void px-4 py-4 text-sm text-text-secondary">
-        No finalized test runs recorded across this PR.
-      </div>
+      <div className="bg-surface-void px-4 py-4 text-sm text-text-secondary">No test runs recorded across this PR.</div>
     );
   }
 
@@ -576,6 +578,7 @@ function buildTestRunSummary(sections: PRTestRunSection[]): SummaryItem[] {
     { key: "edited", label: "edited", count: categoryCount("modified"), variant: "warn" },
     { key: "added", label: "added", count: categoryCount("added"), variant: "outline" },
     { key: "removed", label: "removed", count: categoryCount("removed"), variant: "critical" },
+    { key: "running", label: "running", count: finalOutcomeCount("unresolved"), variant: "status-running" },
     { key: "passed", label: "passed", count: finalOutcomeCount("passed"), variant: "status-passed" },
   ];
 

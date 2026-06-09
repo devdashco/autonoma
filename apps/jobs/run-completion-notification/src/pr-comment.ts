@@ -11,6 +11,8 @@ import {
 import { type Logger, logger } from "@autonoma/logger";
 import { z } from "zod";
 import { env } from "./env";
+import { collectBugsForComment, type CommentIssueForBug } from "./pr-comment-bugs";
+import { collectTestStatsForComment, type CommentTestAssignmentForResult } from "./pr-comment-results";
 
 const INCOMPLETE_GENERATION_STATUSES = new Set(["pending", "queued", "running"]);
 
@@ -42,14 +44,45 @@ const generationForCommentSelect = {
             testGenerations: {
                 select: {
                     status: true,
+                    updatedAt: true,
+                    testPlan: { select: { testCaseId: true } },
                     generationReview: {
                         select: {
                             issue: {
                                 select: {
+                                    id: true,
                                     title: true,
                                     severity: true,
                                     dismissed: true,
                                     kind: true,
+                                    bug: { select: { id: true, title: true, severity: true } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            testCaseAssignments: {
+                select: {
+                    testCaseId: true,
+                    quarantineIssueId: true,
+                    runs: {
+                        select: {
+                            status: true,
+                            startedAt: true,
+                            createdAt: true,
+                            runReview: {
+                                select: {
+                                    issue: {
+                                        select: {
+                                            id: true,
+                                            title: true,
+                                            severity: true,
+                                            dismissed: true,
+                                            kind: true,
+                                            bug: { select: { id: true, title: true, severity: true } },
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -76,14 +109,37 @@ type GenerationForComment = {
         };
         testGenerations: Array<{
             status: string;
+            updatedAt: Date;
+            testPlan: { testCaseId: string };
             generationReview: {
                 issue: {
+                    id: string;
                     title: string;
                     severity: string;
                     dismissed: boolean;
                     kind: string;
+                    bug: { id: string; title: string; severity: string } | null;
                 } | null;
             } | null;
+        }>;
+        testCaseAssignments: Array<{
+            testCaseId: string;
+            quarantineIssueId: string | null;
+            runs: Array<{
+                status: string;
+                startedAt: Date | null;
+                createdAt: Date;
+                runReview: {
+                    issue: {
+                        id: string;
+                        title: string;
+                        severity: string;
+                        dismissed: boolean;
+                        kind: string;
+                        bug: { id: string; title: string; severity: string } | null;
+                    } | null;
+                } | null;
+            }>;
         }>;
     };
 };
@@ -155,7 +211,6 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
     const summaryUrl = buildSnapshotSummaryUrl({
         appSlug: branch.application.slug,
         prNumber,
-        snapshotId: snapshot.id,
     });
     const assetBaseUrl = resolveCommentAssetBaseUrl({
         explicitAssetBaseUrl: env.GITHUB_COMMENT_ASSET_BASE_URL,
@@ -192,16 +247,16 @@ function buildPayloadInput({
     summaryUrl: string | undefined;
     assetBaseUrl: string | undefined;
 }): PayloadBuilderInput {
-    const selected = snapshot.testGenerations.length;
-    const failed = snapshot.testGenerations.filter((testGeneration) => testGeneration.status === "failed").length;
-    const passed = snapshot.testGenerations.filter((testGeneration) => testGeneration.status === "success").length;
-    const bugs = snapshot.testGenerations
-        .flatMap((testGeneration) => {
-            const issue = testGeneration.generationReview?.issue;
-            if (issue == null || issue.dismissed || issue.kind !== "application_bug") return [];
-            return [{ title: issue.title, severity: issue.severity }];
-        })
-        .slice(0, 3);
+    const { selected, passed, failed } = collectTestStatsForComment({
+        testGenerations: snapshot.testGenerations,
+        testCaseAssignments: snapshot.testCaseAssignments satisfies CommentTestAssignmentForResult[],
+    });
+    const bugs = collectBugsForComment([
+        ...snapshot.testGenerations.map((testGeneration) => testGeneration.generationReview?.issue ?? null),
+        ...snapshot.testCaseAssignments.flatMap((assignment) =>
+            assignment.runs.map((run) => run.runReview?.issue ?? null),
+        ),
+    ] satisfies CommentIssueForBug[]);
 
     const state: AutonomaCommentState = bugs.length > 0 || failed > 0 ? "critical" : "healthy";
     const payloadInput: PayloadBuilderInput = {
@@ -222,19 +277,9 @@ function buildPayloadInput({
     return payloadInput;
 }
 
-function buildSnapshotSummaryUrl({
-    appSlug,
-    prNumber,
-    snapshotId,
-}: {
-    appSlug: string;
-    prNumber: number;
-    snapshotId: string;
-}): string {
+function buildSnapshotSummaryUrl({ appSlug, prNumber }: { appSlug: string; prNumber: number }): string {
     const appUrl = resolveAppUrl();
-    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/snapshots/${encodeURIComponent(
-        snapshotId,
-    )}/overview`;
+    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}`;
     return new URL(path, appUrl).toString();
 }
 
