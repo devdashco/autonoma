@@ -17,7 +17,8 @@ const BUILDKITD_CONFIG_VOLUME = "buildkitd-config";
 const BUILDKITD_CONFIG_MOUNT_PATH = "/etc/buildkit";
 const BUILDKITD_CONFIG_FILE = "/etc/buildkit/buildkitd.toml";
 const READINESS_POLL_INTERVAL_MS = 500;
-const DEFAULT_READINESS_TIMEOUT_MS = 90_000;
+const DEFAULT_PROVISION_TIMEOUT_MS = 600_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 180_000;
 const DIAL_TIMEOUT_MS = 2_000;
 const DIAL_RETRY_BUDGET_MS = 30_000;
 const DIAL_RETRY_INTERVAL_MS = 500;
@@ -37,11 +38,20 @@ interface BuildKitJobManagerOptions {
      *  Job.spec.activeDeadlineSeconds so K8s self-terminates stuck builds
      *  even if previewkit crashed before calling release(). */
     activeDeadlineSeconds: number;
-    /** How long to wait for the build pod to report Ready before treating the
-     *  attempt as a (transient) failure. Defaults to
-     *  DEFAULT_READINESS_TIMEOUT_MS; production wires it from
-     *  BUILD_READINESS_TIMEOUT_MS so it can outlast a Karpenter node scale-up. */
-    readinessTimeoutMs?: number;
+    /** How long to wait for the build pod to be scheduled onto a node
+     *  (PodScheduled=True) before treating the attempt as a (transient)
+     *  failure. This bounds pure infra latency - Karpenter launching and
+     *  registering a fresh pool=buildkit node - so it is set generously.
+     *  Defaults to DEFAULT_PROVISION_TIMEOUT_MS; production wires it from
+     *  BUILD_READINESS_TIMEOUT_MS so it can outlast a cold spot scale-up. */
+    provisionTimeoutMs?: number;
+    /** How long to wait, once the pod is scheduled, for it to report Ready
+     *  (image pull + container start + buildkitd boot) before treating the
+     *  attempt as a (transient) failure. A scheduled-but-never-Ready pod is a
+     *  real "the service is broken" signal, so this is tighter than the
+     *  provision budget. Defaults to DEFAULT_STARTUP_TIMEOUT_MS; production
+     *  wires it from BUILD_STARTUP_TIMEOUT_MS. */
+    startupTimeoutMs?: number;
     /** Override the TCP dial probe used after Pod becomes Ready. Production
      *  uses the default (node:net createConnection); tests inject a fake
      *  that resolves without doing real I/O. */
@@ -185,34 +195,107 @@ export class BuildKitJobManager {
         );
     }
 
+    /**
+     * Two physically unrelated waits, split into two independently-budgeted
+     * phases keyed on the PodScheduled condition (NOT pod.status.phase, which
+     * conflates "not scheduled yet" with "scheduled but not Ready"):
+     *
+     *   1. provision - Job created -> PodScheduled=True. Bounds Karpenter
+     *      bringing a fresh pool=buildkit node online (pure infra latency).
+     *   2. startup   - PodScheduled=True -> Ready=True. Bounds image pull +
+     *      container start + buildkitd boot (a real "service is broken" signal).
+     *
+     * classifyPodFailure runs every tick in BOTH phases, so genuine failures
+     * (ImagePullBackOff / Evicted / OOMKilled) still fast-fail before either
+     * budget elapses.
+     */
     private async waitForReady(buildId: string): Promise<void> {
+        await this.waitForScheduled(buildId);
+        await this.waitForStarted(buildId);
+    }
+
+    /**
+     * Provision phase. Polls until the build pod reports PodScheduled=True,
+     * fast-failing on a classified pod failure. Throws a transient BuildError
+     * naming the provisioning phase when the provision budget is exhausted -
+     * "the buildkit pool cannot get a node" (capacity / quota bound). Transient
+     * because a retry may land capacity.
+     */
+    private async waitForScheduled(buildId: string): Promise<void> {
         const start = Date.now();
         const { namespace } = this.options;
         const selector = `${LABEL_BUILD_ID}=${buildId}`;
-        const readinessTimeoutMs = this.options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
+        const provisionTimeoutMs = this.options.provisionTimeoutMs ?? DEFAULT_PROVISION_TIMEOUT_MS;
 
-        while (Date.now() - start < readinessTimeoutMs) {
+        while (Date.now() - start < provisionTimeoutMs) {
             const pods = await this.coreApi.listNamespacedPod({ namespace, labelSelector: selector });
             const pod = pods.items[0];
 
             if (pod != null) {
-                const ready = pod.status?.conditions?.find((c) => c.type === "Ready");
-                if (ready?.status === "True") return;
-
                 const failure = classifyPodFailure(pod);
                 if (failure != null) {
                     throw new BuildError(failure.message, { isTransient: failure.transient });
+                }
+
+                if (isScheduled(pod)) {
+                    this.logger.info("buildkit Job scheduled onto a node", {
+                        buildId,
+                        provisioningMs: Date.now() - start,
+                    });
+                    return;
                 }
             }
 
             await new Promise<void>((res) => setTimeout(res, READINESS_POLL_INTERVAL_MS));
         }
 
-        // Readiness timeout is treated as transient: usually means the
-        // autoscaler is still bringing a node online for the build, and
-        // a fresh provision on the next attempt is likely to schedule.
+        const elapsedMs = Date.now() - start;
+        this.logger.warn("buildkit Job provisioning timed out", { buildId, phase: "provisioning", elapsedMs });
         throw new BuildError(
-            `Timed out waiting for buildkit Job (build-id=${buildId}) to become ready after ${readinessTimeoutMs}ms`,
+            `Timed out after ${provisionTimeoutMs}ms waiting for buildkit Job (build-id=${buildId}) to be scheduled onto a node (provisioning)`,
+            { isTransient: true },
+        );
+    }
+
+    /**
+     * Startup phase. The pod is scheduled; poll until it reports Ready=True,
+     * fast-failing on a classified pod failure. Throws a transient BuildError
+     * naming the startup phase when the startup budget is exhausted - "the node
+     * is up but buildkitd is not becoming Ready."
+     *
+     * Spot-reclaim edge case: a scheduled pod can be evicted and bounce back to
+     * unscheduled mid-startup. We deliberately do NOT loop back to the provision
+     * phase within one call - classifyPodFailure returns transient for Evicted,
+     * so this loop throws transient and the builder retries with a fresh
+     * provision(). No re-provision state machine.
+     */
+    private async waitForStarted(buildId: string): Promise<void> {
+        const start = Date.now();
+        const { namespace } = this.options;
+        const selector = `${LABEL_BUILD_ID}=${buildId}`;
+        const startupTimeoutMs = this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
+
+        while (Date.now() - start < startupTimeoutMs) {
+            const pods = await this.coreApi.listNamespacedPod({ namespace, labelSelector: selector });
+            const pod = pods.items[0];
+
+            if (pod != null) {
+                const failure = classifyPodFailure(pod);
+                if (failure != null) {
+                    throw new BuildError(failure.message, { isTransient: failure.transient });
+                }
+
+                const ready = pod.status?.conditions?.find((c) => c.type === "Ready");
+                if (ready?.status === "True") return;
+            }
+
+            await new Promise<void>((res) => setTimeout(res, READINESS_POLL_INTERVAL_MS));
+        }
+
+        const elapsedMs = Date.now() - start;
+        this.logger.warn("buildkit Job startup timed out", { buildId, phase: "startup", elapsedMs });
+        throw new BuildError(
+            `Timed out after ${startupTimeoutMs}ms waiting for scheduled buildkit Job (build-id=${buildId}) to become Ready (startup)`,
             { isTransient: true },
         );
     }
@@ -362,6 +445,16 @@ function tryConnect(host: string, port: number, timeoutMs: number): Promise<void
     });
 }
 
+/**
+ * The provision/startup phase boundary: true once the scheduler has bound the
+ * pod to a node. Keyed on the PodScheduled condition rather than pod.status.phase
+ * so "Pending, unscheduled" and "Pending, scheduled but not Ready" are
+ * distinguishable.
+ */
+function isScheduled(pod: k8s.V1Pod): boolean {
+    return pod.status?.conditions?.some((c) => c.type === "PodScheduled" && c.status === "True") ?? false;
+}
+
 interface PodFailure {
     message: string;
     /** True if the right move is to provision a fresh Job and retry (e.g.
@@ -369,6 +462,28 @@ interface PodFailure {
      *  that would just repeat (bad image, container crash loop). */
     transient: boolean;
 }
+
+/**
+ * Container `state.waiting.reason` values that mean the pod will never reach
+ * Ready without a config change, so retrying just burns budget. CrashLoopBackOff
+ * is kept defensively (it needs restartPolicy Always/OnFailure, which this Job
+ * does NOT use - see classifyPodFailure - but a future spec change might).
+ */
+const PERMANENT_WAITING_REASONS = new Set([
+    "ImagePullBackOff",
+    "ErrImagePull",
+    "InvalidImageName",
+    "CreateContainerConfigError",
+    "CreateContainerError",
+    "CrashLoopBackOff",
+]);
+
+/**
+ * Container `state.terminated.reason` values that mean the container could not
+ * start at all (bad command, missing binary, privilege denied) - a permanent
+ * config / privilege problem, never a transient node signal.
+ */
+const PERMANENT_TERMINATED_REASONS = new Set(["StartError", "ContainerCannotRun"]);
 
 /**
  * Reads pod status and returns a structured failure for callers to surface
@@ -380,17 +495,26 @@ interface PodFailure {
  *   - Container terminated with OOMKilled → transient. Sometimes a noisy
  *     neighbour or a hot start; the next attempt may find a quieter node.
  *     Operators tune resource requests if it recurs.
- *   - Container waiting in ImagePullBackOff / ErrImagePull → permanent.
- *     The image name is wrong or the registry is unreachable; retrying
- *     just burns retry budget. Surface immediately.
- *   - Container waiting in CrashLoopBackOff → permanent. buildkitd
- *     wouldn't crash loop except for a config / privilege issue.
+ *   - Container terminated with StartError / ContainerCannotRun → permanent.
+ *     This Job runs restartPolicy=Never + backoffLimit=0, so a buildkitd that
+ *     fails to start terminates ONCE and never enters CrashLoopBackOff (which
+ *     needs a restarting policy). A terminated start-failure is the real
+ *     "buildkitd won't come up" signal and a retry won't fix it.
+ *   - Container waiting in a PERMANENT_WAITING_REASON (bad image, bad config /
+ *     ConfigMap mount, ...) → permanent. Retrying just burns retry budget.
+ *
+ * A plain non-zero exit (terminated reason "Error") is deliberately NOT
+ * classified here: it is ambiguous between a deterministic buildkitd failure
+ * and a spot-reclaim SIGTERM mid-startup (which we want retried). The startup
+ * budget bounds it and surfaces it as a transient startup timeout.
  */
 function classifyPodFailure(pod: k8s.V1Pod): PodFailure | null {
+    const podName = pod.metadata?.name;
+
     if (pod.status?.phase === "Failed" && pod.status.reason === "Evicted") {
         return {
             transient: true,
-            message: `Buildkit pod ${pod.metadata?.name} was evicted: ${pod.status.message ?? "unknown reason"}`,
+            message: `Buildkit pod ${podName} was evicted: ${pod.status.message ?? "unknown reason"}`,
         };
     }
 
@@ -399,22 +523,21 @@ function classifyPodFailure(pod: k8s.V1Pod): PodFailure | null {
         if (terminated?.reason === "OOMKilled") {
             return {
                 transient: true,
-                message: `Buildkit pod ${pod.metadata?.name} OOMKilled (exit ${terminated.exitCode ?? "?"})`,
+                message: `Buildkit pod ${podName} OOMKilled (exit ${terminated.exitCode ?? "?"})`,
+            };
+        }
+        if (terminated?.reason != null && PERMANENT_TERMINATED_REASONS.has(terminated.reason)) {
+            return {
+                transient: false,
+                message: `Buildkit pod ${podName} failed to start (${terminated.reason}): ${terminated.message ?? ""}`,
             };
         }
 
-        const waiting = cs.state?.waiting;
-        const reason = waiting?.reason;
-        if (reason === "ImagePullBackOff" || reason === "ErrImagePull") {
+        const waitingReason = cs.state?.waiting?.reason;
+        if (waitingReason != null && PERMANENT_WAITING_REASONS.has(waitingReason)) {
             return {
                 transient: false,
-                message: `Buildkit pod ${pod.metadata?.name} failed to start (${reason}): ${waiting?.message ?? ""}`,
-            };
-        }
-        if (reason === "CrashLoopBackOff") {
-            return {
-                transient: false,
-                message: `Buildkit pod ${pod.metadata?.name} crash-looped: ${waiting?.message ?? ""}`,
+                message: `Buildkit pod ${podName} failed to start (${waitingReason}): ${cs.state?.waiting?.message ?? ""}`,
             };
         }
     }

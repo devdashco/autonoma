@@ -62,8 +62,15 @@ class FakeCoreV1Api {
 
 interface PodCondition {
     ready?: boolean;
+    /** Adds a `PodScheduled=True` condition (scheduler bound the pod to a
+     *  node). `ready: true` implies this since a Ready pod is necessarily
+     *  scheduled. */
+    scheduled?: boolean;
     /** Container `state.waiting.reason` (e.g. ImagePullBackOff). */
     failedReason?: string;
+    /** Container `state.terminated.reason` (e.g. StartError) with a non-zero
+     *  exit - a container that could not start. */
+    terminatedReason?: string;
     /** Pod-level `status.phase = Failed` + `status.reason = Evicted` (kubelet
      *  evicted due to node pressure). */
     evicted?: boolean;
@@ -73,6 +80,13 @@ interface PodCondition {
 
 function podWith(condition: PodCondition): k8s.V1Pod {
     const containerStatuses: k8s.V1ContainerStatus[] = [];
+    const conditions: k8s.V1PodCondition[] = [];
+    if (condition.scheduled === true || condition.ready === true) {
+        conditions.push({ type: "PodScheduled", status: "True" });
+    }
+    if (condition.ready === true) {
+        conditions.push({ type: "Ready", status: "True" });
+    }
     if (condition.failedReason != null) {
         containerStatuses.push({
             name: "buildkitd",
@@ -93,10 +107,22 @@ function podWith(condition: PodCondition): k8s.V1Pod {
             state: { terminated: { reason: "OOMKilled", exitCode: 137 } },
         } as unknown as k8s.V1ContainerStatus);
     }
+    if (condition.terminatedReason != null) {
+        containerStatuses.push({
+            name: "buildkitd",
+            ready: false,
+            restartCount: 0,
+            image: "moby/buildkit",
+            imageID: "",
+            state: {
+                terminated: { reason: condition.terminatedReason, exitCode: 1, message: "container failed to start" },
+            },
+        } as unknown as k8s.V1ContainerStatus);
+    }
     return {
         metadata: { name: "bk-pod-1" },
         status: {
-            conditions: condition.ready === true ? [{ type: "Ready", status: "True" }] : [],
+            conditions,
             phase: condition.evicted === true ? "Failed" : undefined,
             reason: condition.evicted === true ? "Evicted" : undefined,
             message: condition.evicted === true ? "The node was low on resource: memory." : undefined,
@@ -278,6 +304,60 @@ describe("BuildKitJobManager", () => {
         expect(batch.deletedJobs).toHaveLength(1);
     });
 
+    it("fails fast (non-transient) on a container config error (CreateContainerConfigError)", async () => {
+        const { kc, core, batch } = makeKc();
+        // Bad ConfigMap mount (the buildkitd-config volume) - the container
+        // can never start, so a retry just burns budget.
+        core.podListSequence = [{ items: [podWith({ failedReason: "CreateContainerConfigError" })] }];
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
+        });
+
+        const promise = mgr.provision();
+        const caught = promise.catch((e) => e);
+        await vi.runAllTimersAsync();
+        const err = await caught;
+
+        expect(err).toBeInstanceOf(BuildError);
+        expect(err.message).toMatch(/CreateContainerConfigError/);
+        expect((err as BuildError).isTransient).toBe(false);
+        expect(batch.deletedJobs).toHaveLength(1);
+    });
+
+    it("fails fast (non-transient) when buildkitd terminates with StartError (restartPolicy=Never, no crash loop)", async () => {
+        const { kc, core, batch } = makeKc();
+        // restartPolicy=Never means a buildkitd that fails to start terminates
+        // once and never reaches CrashLoopBackOff; the terminated StartError is
+        // the real "won't come up" signal that must fast-fail.
+        core.podListSequence = [{ items: [podWith({ scheduled: true, terminatedReason: "StartError" })] }];
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            // Tight startup budget would still bound it, but classification must
+            // surface it immediately, not wait the budget out.
+            startupTimeoutMs: 600_000,
+            dial: dialAlwaysOk,
+        });
+
+        const promise = mgr.provision();
+        const caught = promise.catch((e) => e);
+        await vi.runAllTimersAsync();
+        const err = await caught;
+
+        expect(err).toBeInstanceOf(BuildError);
+        expect(err.message).toMatch(/StartError/);
+        expect((err as BuildError).isTransient).toBe(false);
+        expect(batch.deletedJobs).toHaveLength(1);
+    });
+
     it("retries (transient) when the pod is evicted", async () => {
         const { kc, core, batch } = makeKc();
         // Kubelet evicted the pod due to node memory pressure - classic
@@ -328,11 +408,11 @@ describe("BuildKitJobManager", () => {
         expect((err as BuildError).isTransient).toBe(true);
     });
 
-    it("times out (transient) using the configured readinessTimeoutMs when the pod never becomes Ready", async () => {
+    it("times out (transient) on the provision budget when the pod is never scheduled", async () => {
         const { kc, core, batch } = makeKc();
-        // Pod exists but stays perpetually pending (no Ready condition, no
-        // failure reason) - the real-world "Karpenter is still bringing a node
-        // online" case the readiness timeout exists to bound.
+        // Pod exists but is never scheduled (no PodScheduled condition, no
+        // failure reason) - the real-world "Karpenter cannot get a node for the
+        // buildkit pool" case the provision timeout exists to bound.
         core.podListSequence = [{ items: [{ metadata: { name: "p1" }, status: { conditions: [] } }] }];
         const mgr = new BuildKitJobManager({
             kc,
@@ -340,7 +420,7 @@ describe("BuildKitJobManager", () => {
             image: "moby/buildkit:v0.21.1",
             serviceAccountName: "buildkitd",
             activeDeadlineSeconds: 1860,
-            readinessTimeoutMs: 5_000,
+            provisionTimeoutMs: 5_000,
             dial: dialAlwaysOk,
         });
 
@@ -350,13 +430,65 @@ describe("BuildKitJobManager", () => {
         const err = await caught;
 
         expect(err).toBeInstanceOf(BuildError);
-        // Error message reports the configured timeout, not the 90s default.
-        expect(err.message).toMatch(/become ready after 5000ms/);
+        // Error message reports the configured provision timeout and names the
+        // provisioning phase so operators read it as "capacity/quota bound".
+        expect(err.message).toMatch(/after 5000ms/);
+        expect(err.message).toMatch(/scheduled onto a node \(provisioning\)/);
         // Transient: the builder's retry loop should try again (a fresh node
-        // may be ready by then) rather than failing the environment outright.
+        // may land by then) rather than failing the environment outright.
         expect((err as BuildError).isTransient).toBe(true);
         // Failure still cleans up the Job it created - no leak.
         expect(batch.deletedJobs).toHaveLength(1);
+    });
+
+    it("times out (transient) on the startup budget when a scheduled pod never becomes Ready", async () => {
+        const { kc, core, batch } = makeKc();
+        // Pod was scheduled onto a node but never reports Ready - the "node is
+        // up but buildkitd is not coming up" case the startup timeout bounds.
+        core.podListSequence = [{ items: [podWith({ scheduled: true })] }];
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            startupTimeoutMs: 5_000,
+            dial: dialAlwaysOk,
+        });
+
+        const promise = mgr.provision();
+        const caught = promise.catch((e) => e);
+        await vi.runAllTimersAsync();
+        const err = await caught;
+
+        expect(err).toBeInstanceOf(BuildError);
+        // Error message reports the configured startup timeout and names the
+        // startup phase so operators read it as "broken service", not capacity.
+        expect(err.message).toMatch(/after 5000ms/);
+        expect(err.message).toMatch(/become Ready \(startup\)/);
+        expect((err as BuildError).isTransient).toBe(true);
+        expect(batch.deletedJobs).toHaveLength(1);
+    });
+
+    it("resolves on the happy path across unscheduled -> scheduled -> Ready", async () => {
+        const { kc, core } = makeKc();
+        core.podListSequence = [
+            { items: [{ metadata: { name: "p1" }, status: { conditions: [] } }] },
+            { items: [podWith({ scheduled: true })] },
+            { items: [podWith({ ready: true })] },
+        ];
+        const mgr = new BuildKitJobManager({
+            kc,
+            namespace: "previewkit-builds",
+            image: "moby/buildkit:v0.21.1",
+            serviceAccountName: "buildkitd",
+            activeDeadlineSeconds: 1860,
+            dial: dialAlwaysOk,
+        });
+
+        const promise = mgr.provision();
+        await vi.runAllTimersAsync();
+        await expect(promise).resolves.toBeDefined();
     });
 
     it("retries the TCP dial until the Service is reachable (covers kube-proxy lag)", async () => {

@@ -227,6 +227,8 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `BUILDKIT_IMAGE` | No | `moby/buildkit:v0.21.1` | Image used for build Jobs |
 | `BUILDKIT_BUILDER_SERVICE_ACCOUNT` | No | `buildkitd` | ServiceAccount each build pod runs as (needs IRSA for the S3 cache) |
 | `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min) |
+| `BUILD_READINESS_TIMEOUT_MS` | No | `600000` | Provisioning budget: how long to wait for a build pod to be scheduled onto a node (survives a Karpenter node scale-up) |
+| `BUILD_STARTUP_TIMEOUT_MS` | No | `180000` | Startup budget: once scheduled, how long to wait for the pod to become Ready (image pull + buildkitd boot) |
 | `INGRESS_CLASS_NAME` | No | `nginx` | Ingress class for preview Ingresses |
 | `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared ingress controller |
 | `NGINX_IMAGE` | No | `nginx:alpine` | Image for the per-namespace nginx access proxy |
@@ -371,5 +373,12 @@ PREVIEW_URL_SECRET=...
 ```bash
 pnpm --filter @autonoma/previewkit test                 # unit tests, no Docker
 pnpm --filter @autonoma/previewkit test:integration     # Testcontainers (real Postgres), needs Docker
+pnpm --filter @autonoma/previewkit test:kind            # real-apiserver BuildKitJobManager tests, needs kind + Docker
 pnpm --filter @autonoma/previewkit typecheck
 ```
+
+`test:kind` is opt-in: it creates (or reuses) a dedicated local `kind` cluster named
+`previewkit-readiness` and drives `BuildKitJobManager` against a real Kubernetes apiserver to validate the
+phased readiness timeout. It has a hard safety gate that refuses to run against anything but a local kind
+cluster, so it can never touch a real cluster. Remove the cluster with
+`kind delete cluster --name previewkit-readiness`.

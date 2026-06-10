@@ -33,13 +33,20 @@ export const env = createEnv({
         BUILDKIT_BUILDER_SERVICE_ACCOUNT: z.string().default("buildkitd"),
         BUILD_TIMEOUT_MS: z.coerce.number().default(1_800_000), // 30 minutes
         DEPLOY_TIMEOUT_MS: z.coerce.number().default(600_000), // 10 minutes
-        // How long to wait for a freshly-created buildkit Job's pod to become
-        // Ready before giving up on that attempt. A Ready timeout almost always
-        // means Karpenter is still bringing a buildkit node online, which on a
-        // cold spot launch routinely takes several minutes - far longer than the
-        // old hard-coded 90s. Set generously so a build survives a scale-up
-        // instead of failing the whole environment under load.
+        // Provisioning budget: how long to wait for a freshly-created buildkit
+        // Job's pod to be scheduled onto a node (PodScheduled=True) before
+        // giving up on that attempt. This bounds pure infra latency - Karpenter
+        // launching and registering a fresh buildkit node, which on a cold spot
+        // launch routinely takes several minutes. Set generously so a build
+        // survives a scale-up instead of failing the whole environment under load.
         BUILD_READINESS_TIMEOUT_MS: z.coerce.number().default(600_000), // 10 minutes
+        // Startup budget: once the pod is scheduled, how long to wait for it to
+        // become Ready (image pull + container start + buildkitd boot). Every
+        // Karpenter scale-up gives a fresh node with no cached image, so a real
+        // moby/buildkit pull happens here - 3 minutes is deliberate so a normal
+        // pull plus boot does not flap. A scheduled-but-never-Ready pod is a real
+        // "buildkitd is broken" signal, so this is tighter than the provision budget.
+        BUILD_STARTUP_TIMEOUT_MS: z.coerce.number().default(180_000), // 3 minutes
 
         // Preview domain. Wildcard DNS must point to the shared Gateway's ALB.
         // ACM wildcard certs only match a single leftmost label; hostnames are

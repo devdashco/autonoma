@@ -89,7 +89,8 @@ runWithSentry({ name: "previewkit", dsn: env.SENTRY_DSN }, async () => {
         image: env.BUILDKIT_IMAGE,
         serviceAccountName: env.BUILDKIT_BUILDER_SERVICE_ACCOUNT,
         activeDeadlineSeconds: Math.ceil(previewkitDefaults.defaults.buildTimeoutMs / 1000) + 60,
-        readinessTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
+        provisionTimeoutMs: env.BUILD_READINESS_TIMEOUT_MS,
+        startupTimeoutMs: env.BUILD_STARTUP_TIMEOUT_MS,
     });
 
     // Builder. The BuildKit layer cache shares the storage bucket with build logs;

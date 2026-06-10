@@ -145,7 +145,10 @@ generated config (previews are public) - read `buildNginxConfig` for the current
 
 ## Key env vars (`src/env.ts`)
 
-`REGISTRY_URL`, `BUILDKIT_*`, `BUILD_TIMEOUT_MS`, `PREVIEW_DOMAIN`,
+`REGISTRY_URL`, `BUILDKIT_*`, `BUILD_TIMEOUT_MS`,
+`BUILD_READINESS_TIMEOUT_MS` (provisioning budget - bounds Karpenter scheduling a
+buildkit node), `BUILD_STARTUP_TIMEOUT_MS` (startup budget once scheduled - image
+pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_CLASS_NAME`/`INGRESS_NAMESPACE`, `NGINX_IMAGE`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM), `AUTONOMA_SERVICE_SECRET`,
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
@@ -153,8 +156,15 @@ generated config (previews are public) - read `buildNginxConfig` for the current
 ## Build / test
 
 - `pnpm --filter @autonoma/previewkit typecheck` - tsc (run after any change).
-- `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
+- `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**` and `test/kind/**`). No Docker needed.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
+- `pnpm --filter @autonoma/previewkit test:kind` - opt-in real-apiserver tests for `BuildKitJobManager`
+  (`vitest.kind.config.ts`, `test/kind/**`). Needs the `kind` binary + Docker. Creates/reuses a dedicated
+  `previewkit-readiness` kind cluster and has a hard safety gate that refuses any non-local-kind kubeconfig,
+  so it can never touch a real cluster (e.g. an `agentic production` context). Because the Job pins
+  `nodeSelector: arch=amd64, pool=buildkit`, the build pod is unschedulable on a stock (arm64) kind node -
+  which is exactly what exercises the provision-phase readiness timeout end-to-end. Delete the cluster with
+  `kind delete cluster --name previewkit-readiness`.
   - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
     storage/logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
     and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
