@@ -29,7 +29,6 @@ import { Suspense, useMemo } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { PRDetailHeader } from "../-components/pr-detail-header";
-import { PreviewEnvironmentSection } from "../-components/preview-environment-section";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
@@ -159,10 +158,6 @@ function PullRequestDetailWithCheckpoint({
       />
 
       <div className="flex flex-col gap-5 p-6">
-        <Suspense fallback={<PreviewSkeleton />}>
-          <PreviewEnvironmentSection applicationId={applicationId} prNumber={prNumber} />
-        </Suspense>
-
         <CheckpointsSection
           applicationId={applicationId}
           prNumber={prNumber}
@@ -732,10 +727,6 @@ function NoSnapshotsPanel() {
       </PanelBody>
     </Panel>
   );
-}
-
-function PreviewSkeleton() {
-  return <Skeleton className="h-16 w-full" />;
 }
 
 function AggregatedCheckpointCardSkeleton() {

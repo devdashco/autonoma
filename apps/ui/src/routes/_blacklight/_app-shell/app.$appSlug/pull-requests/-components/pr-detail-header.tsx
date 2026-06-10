@@ -2,8 +2,10 @@ import { Badge, Skeleton } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
+import { Suspense } from "react";
 import { BranchPill } from "./branch-pill";
 import { PRAuthorStack } from "./pr-author-stack";
+import { PreviewEnvironmentHeaderButton } from "./preview-environment-section";
 
 type PullRequest = RouterOutputs["github"]["getPullRequest"];
 type PrHealth = "healthy" | "unhealthy" | "unknown";
@@ -30,33 +32,36 @@ export function PRDetailHeader({
   const title = pr?.title ?? branchName;
 
   return (
-    <header className="border-b border-border-dim bg-surface-base px-6 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
-              PR <span className="text-text-primary">#{prNumber}</span>
-            </span>
-          </div>
-
-          {prPending ? (
-            <Skeleton className="h-7 w-96" />
-          ) : (
-            <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">
-              <span className="break-words">{title}</span>
-            </h1>
-          )}
-          <MetaRow
-            applicationId={applicationId}
-            prNumber={prNumber}
-            branchName={branchName}
-            targetBranchName={targetBranchName}
-            pr={pr}
-            prPending={prPending}
-          />
+    <header className="border-b border-border-dim bg-surface-base px-6 py-5 h-36 flex items-center justify-between">
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-mono text-2xs uppercase tracking-widest text-text-tertiary">
+            PR <span className="text-text-primary">#{prNumber}</span>
+          </span>
         </div>
 
+        {prPending ? (
+          <Skeleton className="h-7 w-96" />
+        ) : (
+          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">
+            <span className="break-words">{title}</span>
+          </h1>
+        )}
+        <MetaRow
+          applicationId={applicationId}
+          prNumber={prNumber}
+          branchName={branchName}
+          targetBranchName={targetBranchName}
+          pr={pr}
+          prPending={prPending}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 items-end h-full justify-between">
         <HealthBadge health={health} bugCount={bugCount} />
+        <Suspense fallback={null}>
+          <PreviewEnvironmentHeaderButton applicationId={applicationId} prNumber={prNumber} />
+        </Suspense>
       </div>
     </header>
   );

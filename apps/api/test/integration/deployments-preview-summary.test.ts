@@ -41,6 +41,7 @@ apiTestSuite({
                 prNumber: fixture.prNumber,
             });
 
+            expect(summary.source).toBe("previewkit");
             expect(summary.status).toBe("ready");
             expect(summary.primaryUrl).toBe("https://web-pr201.preview.example.com");
             expect(summary.serviceCount).toBe(3);
@@ -164,6 +165,7 @@ apiTestSuite({
                 prNumber: fixture.prNumber,
             });
 
+            expect(summary.source).toBe("none");
             expect(summary.status).toBe("missing");
             expect(summary.primaryUrl).toBeNull();
             expect(summary.serviceCount).toBe(0);

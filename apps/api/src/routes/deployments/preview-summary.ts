@@ -59,6 +59,7 @@ type PreviewServiceSummary = {
 
 export function missingPreviewSummary(headSha: string | null, reason: string) {
     return {
+        source: "none" as const,
         status: "missing" as const,
         primaryUrl: null,
         phase: null,
@@ -95,6 +96,7 @@ export function legacyPreviewSummary({
     deployedAt: Date;
 }) {
     return {
+        source: "legacy" as const,
         status: "ready" as const,
         primaryUrl: url,
         phase: null,

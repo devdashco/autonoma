@@ -348,6 +348,7 @@ export class DeploymentsService extends Service {
         });
 
         return {
+            source: "previewkit" as const,
             status,
             primaryUrl,
             phase: environment.phase,
