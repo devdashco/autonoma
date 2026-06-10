@@ -4,4 +4,13 @@ export { type SdkAction, type SdkCallEvent, type SdkCallRecorder, NOOP_RECORDER 
 export { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 export { ScenarioManager } from "./scenario-manager";
 export { ScenarioRecipeStore } from "./scenario-recipe-store";
+export { resolveRecipePayload } from "./scenario-recipe-resolver";
+export { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
+export {
+    provisionScenarioInstance,
+    teardownScenarioInstance,
+    type ProvisionConfig,
+    type ProvisionedInstance,
+    type TeardownConfig,
+} from "./scenario-provisioner";
 export { type ScenarioSubject, GenerationSubject, RunSubject } from "./scenario-subject";

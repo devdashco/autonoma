@@ -1,22 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, ScenarioInstance } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
-import type { DiscoverResponse, ScenarioVariableScalar, UpResponse } from "@autonoma/types";
+import { RefsSchema, type DiscoverResponse, type ScenarioVariableScalar, type UpResponse } from "@autonoma/types";
 import { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 import type { EncryptionHelper } from "./encryption";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioSubject } from "./scenario-subject";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";
+import { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
 
 const DEFAULT_EXPIRES_IN_SECONDS = 2 * 60 * 60; // 2 hours
 
 interface ScenarioApplicationData {
-    applicationId: string;
-    deploymentId: string;
     organizationId: string;
-    sdkUrl: string;
-    signingSecretEnc: string;
-    sdkHeaders?: Record<string, string>;
+    sdkConfig: SdkConfig;
 }
 
 export class ScenarioManager {
@@ -90,7 +87,7 @@ export class ScenarioManager {
                 id: instanceId,
                 applicationId,
                 organizationId,
-                deploymentId: applicationData.deploymentId,
+                deploymentId,
                 scenarioId: scenario.id,
                 status: "REQUESTED",
                 expiresAt: new Date(Date.now() + DEFAULT_EXPIRES_IN_SECONDS * 1000),
@@ -155,7 +152,7 @@ export class ScenarioManager {
             await sdkClient.down(
                 {
                     instanceId: instance.id,
-                    refs: (instance.refs as Record<string, unknown>) ?? null,
+                    refs: RefsSchema.nullable().catch(null).parse(instance.refs),
                     refsToken: instance.refsToken ?? undefined,
                 },
                 options,
@@ -237,50 +234,27 @@ export class ScenarioManager {
         applicationId: string,
         deploymentId: string,
     ): Promise<ScenarioApplicationData> {
-        const application = await this.db.application.findUnique({
+        const sdkConfig = await resolveSdkConfig({
+            applicationId,
+            deploymentId,
+            db: this.db,
+            encryption: this.encryption,
+        });
+
+        const application = await this.db.application.findUniqueOrThrow({
             where: { id: applicationId },
-            select: { id: true, signingSecretEnc: true, organizationId: true, disabled: true },
+            select: { organizationId: true },
         });
 
-        if (application == null) {
-            throw new Error(`Application ${applicationId} not found`);
-        }
-        if (application.disabled) {
-            throw new Error(`Application ${applicationId} is disabled`);
-        }
-        if (application.signingSecretEnc == null) {
-            throw new Error(`Application ${applicationId} does not have a signing secret configured`);
-        }
-
-        const deployment = await this.db.branchDeployment.findUnique({
-            where: { id: deploymentId },
-            select: { id: true, webhookUrl: true, webhookHeaders: true },
-        });
-
-        if (deployment == null) {
-            throw new Error(`Deployment ${deploymentId} not found`);
-        }
-        if (deployment.webhookUrl == null) {
-            throw new Error(`Deployment ${deploymentId} does not have an SDK URL configured`);
-        }
-
-        return {
-            applicationId: application.id,
-            deploymentId: deployment.id,
-            organizationId: application.organizationId,
-            sdkUrl: deployment.webhookUrl,
-            signingSecretEnc: application.signingSecretEnc,
-            sdkHeaders: (deployment.webhookHeaders as Record<string, string> | undefined) ?? undefined,
-        };
+        return { organizationId: application.organizationId, sdkConfig };
     }
 
     private createSdkClient(applicationData: ScenarioApplicationData): SdkClient {
-        const signingSecret = this.encryption.decrypt(applicationData.signingSecretEnc);
         return new SdkClient({
-            applicationId: applicationData.applicationId,
-            sdkUrl: applicationData.sdkUrl,
-            signingSecret,
-            customHeaders: applicationData.sdkHeaders,
+            applicationId: applicationData.sdkConfig.applicationId,
+            sdkUrl: applicationData.sdkConfig.sdkUrl,
+            signingSecret: applicationData.sdkConfig.signingSecret,
+            customHeaders: applicationData.sdkConfig.customHeaders,
             recorder: this.recorder,
         });
     }

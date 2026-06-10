@@ -19,7 +19,7 @@ export interface SdkClientOptions {
 
 interface UpParams {
     instanceId: string;
-    create: Record<string, unknown[]>;
+    create: Record<string, unknown>;
 }
 
 interface DownParams {

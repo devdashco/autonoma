@@ -36,7 +36,7 @@ const FAKER_GENERATORS = {
 } satisfies Record<string, (seed: string) => string>;
 
 interface RecipeResolutionResult {
-    createPayload: unknown;
+    createPayload: Record<string, unknown>;
     resolvedVariables: Record<string, ScenarioVariableScalar>;
 }
 
@@ -233,6 +233,11 @@ function resolveDerivedValue(
     return definition.format.replaceAll("{testRunId}", context.testRunId);
 }
 
+function replaceTemplateTokens(
+    value: Record<string, unknown>,
+    resolvedVariables: Record<string, ScenarioVariableScalar>,
+): Record<string, unknown>;
+function replaceTemplateTokens(value: unknown, resolvedVariables: Record<string, ScenarioVariableScalar>): unknown;
 function replaceTemplateTokens(value: unknown, resolvedVariables: Record<string, ScenarioVariableScalar>): unknown {
     if (typeof value === "string") {
         const fullMatch = value.match(FULL_TEMPLATE_PATTERN);

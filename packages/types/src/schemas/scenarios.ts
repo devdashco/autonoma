@@ -154,9 +154,12 @@ export const AuthPayloadSchema = z
     .passthrough();
 export type AuthPayload = z.infer<typeof AuthPayloadSchema>;
 
+export const RefsSchema = z.record(z.string(), z.unknown());
+export type Refs = z.infer<typeof RefsSchema>;
+
 export const UpResponseSchema = z.object({
     auth: AuthPayloadSchema.optional(),
-    refs: z.unknown().optional(),
+    refs: RefsSchema.optional(),
     refsToken: z.string().optional(),
     metadata: z.unknown().optional(),
     expiresInSeconds: z.number().optional(),

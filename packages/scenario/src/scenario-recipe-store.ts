@@ -1,6 +1,11 @@
 import { type PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
-import { type ScenarioRecipesFile, type ScenarioVariableScalar } from "@autonoma/types";
+import {
+    type ScenarioRecipe,
+    ScenarioRecipeSchema,
+    type ScenarioRecipesFile,
+    type ScenarioVariableScalar,
+} from "@autonoma/types";
 import { extractStructure, hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
 
 interface ReplaceParams {
@@ -23,6 +28,13 @@ interface LoadParams {
 interface LoadResult {
     createPayload: unknown;
     resolvedVariables: Record<string, ScenarioVariableScalar>;
+}
+
+interface RawFixtureParams {
+    scenarioId: string;
+    /** When supplied, the recipe version pinned to this snapshot is returned.
+     *  When omitted, the scenario's currently-active recipe version is used. */
+    snapshotId?: string;
 }
 
 /**
@@ -195,6 +207,34 @@ export class ScenarioRecipeStore {
         }
 
         return resolveRecipePayload(fixtureJson, testRunId);
+    }
+
+    /**
+     * Return the raw, unresolved `fixtureJson` stored for a scenario.
+     *
+     * When `snapshotId` is supplied the recipe version pinned to that snapshot
+     * is returned. When omitted the scenario's currently-active recipe version
+     * is used. Returns `null` when no matching recipe version exists.
+     *
+     * The returned value is the full `ScenarioRecipe` object as stored - no
+     * variable substitution has been applied. Pass it to `resolveRecipePayload`
+     * together with a fresh `testRunId` to obtain a concrete create-payload.
+     */
+    async loadRawFixture(params: RawFixtureParams): Promise<ScenarioRecipe | null> {
+        const { scenarioId, snapshotId } = params;
+        this.logger.info("Loading raw fixture", { scenarioId, snapshotId });
+
+        const raw =
+            snapshotId != null
+                ? await this.findFixtureForSnapshot(scenarioId, snapshotId)
+                : await this.findActiveFixture(scenarioId);
+
+        if (raw == null) {
+            this.logger.warn("No recipe version found for raw fixture", { scenarioId, snapshotId });
+            return null;
+        }
+
+        return ScenarioRecipeSchema.parse(raw);
     }
 
     private async findFixtureForSnapshot(scenarioId: string, snapshotId: string): Promise<unknown | null> {
