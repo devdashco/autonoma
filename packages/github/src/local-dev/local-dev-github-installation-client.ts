@@ -3,6 +3,7 @@ import type {
     CloneRepositoryParams,
     Commit,
     GitHubInstallationClient,
+    ListOpenPullRequestsResult,
     PullRequest,
     PullRequestCommit,
     Repository,
@@ -93,9 +94,19 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
         };
     }
 
-    async listPullRequests(repoId: number): Promise<PullRequest[]> {
+    async getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>> {
+        this.logger.info("Returning local-dev pull requests by number", { repoId, count: prNumbers.length });
+        const byNumber = new Map<number, PullRequest>();
+        for (const prNumber of prNumbers) {
+            byNumber.set(prNumber, await this.getPullRequest(repoId, prNumber));
+        }
+        return byNumber;
+    }
+
+    async listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult> {
         this.logger.info("Returning local-dev pull request list", { repoId });
-        return Promise.all(PRS_PER_REPO.map((pr) => this.getPullRequest(repoId, pr.number)));
+        const pullRequests = await Promise.all(PRS_PER_REPO.map((pr) => this.getPullRequest(repoId, pr.number)));
+        return { unchanged: false, pullRequests };
     }
 
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {

@@ -1,6 +1,8 @@
+import { db } from "@autonoma/db";
 import { type GitHubApp, LocalDevGitHubApp, OctokitGitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { env as apiEnv } from "../env";
+import { PrismaEtagStore } from "./prisma-etag-store";
 
 type ApiEnv = typeof apiEnv;
 
@@ -17,12 +19,18 @@ export function buildGitHubApp(env: ApiEnv): GitHubApp {
         );
     }
 
-    return new OctokitGitHubApp({
-        appId: env.GITHUB_APP_ID!,
-        privateKey: env.GITHUB_APP_PRIVATE_KEY!,
-        webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET!,
-        appSlug: env.GITHUB_APP_SLUG!,
-    });
+    // Postgres-backed ETag store enables conditional requests (free 304s) on every GitHub call.
+    const etagStore = new PrismaEtagStore(db);
+
+    return new OctokitGitHubApp(
+        {
+            appId: env.GITHUB_APP_ID!,
+            privateKey: env.GITHUB_APP_PRIVATE_KEY!,
+            webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET!,
+            appSlug: env.GITHUB_APP_SLUG!,
+        },
+        etagStore,
+    );
 }
 
 function getMissingGitHubCredentials(env: ApiEnv): string[] {

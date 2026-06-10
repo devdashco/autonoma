@@ -11,6 +11,7 @@ import type { SnapshotReport } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
+import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
@@ -27,6 +28,7 @@ export class BranchesService extends Service {
         private readonly db: PrismaClient,
         private readonly github: GitHubInstallationService,
         private readonly storageProvider: StorageProvider,
+        private readonly prCache: PullRequestCacheService,
     ) {
         super();
     }
@@ -40,7 +42,15 @@ export class BranchesService extends Service {
                 id: true,
                 name: true,
                 createdAt: true,
-                prInfo: { select: { prNumber: true } },
+                prInfo: {
+                    select: {
+                        prNumber: true,
+                        prTitle: true,
+                        prState: true,
+                        prAuthorLogin: true,
+                        prUpdatedAt: true,
+                    },
+                },
                 activeSnapshot: {
                     select: {
                         id: true,
@@ -67,9 +77,19 @@ export class BranchesService extends Service {
             ),
         ]);
 
+        // Best-effort, fire-and-forget refresh of the cached PR metadata. Throttled in
+        // Postgres, so this no-ops when the cache is fresh and never blocks the response.
+        this.prCache.kickOff(applicationId, organizationId);
+
         return branches.map(({ prInfo, activeSnapshot, ...branch }) => ({
             ...branch,
             prNumber: prInfo!.prNumber,
+            pr: {
+                title: prInfo!.prTitle ?? undefined,
+                state: prInfo!.prState ?? undefined,
+                authorLogin: prInfo!.prAuthorLogin ?? undefined,
+                updatedAt: prInfo!.prUpdatedAt ?? undefined,
+            },
             bugCount: activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0,
             previewUrl: previewUrlByPr.get(prInfo!.prNumber),
             activeSnapshot:
@@ -224,7 +244,7 @@ export class BranchesService extends Service {
         this.logger.info("Listing snapshots", { branchId });
 
         const snapshots = await this.db.branchSnapshot.findMany({
-            // Cancelled snapshots are abandoned drafts kept only for observability; they are
+            // Canceled snapshots are abandoned drafts kept only for observability; they are
             // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
             where: { branchId, branch: { application: { organizationId } }, status: { not: "cancelled" } },
             select: {

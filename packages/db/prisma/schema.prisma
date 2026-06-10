@@ -494,15 +494,32 @@ model Branch {
   @@map("branch")
 }
 
+enum PullRequestCacheState {
+  open
+  closed
+  merged
+
+  @@map("pull_request_cache_state")
+}
+
 model FeatureBranchInfo {
   branchId      String @id @map("branch_id")
   applicationId String @map("application_id")
   prNumber      Int    @map("pr_number")
 
+  // Cached PR metadata (best-effort; filled by GitHub webhooks + the polite revalidate).
+  // All nullable: an empty cache is valid and is backfilled lazily.
+  prTitle       String?                @map("pr_title")
+  prState       PullRequestCacheState? @map("pr_state")
+  prAuthorLogin String?                @map("pr_author_login")
+  prUpdatedAt   DateTime?              @map("pr_updated_at") // GitHub's updated_at (drives the "Updated" column)
+  prCachedAt    DateTime?              @map("pr_cached_at") // our last write time (drives the freshness/throttle gate)
+
   branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, prNumber])
+  @@index([applicationId, prCachedAt])
   @@map("feature_branch_info")
 }
 
@@ -1522,6 +1539,21 @@ model GitHubWebhookEvent {
   @@index([organizationId, type, receivedAt])
   @@index([installationId, receivedAt])
   @@map("github_webhook_event")
+}
+
+// Stores GitHub ETags so we can make conditional requests (If-None-Match). An authorized
+// 304 Not Modified does not count against the primary rate limit, making revalidation
+// near-free. ETags are scoped per page URL and per installation token, so we key on
+// (installationId, requestKey). We persist only the ETag, not the body: on a 304 nothing
+// changed, so callers keep their existing Postgres cache.
+model GitHubRequestEtag {
+  installationId Int      @map("installation_id")
+  requestKey     String   @map("request_key")
+  etag           String
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@id([installationId, requestKey])
+  @@map("github_request_etag")
 }
 
 // ─── Billing ─────────────────────────────────────────────────────

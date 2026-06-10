@@ -1,6 +1,39 @@
+import { logger } from "@autonoma/logger";
 import { App } from "@octokit/app";
+import { Octokit } from "@octokit/core";
+import { retry } from "@octokit/plugin-retry";
+import { throttling } from "@octokit/plugin-throttling";
+import type { EtagStore } from "./etag-store";
 import type { GitHubInstallationClient } from "./github-installation-client";
 import { OctokitGitHubInstallationClient } from "./github-installation-client";
+
+const appLogger = logger.child({ name: "OctokitGitHubApp" });
+
+// Octokit composed with GitHub's recommended throttling + retry plugins. The throttling
+// plugin serializes requests and honors Retry-After / x-ratelimit-* headers; the retry
+// plugin backs off transient failures. Applied to every installation client, so all
+// platform-wide GitHub calls are rate-limit-safe.
+const ThrottledOctokit = Octokit.plugin(throttling, retry).defaults({
+    throttle: {
+        onRateLimit: (
+            retryAfter: number,
+            options: { method?: string; url?: string },
+            _octokit: unknown,
+            retryCount: number,
+        ): boolean => {
+            appLogger.warn("GitHub primary rate limit hit", {
+                extra: { method: options.method, url: options.url, retryAfter, retryCount },
+            });
+            // Retry once after waiting; give up after that to avoid unbounded stalls.
+            return retryCount < 1;
+        },
+        onSecondaryRateLimit: (retryAfter: number, options: { method?: string; url?: string }): void => {
+            appLogger.warn("GitHub secondary rate limit hit; not retrying", {
+                extra: { method: options.method, url: options.url, retryAfter },
+            });
+        },
+    },
+});
 
 export interface GitHubAppCredentials {
     appId: string;
@@ -28,12 +61,16 @@ export class OctokitGitHubApp implements GitHubApp {
     private readonly app: App;
     public readonly slug: string;
 
-    constructor(credentials: GitHubAppCredentials) {
+    constructor(
+        credentials: GitHubAppCredentials,
+        private readonly etagStore?: EtagStore,
+    ) {
         this.slug = credentials.appSlug;
         this.app = new App({
             appId: credentials.appId,
             privateKey: credentials.privateKey,
             webhooks: { secret: credentials.webhookSecret },
+            Octokit: ThrottledOctokit,
         });
     }
 
@@ -64,7 +101,7 @@ export class OctokitGitHubApp implements GitHubApp {
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {
         const octokit = await this.app.getInstallationOctokit(installationId);
-        return new OctokitGitHubInstallationClient(octokit);
+        return new OctokitGitHubInstallationClient(octokit, installationId, this.etagStore);
     }
 
     async deleteInstallation(installationId: number): Promise<void> {

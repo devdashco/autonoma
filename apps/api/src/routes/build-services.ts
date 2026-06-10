@@ -15,6 +15,7 @@ import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
+import { PullRequestCacheService } from "../github/pull-request-cache.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -100,6 +101,7 @@ export function buildServices({
     const billingService = createBillingService(conn);
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper);
     const githubService = new GitHubInstallationService(conn, githubApp);
+    const prCacheService = new PullRequestCacheService(conn, githubService);
     const previewkitTrigger = new PreviewkitTriggerService(
         conn,
         githubService,
@@ -111,7 +113,7 @@ export function buildServices({
         admin: new AdminService(conn, auth, githubApp),
         auth: new AuthService(conn),
         apiKeys: new ApiKeysService(conn),
-        branches: new BranchesService(conn, githubService, storageProvider),
+        branches: new BranchesService(conn, githubService, storageProvider, prCacheService),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
         applications: new ApplicationsService(conn, encryptionHelper),

@@ -9,6 +9,7 @@ import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.servi
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
+import { PullRequestCacheService } from "./pull-request-cache.service";
 
 type GitHubEnv = {
     Variables: {
@@ -19,6 +20,7 @@ type GitHubEnv = {
 
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
+const prCacheService = new PullRequestCacheService(db, githubService);
 
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
@@ -138,7 +140,7 @@ githubHttpRouter.post("/webhook", async (ctx) => {
 
     let processingError: string | undefined;
     try {
-        await dispatchWebhookEvent(eventType, installationId, organizationId, githubService, payload);
+        await dispatchWebhookEvent(eventType, installationId, organizationId, githubService, prCacheService, payload);
     } catch (error) {
         // undici's `fetch failed` puts the real reason (DNS / ECONNREFUSED / etc) in .cause.
         const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
@@ -158,6 +160,7 @@ async function dispatchWebhookEvent(
     installationId: number,
     organizationId: string,
     githubService: GitHubInstallationService,
+    prCacheService: PullRequestCacheService,
     payload: Record<string, unknown>,
 ): Promise<void> {
     switch (type) {
@@ -173,15 +176,19 @@ async function dispatchWebhookEvent(
             await githubService.handleSuspend(installationId);
             return;
         case "pull_request_opened":
+            await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("opened", organizationId, payload);
             return;
         case "pull_request_synchronize":
+            await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("synchronize", organizationId, payload);
             return;
         case "pull_request_reopened":
+            await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("reopened", organizationId, payload);
             return;
         case "pull_request_closed":
+            await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
             return;
         default:

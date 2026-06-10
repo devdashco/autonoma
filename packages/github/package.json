@@ -17,6 +17,9 @@
     "dependencies": {
         "@autonoma/logger": "workspace:*",
         "@octokit/app": "catalog:",
+        "@octokit/core": "catalog:",
+        "@octokit/plugin-retry": "catalog:",
+        "@octokit/plugin-throttling": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {

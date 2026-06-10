@@ -1,7 +1,14 @@
 import type { GitHubWebhookEventType, PrismaClient } from "@autonoma/db";
 import { Prisma } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
-import type { Commit, GitHubApp, PullRequest, PullRequestCommit, Repository } from "@autonoma/github";
+import type {
+    Commit,
+    GitHubApp,
+    ListOpenPullRequestsResult,
+    PullRequest,
+    PullRequestCommit,
+    Repository,
+} from "@autonoma/github";
 import { Service } from "../routes/service";
 
 export interface ListedRepository extends Repository {
@@ -183,6 +190,73 @@ export class GitHubInstallationService extends Service {
         this.logger.info("Fetched application pull request", { applicationId, prNumber });
 
         return pullRequest;
+    }
+
+    /**
+     * Batch variant of {@link getApplicationPullRequest}: resolves the application, GitHub
+     * installation client, and repo once, then fetches all requested PRs concurrently.
+     * Returns a map keyed by PR number; PRs that fail to fetch are omitted.
+     */
+    async getApplicationPullRequests(
+        organizationId: string,
+        applicationId: string,
+        prNumbers: number[],
+    ): Promise<Map<number, PullRequest>> {
+        this.logger.info("Fetching application pull requests", {
+            organizationId,
+            applicationId,
+            extra: { count: prNumbers.length },
+        });
+
+        if (prNumbers.length === 0) return new Map();
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const pullRequests = await client.getPullRequestsByNumbers(app.githubRepositoryId, prNumbers);
+
+        this.logger.info("Fetched application pull requests", {
+            applicationId,
+            extra: { requested: prNumbers.length, fetched: pullRequests.size },
+        });
+
+        return pullRequests;
+    }
+
+    async listApplicationPullRequests(
+        organizationId: string,
+        applicationId: string,
+    ): Promise<ListOpenPullRequestsResult> {
+        this.logger.info("Listing application open pull requests", { organizationId, applicationId });
+
+        const app = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+
+        if (app == null) throw new NotFoundError("Application not found");
+        if (app.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+
+        const client = await this.getOrgInstallationClient(organizationId);
+        const result = await client.listOpenPullRequests(app.githubRepositoryId);
+
+        this.logger.info("Listed application open pull requests", {
+            organizationId,
+            applicationId,
+            unchanged: result.unchanged,
+        });
+
+        return result;
     }
 
     async listApplicationPullRequestCommits(

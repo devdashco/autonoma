@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
+import type { EtagStore } from "./etag-store";
 
 const execFileAsync = promisify(execFile);
 const GITHUB_API = "https://api.github.com";
@@ -59,6 +60,13 @@ export interface PullRequestCommit {
     authoredAt: string;
 }
 
+/**
+ * Result of a conditional open-PR list request. `unchanged` is returned when GitHub
+ * answers `304 Not Modified` (the stored ETag still matches), in which case callers
+ * keep their existing cache and spend no primary rate-limit budget.
+ */
+export type ListOpenPullRequestsResult = { unchanged: true } | { unchanged: false; pullRequests: PullRequest[] };
+
 export interface CloneRepositoryParams {
     fullName: string;
     headSha: string;
@@ -75,7 +83,8 @@ export interface GitHubInstallationClient {
     getRepositoryArchiveUrl(repoId: number, ref?: string): Promise<string>;
     listInstallationRepos(): Promise<Repository[]>;
     getPullRequest(repoId: number, prNumber: number): Promise<PullRequest>;
-    listPullRequests(repoId: number): Promise<PullRequest[]>;
+    getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>>;
+    listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult>;
     getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]>;
     listPullRequestCommits(repoId: number, prNumber: number): Promise<PullRequestCommit[]>;
     getCommit(repoId: number, sha: string): Promise<Commit>;
@@ -114,35 +123,16 @@ export function parseRepoFullName(repoFullName: string): { owner: string; repo: 
     return { owner, repo };
 }
 
-function mapPullRequest(pr: RawPullRequestLike): PullRequest {
-    const merged = pr.merged ?? pr.merged_at != null;
-    const state: PullRequestState = merged ? "merged" : pr.state === "closed" ? "closed" : "open";
-    return {
-        number: pr.number,
-        title: pr.title,
-        body: pr.body ?? undefined,
-        headRef: pr.head.ref,
-        headSha: pr.head.sha,
-        baseRef: pr.base.ref,
-        baseSha: pr.base.sha,
-        url: pr.html_url,
-        authorLogin: pr.user?.login,
-        createdAt: pr.created_at,
-        updatedAt: pr.updated_at,
-        state,
-        commitsCount: pr.commits ?? 0,
-        merged,
-        mergedAt: pr.merged_at ?? undefined,
-        mergeCommitSha: pr.merge_commit_sha ?? undefined,
-    };
-}
-
 /** Typed wrapper around an installation-scoped Octokit. */
 export class OctokitGitHubInstallationClient implements GitHubInstallationClient {
     private readonly logger: Logger;
 
-    constructor(private readonly octokit: InstallationOctokit) {
-        this.logger = logger.child({ name: this.constructor.name });
+    constructor(
+        private readonly octokit: InstallationOctokit,
+        private readonly installationId: number,
+        private readonly etagStore?: EtagStore,
+    ) {
+        this.logger = logger.child({ name: this.constructor.name, installationId });
     }
 
     async getInstallation(installationId: number): Promise<{ account: unknown }> {
@@ -297,29 +287,143 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             pull_number: prNumber,
         });
 
-        const pullRequest = mapPullRequest(pr);
+        const pullRequest = this.mapPullRequest(pr);
 
         this.logger.info("Fetched pull request", { repoId, prNumber, headRef: pullRequest.headRef });
 
         return pullRequest;
     }
 
-    async listPullRequests(repoId: number): Promise<PullRequest[]> {
-        const { owner, repo } = await this.resolveOwnerRepo(repoId);
-        this.logger.info("Listing open pull requests", { repoId });
+    /**
+     * Fetches several PRs by number in one batch. Resolves the repo's owner/name once
+     * (not once per PR) and issues the requests concurrently - the Octokit throttling
+     * plugin paces them within GitHub's rate limits. A PR that fails to fetch (e.g. it was
+     * deleted -> 404) is logged and omitted from the returned map rather than failing the
+     * whole batch.
+     */
+    async getPullRequestsByNumbers(repoId: number, prNumbers: number[]): Promise<Map<number, PullRequest>> {
+        if (prNumbers.length === 0) return new Map();
 
-        const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls", {
-            owner,
-            repo,
-            state: "open",
-            per_page: 50,
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        this.logger.info("Fetching pull requests by number", { repoId, count: prNumbers.length });
+
+        const entries = await Promise.all(
+            prNumbers.map(async (prNumber) => {
+                try {
+                    const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+                        owner,
+                        repo,
+                        pull_number: prNumber,
+                    });
+                    return [prNumber, this.mapPullRequest(data)] as const;
+                } catch (error) {
+                    this.logger.warn("Failed to fetch pull request in batch", {
+                        repoId,
+                        prNumber,
+                        extra: { error: error instanceof Error ? error.message : String(error) },
+                    });
+                    return undefined;
+                }
+            }),
+        );
+
+        const byNumber = new Map<number, PullRequest>();
+        for (const entry of entries) {
+            if (entry != null) byNumber.set(entry[0], entry[1]);
+        }
+
+        this.logger.info("Fetched pull requests by number", {
+            repoId,
+            requested: prNumbers.length,
+            fetched: byNumber.size,
         });
 
-        const pullRequests = data.map((pr) => mapPullRequest(pr));
+        return byNumber;
+    }
 
-        this.logger.info("Listed pull requests", { repoId, count: pullRequests.length });
+    /**
+     * Normalizes a raw GitHub pull request (from any list/detail endpoint) into our
+     * domain {@link PullRequest}. Collapses GitHub's separate `state` ("open"/"closed")
+     * and `merged`/`merged_at` fields into a single `state` of "open" | "closed" |
+     * "merged", and maps snake_case API fields to our camelCase shape. Shared by every
+     * method that returns PRs (getPullRequest, listOpenPullRequests, getAssociatedPullRequests).
+     */
+    private mapPullRequest(pr: RawPullRequestLike): PullRequest {
+        const merged = pr.merged ?? pr.merged_at != null;
+        const state: PullRequestState = merged ? "merged" : pr.state === "closed" ? "closed" : "open";
+        return {
+            number: pr.number,
+            title: pr.title,
+            body: pr.body ?? undefined,
+            headRef: pr.head.ref,
+            headSha: pr.head.sha,
+            baseRef: pr.base.ref,
+            baseSha: pr.base.sha,
+            url: pr.html_url,
+            authorLogin: pr.user?.login,
+            createdAt: pr.created_at,
+            updatedAt: pr.updated_at,
+            state,
+            commitsCount: pr.commits ?? 0,
+            merged,
+            mergedAt: pr.merged_at ?? undefined,
+            mergeCommitSha: pr.merge_commit_sha ?? undefined,
+        };
+    }
 
-        return pullRequests;
+    /**
+     * Lists the 100 most-recently-updated open PRs as a single conditional request.
+     * When an ETag store is wired, sends `If-None-Match` and returns `{ unchanged: true }`
+     * on a `304` (free against the primary rate limit). One page is intentional: the
+     * polite revalidate only needs the freshest open PRs, and stragglers are handled by
+     * the caller's bounded backfill - a single request keeps the 304 semantics clean.
+     */
+    async listOpenPullRequests(repoId: number): Promise<ListOpenPullRequestsResult> {
+        const { owner, repo } = await this.resolveOwnerRepo(repoId);
+        const requestKey = `pulls:open:repo=${repoId}`;
+        this.logger.info("Listing open pull requests", { repoId });
+
+        const storedEtag = await this.etagStore?.get(this.installationId, requestKey);
+        const headers = storedEtag != null ? { "if-none-match": storedEtag } : {};
+
+        try {
+            const response = await this.octokit.request("GET /repos/{owner}/{repo}/pulls", {
+                owner,
+                repo,
+                state: "open",
+                sort: "updated",
+                direction: "desc",
+                per_page: 100,
+                headers,
+            });
+
+            const newEtag = response.headers.etag;
+            if (newEtag != null && this.etagStore != null) {
+                await this.etagStore.set(this.installationId, requestKey, newEtag);
+            }
+
+            const pullRequests = response.data.map((pr) => this.mapPullRequest(pr));
+            this.logger.info("Listed open pull requests", { repoId, count: pullRequests.length });
+            return { unchanged: false, pullRequests };
+        } catch (error) {
+            if (this.isNotModified(error)) {
+                this.logger.info("Open pull request list unchanged (304)", { repoId });
+                return { unchanged: true };
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * True when a request failed with a `304 Not Modified`. Octokit surfaces a 304
+     * (returned for a conditional `If-None-Match` request whose ETag still matches) as a
+     * thrown RequestError with `status === 304`, so we detect it on the error rather than
+     * the response. Lets {@link listOpenPullRequests} treat "unchanged" as success.
+     */
+    private isNotModified(error: unknown): boolean {
+        if (error == null || typeof error !== "object") return false;
+        if (!("status" in error)) return false;
+        return error.status === 304;
     }
 
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
@@ -332,7 +436,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             per_page: 100,
         });
 
-        const pullRequests = data.map((pr) => mapPullRequest(pr));
+        const pullRequests = data.map((pr) => this.mapPullRequest(pr));
 
         this.logger.info("Fetched pull requests associated with commit", {
             owner,

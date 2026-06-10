@@ -28,6 +28,10 @@ type PullRequestRow = {
   id: string;
   prNumber: number;
   branchName: string;
+  prTitle?: string;
+  prState?: "open" | "closed" | "merged";
+  prAuthorLogin?: string;
+  prUpdatedAt?: Date;
   activeSnapshot: {
     status: string;
     _count: { testCaseAssignments: number };
@@ -36,7 +40,6 @@ type PullRequestRow = {
 };
 
 function PullRequestsContent() {
-  const app = useCurrentApplication();
   const { data: branches } = useBranches();
   const appNavigate = useAppNavigate();
 
@@ -47,6 +50,10 @@ function PullRequestsContent() {
             id: b.id,
             prNumber: b.prNumber,
             branchName: b.name,
+            prTitle: b.pr.title,
+            prState: b.pr.state,
+            prAuthorLogin: b.pr.authorLogin,
+            prUpdatedAt: b.pr.updatedAt,
             activeSnapshot: b.activeSnapshot,
           },
         ]
@@ -75,30 +82,28 @@ function PullRequestsContent() {
       header: "Name",
       size: 420,
       enableSorting: false,
-      cell: ({ row }) => (
-        <PRNameCell applicationId={app.id} prNumber={row.original.prNumber} branchName={row.original.branchName} />
-      ),
+      cell: ({ row }) => <PRNameCell title={row.original.prTitle} branchName={row.original.branchName} />,
     },
     {
       id: "author",
       header: "Author",
       size: 140,
       enableSorting: false,
-      cell: ({ row }) => <PRAuthorCell applicationId={app.id} prNumber={row.original.prNumber} />,
+      cell: ({ row }) => <PRAuthorCell authorLogin={row.original.prAuthorLogin} />,
     },
     {
       id: "state",
       header: "State",
       size: 110,
       enableSorting: false,
-      cell: ({ row }) => <PRStateCell applicationId={app.id} prNumber={row.original.prNumber} />,
+      cell: ({ row }) => <PRStateCell state={row.original.prState} />,
     },
     {
       id: "updated",
       header: "Updated",
       size: 120,
       enableSorting: false,
-      cell: ({ row }) => <PRUpdatedCell applicationId={app.id} prNumber={row.original.prNumber} />,
+      cell: ({ row }) => <PRUpdatedCell updatedAt={row.original.prUpdatedAt} />,
     },
     {
       id: "health",

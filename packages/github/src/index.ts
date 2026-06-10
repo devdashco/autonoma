@@ -4,6 +4,7 @@ export {
     parseRepoFullName,
     type GitHubInstallationClient,
     type CloneRepositoryParams,
+    type ListOpenPullRequestsResult,
     type Repository,
     type PullRequest,
     type PullRequestState,
@@ -11,6 +12,7 @@ export {
     type Commit,
     type CommitFile,
 } from "./github-installation-client";
+export type { EtagStore } from "./etag-store";
 export { FakeGitHubApp } from "./fake/fake-github-app";
 export { FakeGitHubInstallationClient } from "./fake/fake-github-installation-client";
 export { LocalDevGitHubApp } from "./local-dev/local-dev-github-app";
