@@ -125,8 +125,6 @@ model Organization {
   scenarios              Scenario[]
   scenarioRecipeVersions ScenarioRecipeVersion[]
   scenarioInstances      ScenarioInstance[]
-  skills                 Skill[]
-  skillPlans             SkillPlan[]
   generationReviews      GenerationReview[]
   runReviews             RunReview[]
   issues                 Issue[]
@@ -300,7 +298,6 @@ model Application {
 
   folders                 Folder[]
   testCases               TestCase[]
-  skills                  Skill[]
   tags                    Tag[]
   scenarios               Scenario[]
   scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
@@ -571,7 +568,6 @@ model BranchSnapshot {
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
   testCaseAssignments     TestCaseAssignment[]
-  skillAssignments        SkillAssignment[]
   scenarioSchemaSnapshots ScenarioSchemaSnapshot[]
   scenarioRecipeVersions  ScenarioRecipeVersion[]
 
@@ -615,23 +611,6 @@ model TestCaseAssignment {
   @@map("test_case_assignment")
 }
 
-model SkillAssignment {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now()) @map("created_at")
-
-  snapshotId String         @map("snapshot_id")
-  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  skillId String @map("skill_id")
-  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
-
-  planId String?    @map("plan_id")
-  plan   SkillPlan? @relation(fields: [planId], references: [id])
-
-  @@unique([snapshotId, skillId])
-  @@map("skill_assignment")
-}
-
 // ─── Test Case ────────────────────────────────────────────────────────────────
 
 model TestCase {
@@ -662,47 +641,6 @@ model TestCase {
 
   @@unique([applicationId, slug])
   @@map("test_case")
-}
-
-// ─── Skill ───────────────────────────────────────────────────────────────────
-
-model Skill {
-  id          String @id @default(cuid())
-  name        String
-  slug        String
-  description String
-
-  applicationId String      @map("application_id")
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  plans       SkillPlan[]
-  assignments SkillAssignment[]
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([applicationId, slug])
-  @@map("skill")
-}
-
-model SkillPlan {
-  id      String @id @default(cuid())
-  content String
-
-  skillId String @map("skill_id")
-  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
-
-  assignments SkillAssignment[]
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([skillId])
-  @@map("skill_plan")
 }
 
 // ─── Test Generation ───────────────────────────────────────────────────────────
