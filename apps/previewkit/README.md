@@ -155,11 +155,11 @@ After merge + resolve       -> { DATABASE_URL: "postgresql://preview:preview@db:
 
 ### API Routes
 
-> **The HTTP API now lives in the autonoma API**, under `/v1/previewkit/*`. Secrets and environment
-> status run in the API directly; deploy/teardown/redeploy are forwarded to Previewkit (which is
-> becoming a Temporal worker, after which its standalone HTTP server is retired). Point new
-> integrations at the autonoma API. Authenticate with an `Authorization: Bearer <api-key>` header;
-> keys are scoped to your organization.
+> **The HTTP API lives in the autonoma API**, under `/v1/previewkit/*`. Previewkit itself is a
+> Temporal worker with no HTTP server - the API serves secrets/status natively and starts the
+> deploy/teardown/redeploy workflows that this worker executes. Point all integrations at the
+> autonoma API. Authenticate with an `Authorization: Bearer <api-key>` header; keys are scoped to
+> your organization.
 
 #### Secrets
 
@@ -203,13 +203,7 @@ Each app gets its own bundle - the `api` container never sees `web`'s secrets an
 #### Webhooks
 
 GitHub `pull_request` events are received by the autonoma API at `POST /v1/github/webhook`, which
-forwards deploy/teardown to Previewkit. Configure your GitHub App's webhook URL there.
-
-#### Health
-
-```
-GET    /health                            Previewkit liveness probe (kubelet)
-```
+starts the deploy/teardown Temporal workflows. Configure your GitHub App's webhook URL there.
 
 ## Environment Variables
 
@@ -217,7 +211,6 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `PORT` | No | `3000` | HTTP server port |
 | `GITHUB_APP_ID` | Yes | | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | Yes | | GitHub App private key, base64-encoded PEM (`cat key.pem \| base64`) |
 | `PREVIEW_URL_SECRET` | Yes | | HMAC key for deterministic, unguessable preview hostnames |
@@ -234,7 +227,6 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `NGINX_IMAGE` | No | `nginx:alpine` | Image for the per-namespace nginx access proxy |
 | `CLUSTER_SECRET_STORE_NAME` | No | `aws-secretsmanager` | ClusterSecretStore (External Secrets Operator) pointing at AWS Secrets Manager |
 | `APP_URL` | No | `https://beta.autonoma.app` | autonoma app base URL (used in PR comments) |
-| `AUTONOMA_SERVICE_SECRET` | No | | Shared secret for service-to-service calls from the autonoma API; must equal the API's `PREVIEWKIT_SERVICE_SECRET` |
 | `BYPASS_TOKEN_KEY` | No | | AES-256-GCM key (64 hex chars) for encrypting bypass tokens; must match the API's `PREVIEWKIT_BYPASS_TOKEN_KEY` |
 | `KUBECONFIG` | No | | Path to kubeconfig. If unset, uses in-cluster config |
 | `EKS_CLUSTER_NAME` | No | | Cross-cluster EKS target; when set, authenticates via the AWS SDK instead of `KUBECONFIG` |

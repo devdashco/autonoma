@@ -17,19 +17,20 @@ When in doubt, read the source - this doc is a map, not the source of truth.
 
 ## End-to-end flow
 
+Previewkit is a standalone Temporal worker - it has no HTTP server. The autonoma API owns the
+public surface and starts the workflows; this app executes them.
+
 ```
 GitHub pull_request webhook
-  -> apps/api  (PreviewkitClient forwards to previewkit over HTTP; see "API <-> previewkit" below)
-  -> previewkit POST /v1/environments  (apps/previewkit/src/routes/environments.route.ts)
-  -> PREVIEWKIT_USE_TEMPORAL=true:  triggerPreviewDeploy() starts previewDeployWorkflow on the
-       `previewkit` task queue; worker-previewkit runs the activities (src/activities/)
-     PREVIEWKIT_USE_TEMPORAL=false: legacy in-process PreviewPipeline.deploy(event)
-  -> either way: clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
+  -> apps/api  (PreviewkitTriggerService; gated by the API's PREVIEWKIT_ENABLED - see below)
+  -> triggerPreviewDeploy() starts previewDeployWorkflow on the `previewkit` task queue
+  -> worker-previewkit runs the activities (src/activities/):
+       clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
        -> deploy infra services + addons -> deploy app Deployments + nginx proxy + Ingress
        -> run pre/post-deploy hooks -> post/update the PR comment
 ```
-On `pull_request.closed`, `TeardownPipeline` deletes the namespace - behind the same flag this runs
-as `previewTeardownWorkflow` (via `triggerPreviewTeardown()`), else in-process.
+On `pull_request.closed`, `triggerPreviewTeardown()` starts `previewTeardownWorkflow`, whose
+single activity runs `TeardownPipeline` (addon deprovision + namespace delete + PR comment).
 
 **Concurrency model:** every workflow start for a (repo, pr) - deploy, redeploy, AND teardown -
 uses the same deterministic workflowId `previewkit-{slug}-{pr}` with `TERMINATE_EXISTING`
@@ -38,21 +39,15 @@ terminates the in-flight deploy; closing a PR mid-deploy terminates the deploy b
 
 ## Directory map (`src/`)
 
-- `app.ts` - Hono HTTP server; mounts the `/v1` routes behind auth middleware.
-- `index.ts` - HTTP process entrypoint; constructs the pipeline, builder, deployer, storage.
-- `worker/index.ts` - Temporal worker entrypoint (separate process + image, `worker.Dockerfile`);
-  polls the `previewkit` task queue, registers `src/activities/`, readiness via `/tmp/worker-ready`.
+- `worker/index.ts` - the process entrypoint (`worker.Dockerfile`); polls the `previewkit` task
+  queue, registers `src/activities/`, readiness via `/tmp/worker-ready`.
 - `activities/index.ts` - Temporal activity impls (prepare/build/deploy/finalize/fail/teardown);
-  thin wrappers over the pipelines from `create-services.ts` (shared singleton with the HTTP server).
-- `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process; both
-  entrypoints use it so the deploy logic is constructed identically.
+  thin wrappers over the pipelines from `create-services.ts`.
+- `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/storage/env` + `@autonoma/logger/env`.
-  `PREVIEWKIT_USE_TEMPORAL` flips routes from in-process pipelines to Temporal workflows.
-- `routes/` - HTTP surface: `environments.route.ts` (deploy/redeploy/teardown/main-branch),
-  `health.route.ts`, `docs.route.ts` (`/openapi.json` + swagger UI) + `openapi-spec.ts`.
-  (Secrets CRUD and environment status were moved to `apps/api/src/previewkit/`; see "HTTP API" below.)
-- `pipeline/preview-pipeline.ts` - the core deploy orchestration (`PreviewPipeline.deploy`),
-  per-app build loop (`buildOneApp`), final-outcome computation, PR-comment payload.
+- `pipeline/preview-pipeline.ts` - the deploy steps the activities drive (`prepare` / `build` /
+  `deployEnvironment` / `finalize` / `fail`), per-app build loop (`buildOneApp`), final-outcome
+  computation, PR-comment payload.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts`.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
@@ -70,69 +65,30 @@ terminates the in-flight deploy; closing a PR mid-deploy terminates the deploy b
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
 - `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, AWS Secrets Manager.
 
-## HTTP API (`/v1`, auth: `requireApiKeyOrService`)
+## The public surface lives in apps/api
 
-> **Canonical surface is now `apps/api`** at `/v1/previewkit/*`
-> (`apps/api/src/previewkit/previewkit-http.router.ts`). Secrets CRUD, environment status, and the
-> `.preview.yaml` schema were REMOVED from Previewkit and now live only in the API (implemented
-> natively there). The heavy deploy/teardown/redeploy/main-branch ops below are still forwarded to
-> Previewkit until they move to a Temporal worker.
+The whole `/v1/previewkit/*` HTTP surface is implemented natively in
+`apps/api/src/previewkit/previewkit-http.router.ts` (auth at the edge with `requireApiKeyOrService`,
+per-caller org-scoping). Previewkit itself serves nothing over HTTP.
 
-Auth = `Authorization: Bearer <AUTONOMA_SERVICE_SECRET>` (service-to-service) or a DB API key.
-Previewkit now serves only the deploy/teardown lifecycle (plus `/openapi.json`, `/docs`, `/health`):
-- `POST /v1/environments` - deploy a PR environment (body = the `PullRequestEvent` fields).
-- `POST /v1/applications/:applicationId/0` - deploy an Application's main-branch env.
-- `DELETE /v1/environments/:owner/:repo/:pr?organizationId=&githubRepositoryId=` - teardown.
-- `POST /v1/environments/:owner/:repo/:pr/redeploy` - re-run the pipeline at the env's current head SHA
-  (reconstructs the `PullRequestEvent` from the stored row; 404 if missing, 409 if torn down).
+- **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live build-log stream
+  (SSE relay of the per-namespace Redis Stream the build pipeline publishes via `BuildLogSpool`),
+  secrets CRUD (`PreviewkitSecretsService` - AWS Secrets Manager + DB), the `.preview.yaml` JSON
+  schema, and `openapi.json`. Secret values are kept out of the API request log via a body-log
+  blocklist prefix on `/v1/previewkit/secrets`.
+- **Lifecycle ops** (deploy / main-branch `POST /applications/:id/0` / teardown / redeploy):
+  preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
+  `diffs-trigger.service.ts`), then the Temporal workflow is started directly. 503 when the API's
+  `PREVIEWKIT_ENABLED` is off (dev / self-host without preview infra); the GitHub webhook handler
+  (`apps/api/src/github/github-http.router.ts`) silently skips in that case, and admin redeploy
+  (`apps/api/src/routes/deployments/deployments.service.ts`) errors. `PREVIEWKIT_SERVICE_SECRET`
+  remains in the API env - it authenticates the native routes and `/v1/diffs/internal/trigger`.
 
-## API <-> previewkit
-
-They communicate over HTTP (no shared process). All autonoma-API -> Previewkit
-traffic goes through one client: `apps/api/src/previewkit/previewkit-client.ts`
-(`PreviewkitClient`, singleton in `previewkit-service.ts`). Config:
-- `PREVIEWKIT_URL` - previewkit base URL (proxy + forwarding disabled if unset).
-- `PREVIEWKIT_SERVICE_SECRET` - shared secret; must equal previewkit's `AUTONOMA_SERVICE_SECRET`.
-
-The router `apps/api/src/previewkit/previewkit-http.router.ts` (mounted `/v1/previewkit/*`) is hybrid:
-- **Native (no forwarding):** secrets CRUD (`PreviewkitSecretsService` - AWS Secrets Manager + DB),
-  environment status (`PreviewkitEnvironmentsService` - reads `previewkit_environment` from the DB),
-  live build-log stream (`GET /environments/:owner/:repo/:pr/logs/stream` - SSE; relays the
-  per-namespace Redis Stream the build pipeline publishes to via `BuildLogSpool`, see below),
-  `GET /schema/preview.yaml.json` (static), and `openapi.json`. These authenticate at the edge with
-  `requireApiKeyOrService` and apply per-caller org-scoping. Secret values are kept out of the API
-  request log via a body-log blocklist prefix on `/v1/previewkit/secrets`.
-- **Lifecycle ops (flag-switched):** `POST /environments`, `POST /applications/:id/0`,
-  `DELETE` + `POST .../redeploy` on environments. With the API's `PREVIEWKIT_USE_TEMPORAL` on,
-  they run natively: `requireApiKeyOrService` at the edge, preflight + org-scoping in
-  `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors `diffs-trigger.service.ts`),
-  then the Temporal workflow is started directly. With it off (legacy), they are forwarded via
-  `PreviewkitClient.forward()` with the caller's own `Authorization` header passed through
-  (Previewkit stays the auth authority).
-
-The two internal callers branch on the same API-side flag (trigger service vs `PreviewkitClient`):
-- **GitHub webhook handler** (`apps/api/src/github/github-http.router.ts`, `startPullRequestDeploy`
-  / `startPullRequestTeardown`): `deployFromWebhook()` / `teardownFromWebhook()` when on (the
-  teardown now carries `pr.head.sha`); `forwardPullRequestToPreviewkit` when off.
-- **Admin redeploy** (`apps/api/src/routes/deployments/deployments.service.ts`,
-  `redeployEnvironment`): `PreviewkitTriggerService.redeploy()` when on; `redeploy()` over HTTP
-  when off (surfaces Previewkit's error detail).
-
-The admin "active environments" page reads the DB directly (no HTTP):
+The admin "active environments" page reads the DB directly:
 - API: `deployments.service.ts` (`listActiveEnvironments`) wired through
   `apps/api/src/routes/admin/admin.router.ts` (`admin.listPreviewkitEnvironments`,
   `admin.redeployPreviewkitEnvironment`).
 - UI: `apps/ui/src/routes/_blacklight/_app-shell/admin/previewkit/index.tsx`.
-
-**Migration direction.** Previewkit is becoming a Temporal worker, one run-to-completion workflow
-per PR per action. Done: the public surface lives in `apps/api` (secrets / status / schema native);
-deploy/redeploy/main-branch run as `previewDeployWorkflow` and teardown as `previewTeardownWorkflow`
-behind previewkit's `PREVIEWKIT_USE_TEMPORAL` (on in alpha; beta/prod workers deployed but idle);
-apps/api can start the workflows directly (`PreviewkitTriggerService`) behind its own
-`PREVIEWKIT_USE_TEMPORAL`. Remaining: flip previewkit's flag in beta/prod, then the API's flag
-everywhere, then retire previewkit's HTTP server (delete `app.ts`/`routes/`, the legacy in-process
-path, `PreviewkitClient` + `PREVIEWKIT_URL`, the `previewkit` Deployment/Service + ingress - keep
-the ServiceAccount/ExternalSecret/RBAC the worker shares).
 
 ## Build strategies (precedence)
 
@@ -176,8 +132,9 @@ generated config (previews are public) - read `buildNginxConfig` for the current
 buildkit node), `BUILD_STARTUP_TIMEOUT_MS` (startup budget once scheduled - image
 pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_CLASS_NAME`/`INGRESS_NAMESPACE`, `NGINX_IMAGE`,
-`APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM), `AUTONOMA_SERVICE_SECRET`,
+`APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM),
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
+`TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` are read by `@autonoma/workflow`'s own env.
 `REDIS_URL` (optional) - when set, enables the live build-log streaming tier (`BuildLogSpool`
 from `@autonoma/logger/build-log-spool`): the builder tees each output chunk and the pipeline
 mirrors phase/status transitions into a per-namespace Redis Stream, which the autonoma API relays

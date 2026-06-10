@@ -13,7 +13,7 @@ import { logger as rootLogger, type Logger } from "../logger";
  * the repo or a K8s Secret.
  *
  * The fetcher caches per-ARN within an instance lifetime. Since one
- * `PreviewPipeline.deploy()` call instantiates one fetcher at most, that
+ * `PreviewPipeline.build()` step instantiates one fetcher at most, that
  * effectively caches per-deployment — the same ARN isn't fetched twice within
  * a single PR's pipeline. New PRs get a fresh fetch.
  */

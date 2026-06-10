@@ -41,7 +41,7 @@ import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
-import { logger, withObservabilityContext } from "../logger";
+import { logger } from "../logger";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 
@@ -119,15 +119,6 @@ interface PreviewPipelineOptions {
     logSpool?: BuildLogSpool;
 }
 
-/** Per-deploy options layered on top of the GitHub event. */
-export interface DeployOptions {
-    /** Pin the primary app's config to a specific revision (e.g. redeploy reproducing
-     *  the topology a PR was originally deployed with) instead of the Application's
-     *  current active revision. A pinned id that no longer resolves degrades to the
-     *  current config. */
-    configRevisionId?: string | undefined;
-}
-
 /**
  * Result of {@link PreviewPipeline.prepare}. `skipped` short-circuits the rest
  * of the pipeline for repos that opted out (no active config revision / no
@@ -195,40 +186,6 @@ export class PreviewPipeline {
 
         logger.info("No active config revision; falling back to .preview.yaml", { applicationId, repoFullName, ref });
         return { config: fileConfig, revisionId: undefined };
-    }
-
-    /**
-     * Full in-process deploy. Now a thin orchestrator over the same five
-     * serializable steps the Temporal workflow drives, so the legacy
-     * (flag-off) path and the Temporal (flag-on) path share one code path.
-     */
-    async deploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
-        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, async () => {
-            const configRevisionId = options?.configRevisionId;
-            const prep = await this.prepare(event, configRevisionId);
-            if (prep.skipped) return;
-
-            try {
-                const built = await this.build(event, prep.namespace, configRevisionId);
-                const deployed = await this.deployEnvironment({
-                    event,
-                    namespace: prep.namespace,
-                    commentId: prep.commentId,
-                    mergedConfigJson: built.mergedConfigJson,
-                    imageTags: built.imageTags,
-                    addonOutputs: built.addonOutputs,
-                    buildOutcomes: built.buildOutcomes,
-                    addons: built.addons,
-                    warnings: built.warnings,
-                    primaryAppNames: built.primaryAppNames,
-                });
-                await this.finalize(event, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
-            } catch (err) {
-                const message = err instanceof Error ? err.message : "Unknown error";
-                await this.fail(event, prep.namespace, prep.commentId, prep.feedbackEnabled, message);
-                throw err;
-            }
-        });
     }
 
     /**

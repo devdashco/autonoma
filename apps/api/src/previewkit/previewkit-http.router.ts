@@ -12,7 +12,7 @@ import { openApiSpec } from "./openapi-spec";
 import previewSchema from "./preview-schema.json" with { type: "json" };
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
 import { PreviewkitSecretsService, type SecretItem } from "./previewkit-secrets.service";
-import { previewkitClient, previewkitTriggerService } from "./previewkit-service";
+import { previewkitTriggerService } from "./previewkit-service";
 
 const logger = rootLogger.child({ name: "previewkitHttpRouter" });
 
@@ -72,13 +72,11 @@ const deployRequestSchema = z.object({
  *    `openapi.json` describing this surface): implemented directly here - no forwarding. They
  *    need only the DB + AWS Secrets Manager, which the API already has.
  *
- *  - **Lifecycle ops** (deploy / main-branch deploy / teardown / redeploy): with
- *    `PREVIEWKIT_USE_TEMPORAL` on, the API authenticates the caller, runs the preflight
- *    checks, and starts the Temporal workflow directly (`PreviewkitTriggerService`) - the
- *    Previewkit worker executes the pipeline. With the flag off (legacy), the request is
- *    transparently proxied to Previewkit's HTTP server via `PreviewkitClient` with the
- *    caller's `Authorization` header passed through, and the deploy responses' `statusUrl`
- *    rewritten to this `/v1/previewkit` mount.
+ *  - **Lifecycle ops** (deploy / main-branch deploy / teardown / redeploy): the API
+ *    authenticates the caller, runs the preflight checks, and starts the Temporal
+ *    workflow directly (`PreviewkitTriggerService`) - the Previewkit worker executes
+ *    the pipeline. 503 when `PREVIEWKIT_ENABLED` is off (dev / self-host without
+ *    preview infrastructure).
  */
 export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>()
     // ─── Native: environment status (DB-backed) ───────────────────────
@@ -255,9 +253,9 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
     // ─── Native: static `.preview.yaml` JSON schema (public, for editors) ──
     .get("/schema/preview.yaml.json", (c) => c.json(previewSchema))
 
-    // ─── Lifecycle ops: native Temporal triggers, or proxied to Previewkit (legacy) ───
+    // ─── Lifecycle ops: start the preview Temporal workflows ──────────
     .post("/environments", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, "environments", rewriteDeployStatusUrl);
+        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
 
         const body = await c.req.json().catch(() => undefined);
         const parsed = deployRequestSchema.safeParse(body);
@@ -286,9 +284,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         );
     })
     .post("/applications/:applicationId/0", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_USE_TEMPORAL) {
-            return proxyToPreviewkit(c, `applications/${c.req.param("applicationId")}/0`, rewriteDeployStatusUrl);
-        }
+        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
 
         const applicationId = c.req.param("applicationId");
         try {
@@ -313,7 +309,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         }
     })
     .delete("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, environmentSubPath(c));
+        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
 
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
@@ -343,7 +339,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
     })
     .post("/environments/:owner/:repo/:pr/redeploy", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_USE_TEMPORAL) return proxyToPreviewkit(c, `${environmentSubPath(c)}/redeploy`);
+        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
 
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
@@ -361,6 +357,11 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
 function callerOrgId(caller: AuthCaller): string | undefined {
     return caller.kind === "user" ? caller.organizationId : undefined;
+}
+
+/** Same body the legacy proxy returned when Previewkit was not configured. */
+function previewsDisabled(c: Context): Response {
+    return c.json({ error: "Preview environments are not configured." }, 503);
 }
 
 /** Maps trigger-service errors to the same statuses Previewkit's own routes used. */
@@ -381,10 +382,6 @@ function parseEnvironmentNumber(raw: string): number | undefined {
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0) return undefined;
     return value;
-}
-
-function environmentSubPath(c: Context): string {
-    return `environments/${c.req.param("owner")}/${c.req.param("repo")}/${c.req.param("pr")}`;
 }
 
 interface ValidatedItems {
@@ -421,70 +418,4 @@ function validateItems(raw: unknown): ValidatedItems | InvalidItems {
         items.push({ key, value });
     }
     return { ok: true, items };
-}
-
-/**
- * Transparently forward a request to Previewkit, returning its response verbatim.
- * `rewriteBody` optionally post-processes the response body - used to rewrite the
- * `statusUrl` in deploy responses to the API's `/v1/previewkit` mount.
- */
-async function proxyToPreviewkit(
-    c: Context,
-    subPath: string,
-    rewriteBody?: (body: string) => string,
-): Promise<Response> {
-    if (!previewkitClient.hasBaseUrl()) {
-        return c.json({ error: "Preview environments are not configured." }, 503);
-    }
-
-    const method = c.req.method;
-    const hasBody = method !== "GET" && method !== "DELETE" && method !== "HEAD";
-
-    let body: ArrayBuffer | undefined;
-    if (hasBody) {
-        const raw = await c.req.arrayBuffer();
-        body = raw.byteLength > 0 ? raw : undefined;
-    }
-
-    const search = new URL(c.req.url).search;
-
-    try {
-        const result = await previewkitClient.forward({
-            method,
-            subPath,
-            authorization: c.req.header("authorization"),
-            contentType: c.req.header("content-type"),
-            searchParams: search.startsWith("?") ? search.slice(1) : search,
-            body,
-        });
-        const outBody = rewriteBody != null ? rewriteBody(result.body) : result.body;
-        return new Response(outBody, {
-            status: result.status,
-            headers: { "content-type": result.contentType },
-        });
-    } catch (err) {
-        logger.error("Failed to proxy request to Previewkit", err, { method, subPath });
-        return c.json({ error: "Failed to reach Previewkit." }, 502);
-    }
-}
-
-/**
- * Rewrite the `statusUrl` in a Previewkit deploy response from Previewkit's own
- * `/v1/...` path to the API's public `/v1/previewkit/...` mount, so callers of the
- * autonoma API follow a URL that actually exists here. Returns the body unchanged
- * if it isn't JSON or has no `statusUrl`.
- */
-function rewriteDeployStatusUrl(body: string): string {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(body);
-    } catch {
-        return body;
-    }
-    if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) return body;
-
-    const statusUrl = "statusUrl" in parsed ? parsed.statusUrl : undefined;
-    if (typeof statusUrl !== "string" || !statusUrl.startsWith("/v1/")) return body;
-
-    return JSON.stringify({ ...parsed, statusUrl: statusUrl.replace(/^\/v1\//, "/v1/previewkit/") });
 }

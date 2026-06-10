@@ -4,7 +4,7 @@ import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
-import { previewkitClient, previewkitTriggerService } from "../previewkit/previewkit-service";
+import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
@@ -197,93 +197,27 @@ async function dispatchWebhookEvent(
 }
 
 /**
- * Deploy path for pull_request opened/synchronize/reopened. With
- * `PREVIEWKIT_USE_TEMPORAL` on, the API starts the deploy workflow directly;
- * otherwise the event is forwarded to Previewkit's HTTP server (legacy).
+ * Deploy path for pull_request opened/synchronize/reopened: starts the deploy
+ * workflow directly. Silently skipped when previews are disabled (dev /
+ * self-host without preview infrastructure).
  */
 async function startPullRequestDeploy(
     action: PreviewDeployAction,
     organizationId: string,
     payload: Record<string, unknown>,
 ): Promise<void> {
-    if (env.PREVIEWKIT_USE_TEMPORAL) {
-        await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+    if (!env.PREVIEWKIT_ENABLED) {
+        logger.info("Skipping preview deploy: PREVIEWKIT_ENABLED is off", { action, organizationId });
         return;
     }
-    await forwardPullRequestToPreviewkit("deploy", organizationId, payload);
+    await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
 }
 
-/** Teardown path for pull_request.closed; same flag split as the deploy path. */
+/** Teardown path for pull_request.closed; same previews-enabled gate as the deploy path. */
 async function startPullRequestTeardown(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-    if (env.PREVIEWKIT_USE_TEMPORAL) {
-        await previewkitTriggerService.teardownFromWebhook(organizationId, payload);
+    if (!env.PREVIEWKIT_ENABLED) {
+        logger.info("Skipping preview teardown: PREVIEWKIT_ENABLED is off", { organizationId });
         return;
     }
-    await forwardPullRequestToPreviewkit("teardown", organizationId, payload);
-}
-
-interface PullRequestRef {
-    sha: string;
-    ref: string;
-}
-
-interface PullRequestPayload {
-    number: number;
-    head: PullRequestRef;
-    base: PullRequestRef;
-}
-
-interface RepositoryPayload {
-    id: number;
-    full_name: string;
-    clone_url: string;
-}
-
-async function forwardPullRequestToPreviewkit(
-    op: "deploy" | "teardown",
-    organizationId: string,
-    payload: Record<string, unknown>,
-): Promise<void> {
-    if (!previewkitClient.hasBaseUrl()) {
-        logger.info("Skipping Previewkit forward: PREVIEWKIT_URL not configured", { op });
-        return;
-    }
-    if (!previewkitClient.isConfigured()) {
-        // Fail loudly: without the shared secret, Previewkit's auth
-        // middleware will 401 every request, and a silent skip would
-        // mask a real misconfiguration in production.
-        throw new Error(
-            "PREVIEWKIT_SERVICE_SECRET is not set on the autonoma API but PREVIEWKIT_URL is. " +
-                "Configure both so the webhook forwarder can authenticate to Previewkit.",
-        );
-    }
-
-    const pr = payload.pull_request as PullRequestPayload | undefined;
-    const repo = payload.repository as RepositoryPayload | undefined;
-    if (pr == null || repo == null) {
-        logger.warn("Pull request webhook missing pull_request or repository payload", { op });
-        return;
-    }
-
-    if (op === "deploy") {
-        await previewkitClient.deploy({
-            repoFullName: repo.full_name,
-            prNumber: pr.number,
-            organizationId,
-            githubRepositoryId: repo.id,
-            headSha: pr.head.sha,
-            headRef: pr.head.ref,
-            baseSha: pr.base.sha,
-            baseRef: pr.base.ref,
-            cloneUrl: repo.clone_url,
-        });
-        return;
-    }
-
-    await previewkitClient.teardown({
-        repoFullName: repo.full_name,
-        prNumber: pr.number,
-        organizationId,
-        githubRepositoryId: repo.id,
-    });
+    await previewkitTriggerService.teardownFromWebhook(organizationId, payload);
 }

@@ -7,7 +7,6 @@ import { z } from "zod";
 export const env = createEnv({
     extends: [storageEnv, loggerEnv],
     server: {
-        PORT: z.coerce.number().default(3000),
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
         // Redis - backs the live build-log streaming tier (BuildLogSpool). The
@@ -95,20 +94,11 @@ export const env = createEnv({
         NGINX_IMAGE: z.string().default("nginx:alpine"),
         APP_URL: z.string().url().default("https://beta.autonoma.app"),
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
-        AUTONOMA_SERVICE_SECRET: z.string().min(1).optional(),
         // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
+        // TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE are read by @autonoma/workflow's
+        // own env from process.env on the worker side.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
-
-        // Feature flag: when true, deploy webhooks start a durable Temporal
-        // workflow (the `previewkit` task queue) instead of the in-process
-        // fire-and-forget pipeline. Off keeps the legacy path as an instant
-        // rollback. TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE are read by
-        // @autonoma/workflow's own env from process.env on the worker side.
-        PREVIEWKIT_USE_TEMPORAL: z
-            .enum(["true", "false"])
-            .default("false")
-            .transform((value) => value === "true"),
     },
     runtimeEnv: process.env,
 });

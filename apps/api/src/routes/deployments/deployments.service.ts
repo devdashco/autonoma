@@ -1,7 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { env } from "../../env";
-import { previewkitClient } from "../../previewkit/previewkit-service";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
 import {
@@ -67,11 +66,9 @@ export class DeploymentsService extends Service {
     }
 
     /**
-     * Triggers a redeploy of a preview environment - re-runs the full pipeline
-     * (all apps) for the PR at its current head SHA. Admin-only. With
-     * `PREVIEWKIT_USE_TEMPORAL` on, the deploy workflow is started directly;
-     * otherwise the request goes through Previewkit's redeploy endpoint
-     * (legacy), surfacing Previewkit's own error detail (e.g. 409 torn down).
+     * Triggers a redeploy of a preview environment by starting the deploy
+     * workflow at the environment's current head SHA - re-runs the full
+     * pipeline (all apps) for the PR. Admin-only.
      */
     async redeployEnvironment(environmentId: string): Promise<void> {
         this.logger.info("Redeploying previewkit environment", { environmentId });
@@ -84,18 +81,11 @@ export class DeploymentsService extends Service {
             throw new NotFoundError("Preview environment not found");
         }
 
-        if (env.PREVIEWKIT_USE_TEMPORAL) {
-            await this.previewkitTrigger.redeploy(environment.repoFullName, environment.prNumber);
-            return;
+        if (!env.PREVIEWKIT_ENABLED) {
+            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
         }
 
-        if (!previewkitClient.isConfigured()) {
-            throw new Error(
-                "Preview environments are not configured: PREVIEWKIT_URL and PREVIEWKIT_SERVICE_SECRET must be set.",
-            );
-        }
-
-        await previewkitClient.redeploy(environment.repoFullName, environment.prNumber);
+        await this.previewkitTrigger.redeploy(environment.repoFullName, environment.prNumber);
     }
 
     /**
@@ -134,27 +124,18 @@ export class DeploymentsService extends Service {
 
     /**
      * Deploys an Application's main branch into preview environment 0 (the stable
-     * non-PR environment). Admin-only. With `PREVIEWKIT_USE_TEMPORAL` on, the
-     * deploy workflow is started directly - the trigger service resolves the repo
-     * and branch head from GitHub and validates the application. Otherwise the
-     * request goes through Previewkit's `applications/:id/0` endpoint (legacy),
-     * which performs the same resolution and surfaces its own error detail.
+     * non-PR environment) by starting the deploy workflow - the trigger service
+     * resolves the repo and branch head from GitHub and validates the
+     * application. Admin-only.
      */
     async deployMainBranch(applicationId: string): Promise<void> {
         this.logger.info("Deploying main-branch preview", { applicationId });
 
-        if (env.PREVIEWKIT_USE_TEMPORAL) {
-            await this.previewkitTrigger.deployMainBranch(applicationId, undefined);
-            return;
+        if (!env.PREVIEWKIT_ENABLED) {
+            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
         }
 
-        if (!previewkitClient.isConfigured()) {
-            throw new Error(
-                "Preview environments are not configured: PREVIEWKIT_URL and PREVIEWKIT_SERVICE_SECRET must be set.",
-            );
-        }
-
-        await previewkitClient.deployMainBranch(applicationId);
+        await this.previewkitTrigger.deployMainBranch(applicationId, undefined);
     }
 
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {
