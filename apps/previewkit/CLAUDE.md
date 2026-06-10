@@ -82,6 +82,8 @@ traffic goes through one client: `apps/api/src/previewkit/previewkit-client.ts`
 The router `apps/api/src/previewkit/previewkit-http.router.ts` (mounted `/v1/previewkit/*`) is hybrid:
 - **Native (no forwarding):** secrets CRUD (`PreviewkitSecretsService` - AWS Secrets Manager + DB),
   environment status (`PreviewkitEnvironmentsService` - reads `previewkit_environment` from the DB),
+  live build-log stream (`GET /environments/:owner/:repo/:pr/logs/stream` - SSE; relays the
+  per-namespace Redis Stream the build pipeline publishes to via `BuildLogSpool`, see below),
   and `GET /schema/preview.yaml.json` (static). These authenticate at the edge with
   `requireApiKeyOrService` and apply per-caller org-scoping. Secret values are kept out of the API
   request log via a body-log blocklist prefix on `/v1/previewkit/secrets`.
@@ -152,6 +154,11 @@ pull + buildkitd boot), `PREVIEW_DOMAIN`,
 `PREVIEW_URL_SECRET` (HMAC for hostnames), `INGRESS_CLASS_NAME`/`INGRESS_NAMESPACE`, `NGINX_IMAGE`,
 `APP_URL`, `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY` (base64 PEM), `AUTONOMA_SERVICE_SECRET`,
 `BYPASS_TOKEN_KEY`, `EKS_*`/`AWS_REGION`, plus `S3_*` (from `@autonoma/storage/env`).
+`REDIS_URL` (optional) - when set, enables the live build-log streaming tier (`BuildLogSpool`
+from `@autonoma/logger/build-log-spool`): the builder tees each output chunk and the pipeline
+mirrors phase/status transitions into a per-namespace Redis Stream, which the autonoma API relays
+to clients over SSE. Unset disables streaming (builds still log to disk + S3). The S3 upload remains
+the permanent archive; the Redis stream is ephemeral (sealed with a short TTL when the build ends).
 
 ## Build / test
 

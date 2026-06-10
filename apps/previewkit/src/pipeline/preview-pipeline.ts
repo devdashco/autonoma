@@ -8,6 +8,7 @@ import {
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
+import type { BuildLogSpool } from "@autonoma/logger/build-log-spool";
 import type { StorageProvider } from "@autonoma/storage";
 import type {
     BuildPreviewImagesOutput,
@@ -52,6 +53,13 @@ import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
  * while. The link is re-signed every time the comment is updated (each push).
  */
 const BUILD_LOG_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * How long a finished build's live log stream lingers in Redis after `seal`.
+ * Long enough for a viewer to reconnect and replay the tail right after the
+ * build ends; once it expires, the UI falls back to the permanent S3 archive.
+ */
+const BUILD_LOG_STREAM_SEAL_TTL_SECONDS = 60 * 60;
 
 /**
  * Combined per-app outcome rendered in the PR comment. Bundles the build and
@@ -105,6 +113,10 @@ interface PreviewPipelineOptions {
     addonManager: AddonManager;
     registryUrl: string;
     storage: StorageProvider;
+    /** Live build-log streaming tier. When set, the pipeline mirrors phase
+     *  transitions + terminal status into it (the builder mirrors raw output),
+     *  keyed by namespace. Optional - absent disables streaming entirely. */
+    logSpool?: BuildLogSpool;
 }
 
 /** Per-deploy options layered on top of the GitHub event. */
@@ -133,6 +145,7 @@ export class PreviewPipeline {
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly storage: StorageProvider;
+    private readonly logSpool?: BuildLogSpool;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -142,6 +155,7 @@ export class PreviewPipeline {
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.storage = options.storage;
+        this.logSpool = options.logSpool;
     }
 
     /**
@@ -584,6 +598,8 @@ export class PreviewPipeline {
                 bypassToken: result.bypassToken,
             }),
         );
+        void this.logSpool?.append(result.namespace, { kind: "status", message: "ready" });
+        void this.logSpool?.seal(result.namespace, BUILD_LOG_STREAM_SEAL_TTL_SECONDS);
 
         const services: PreviewServiceResult[] = finalOutcomes.map((o) => {
             const svc: PreviewServiceResult = { name: o.name, status: o.status === "ok" ? "ready" : "failed" };
@@ -710,6 +726,8 @@ export class PreviewPipeline {
             .catch((e) => logger.error("Failed to record failed status", e));
 
         await recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error }));
+        void this.logSpool?.append(namespace, { kind: "status", message: "failed" });
+        void this.logSpool?.seal(namespace, BUILD_LOG_STREAM_SEAL_TTL_SECONDS);
 
         if (feedbackEnabled && commentId !== "") {
             await postOrUpdateCommentOnGithub({
@@ -924,6 +942,7 @@ export class PreviewPipeline {
                 buildArgs: resolvedBuildArgs,
                 imageTag,
                 cacheKey,
+                namespace: ctx.namespace,
                 ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
             });
 
@@ -953,6 +972,7 @@ export class PreviewPipeline {
         await this.deployer.updateStatus(repoFullName, prNumber, { status, phase });
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
+        void this.logSpool?.append(namespace, { kind: "phase", message: phase });
     }
 
     private async runPreDeployHooks(

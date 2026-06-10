@@ -1,7 +1,10 @@
 import { type AuthCaller, type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { type Context, Hono } from "hono";
+import { type BuildLogEntry, BuildLogSpool } from "@autonoma/logger/build-log-spool";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { streamSSE } from "hono/streaming";
+import { auth, redisClient } from "../context";
 import { env } from "../env";
 import { openApiSpec } from "./openapi-spec";
 import previewSchema from "./preview-schema.json" with { type: "json" };
@@ -16,11 +19,36 @@ const logger = rootLogger.child({ name: "previewkitHttpRouter" });
 const secretsService = new PreviewkitSecretsService(env.S3_REGION);
 const environmentsService = new PreviewkitEnvironmentsService(db);
 
+// Live build-log relay. Reads the per-namespace Redis Stream the Previewkit
+// build pipeline publishes to and forwards entries over SSE. Reads are
+// non-blocking, so the one shared connection serves all concurrent viewers.
+const logStreamSpool = new BuildLogSpool(redisClient);
+const LOG_STREAM_POLL_MS = 1000;
+// Heartbeat (and DB status re-check) cadence while idle, in poll ticks.
+const LOG_STREAM_HEARTBEAT_TICKS = 15;
+const TERMINAL_STATUSES = new Set(["ready", "failed", "torn_down"]);
+
 // Auth for the native routes. Previewkit is the auth authority for the forwarded
 // (heavy) routes, but the native routes terminate here, so the API must
 // authenticate them itself - same middleware Previewkit used, applying per-caller
 // org-scoping (API-key callers -> their org; the service secret -> no narrowing).
 const requireAuth = requireApiKeyOrService({ db, serviceSecret: env.PREVIEWKIT_SERVICE_SECRET });
+
+/**
+ * Auth for the browser-facing build-log stream: accept a logged-in app session
+ * cookie first (so the SPA can stream without shipping an API key), then fall
+ * back to `requireApiKeyOrService` for programmatic / service callers. A session
+ * caller is recorded as a `user` AuthCaller so the same org-scoping applies.
+ */
+const requireStreamAuth: MiddlewareHandler<{ Variables: CallerAuthVariables }> = async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    const organizationId = session?.session?.activeOrganizationId;
+    if (session?.user != null && organizationId != null) {
+        c.set("authCaller", { kind: "user", userId: session.user.id, organizationId });
+        return next();
+    }
+    return requireAuth(c, next);
+};
 
 /**
  * Public HTTP surface for Previewkit, mounted at `/v1/previewkit`. Two kinds of route:
@@ -46,6 +74,93 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const status = await environmentsService.getStatus(repoFullName, pr, callerOrgId(c.var.authCaller));
         if (status == null) return c.json({ error: "Environment not found" }, 404);
         return c.json(status);
+    })
+
+    // ─── Native: live build-log stream (SSE, Redis Stream backed) ─────
+    .get("/environments/:owner/:repo/:pr/logs/stream", requireStreamAuth, async (c) => {
+        const pr = parseEnvironmentNumber(c.req.param("pr"));
+        if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
+
+        const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
+        const orgId = callerOrgId(c.var.authCaller);
+        const target = await environmentsService.resolveStreamTarget(repoFullName, pr, orgId);
+        if (target == null) return c.json({ error: "Environment not found" }, 404);
+
+        // SSE through nginx/ALB: disable response buffering so entries flush live.
+        c.header("X-Accel-Buffering", "no");
+        c.header("Cache-Control", "no-cache, no-transform");
+
+        return streamSSE(
+            c,
+            async (stream) => {
+                // Resume from a reconnecting EventSource's cursor; "0" replays
+                // the full retained buffer for a fresh viewer.
+                const lastEventId = c.req.header("Last-Event-ID");
+                let cursor = lastEventId != null && lastEventId !== "" ? lastEventId : "0";
+                // A build already finished at connect emits no further entries,
+                // so close once its buffered tail has been replayed.
+                const startedTerminal = isTerminalStatus(target.status);
+                let idleTicks = 0;
+
+                const readBatch = async (after: string): Promise<BuildLogEntry[] | undefined> => {
+                    try {
+                        return await logStreamSpool.readBatch(target.namespace, after);
+                    } catch (err) {
+                        logger.error("Failed reading build log stream", err, { namespace: target.namespace });
+                        return undefined;
+                    }
+                };
+
+                while (!stream.aborted) {
+                    const batch = await readBatch(cursor);
+                    if (batch == null) {
+                        await stream.writeSSE({ event: "error", data: "stream temporarily unavailable" });
+                        return;
+                    }
+
+                    if (batch.length > 0) {
+                        idleTicks = 0;
+                        for (const entry of batch) {
+                            await stream.writeSSE({
+                                id: entry.id,
+                                event: entry.event.kind,
+                                data: JSON.stringify(entry.event),
+                            });
+                            cursor = entry.id;
+                            if (entry.event.kind === "status" && isTerminalStatus(entry.event.message)) {
+                                await stream.writeSSE({ event: "done", data: entry.event.message });
+                                return;
+                            }
+                        }
+                        await stream.sleep(LOG_STREAM_POLL_MS);
+                        continue;
+                    }
+
+                    if (startedTerminal) {
+                        await stream.writeSSE({ event: "done", data: target.status });
+                        return;
+                    }
+
+                    // Idle: heartbeat + re-check DB status periodically so a build
+                    // that ended without a terminal event still closes the stream.
+                    idleTicks++;
+                    if (idleTicks % LOG_STREAM_HEARTBEAT_TICKS === 0) {
+                        await stream.writeSSE({ event: "heartbeat", data: "" });
+                        const fresh = await environmentsService.resolveStreamTarget(repoFullName, pr, orgId);
+                        if (fresh != null && isTerminalStatus(fresh.status)) {
+                            await stream.writeSSE({ event: "done", data: fresh.status });
+                            return;
+                        }
+                    }
+                    await stream.sleep(LOG_STREAM_POLL_MS);
+                }
+            },
+            async (err) => {
+                // Fires on write-after-disconnect and other stream errors; the
+                // client is gone, so a debug breadcrumb is enough.
+                logger.debug("Build log SSE stream closed with error", { repoFullName, pr, err });
+            },
+        );
     })
 
     // ─── Native: per-app secrets CRUD ─────────────────────────────────
@@ -135,6 +250,11 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
 function callerOrgId(caller: AuthCaller): string | undefined {
     return caller.kind === "user" ? caller.organizationId : undefined;
+}
+
+/** A finished environment emits no further log entries, so the SSE relay closes. */
+function isTerminalStatus(status: string): boolean {
+    return TERMINAL_STATUSES.has(status);
 }
 
 function parseEnvironmentNumber(raw: string): number | undefined {

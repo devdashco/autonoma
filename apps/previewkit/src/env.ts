@@ -10,6 +10,12 @@ export const env = createEnv({
         PORT: z.coerce.number().default(3000),
         LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
+        // Redis - backs the live build-log streaming tier (BuildLogSpool). The
+        // build pipeline publishes log + phase events here keyed by namespace;
+        // the autonoma API relays them to the browser over SSE. Optional: when
+        // unset, live streaming is disabled and builds log only to disk + S3.
+        REDIS_URL: z.string().url().optional(),
+
         // GitHub App credentials. The private key is supplied as base64-encoded PEM
         // and decoded at boot.
         GITHUB_APP_ID: z.string().min(1),

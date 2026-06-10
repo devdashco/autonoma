@@ -1,3 +1,4 @@
+import { BuildLogSpool } from "@autonoma/logger/build-log-spool";
 import { S3Storage } from "@autonoma/storage";
 import * as k8s from "@kubernetes/client-node";
 import { AddonManager } from "./addons/addon-manager";
@@ -14,6 +15,7 @@ import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
+import { connectRedis } from "./redis";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 
@@ -77,6 +79,14 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // Object storage for build logs. Reads S3_* env from @autonoma/storage/env.
     const storage = S3Storage.createFromEnv();
 
+    // Live build-log streaming tier. When REDIS_URL is set, the builder mirrors
+    // each output chunk and the pipeline mirrors phase/status transitions into a
+    // per-namespace Redis Stream that the autonoma API relays to the browser
+    // over SSE. Wired here so BOTH the HTTP server and the Temporal worker get
+    // it. Streaming is non-critical (builds still log to disk + S3), so a missing
+    // or unreachable Redis degrades to "disabled" rather than failing startup.
+    const logSpool = await createBuildLogSpool();
+
     // Platform-owned defaults applied to every preview (registry, domain, build
     // timeout, standard resources). Single source of truth read below.
     const previewkitDefaults = createPreviewkitDefaults(env);
@@ -100,6 +110,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         jobManager: buildkitJobManager,
         buildTimeoutMs: previewkitDefaults.defaults.buildTimeoutMs,
         storage,
+        ...(logSpool != null ? { logSpool } : {}),
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.
@@ -136,6 +147,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         storage,
+        ...(logSpool != null ? { logSpool } : {}),
     });
 
     const teardownPipeline = new TeardownPipeline({
@@ -145,4 +157,24 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     });
 
     return { previewPipeline, teardownPipeline, githubProvider };
+}
+
+/**
+ * Builds the optional live build-log spool. Returns undefined - disabling
+ * streaming - when REDIS_URL is unset or Redis is unreachable, so a Redis
+ * outage can never take down the HTTP server or the Temporal worker (both call
+ * createPreviewkitServices at startup). Builds always log to disk + S3.
+ */
+async function createBuildLogSpool(): Promise<BuildLogSpool | undefined> {
+    if (env.REDIS_URL == null) {
+        logger.warn("REDIS_URL not set - live build-log streaming is disabled");
+        return undefined;
+    }
+    try {
+        const redis = await connectRedis({ url: env.REDIS_URL });
+        return new BuildLogSpool(redis);
+    } catch (err) {
+        logger.error("Failed to connect to Redis - live build-log streaming disabled", err);
+        return undefined;
+    }
 }

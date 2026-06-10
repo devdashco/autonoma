@@ -8,21 +8,28 @@
             "types": "./src/index.ts",
             "import": "./src/index.ts"
         },
-        "./env": "./src/env.ts"
+        "./env": "./src/env.ts",
+        "./build-log-spool": {
+            "types": "./src/build-log-spool.ts",
+            "import": "./src/build-log-spool.ts"
+        }
     },
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
-        "test": "vitest run --passWithNoTests"
+        "test": "vitest run --passWithNoTests",
+        "test:integration": "vitest run --config vitest.integration.config.ts"
     },
     "dependencies": {
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
+        "ioredis": "^5.9.3",
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@testcontainers/redis": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "typescript": "catalog:",

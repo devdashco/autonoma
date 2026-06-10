@@ -33,7 +33,8 @@ const corsOptions = {
         return null;
     },
     credentials: true,
-    allowHeaders: ["Content-Type", "Authorization"],
+    // `Last-Event-ID` is sent by the SSE client (fetch-event-source) on reconnect.
+    allowHeaders: ["Content-Type", "Authorization", "Last-Event-ID"],
 };
 
 export function createApiApp() {
@@ -102,6 +103,9 @@ export function createApiApp() {
 
     // ─── Previewkit ────────────────────────────────────────────────────
 
+    // The build-log SSE stream is browser-facing and cross-origin in preview
+    // environments (with credentials), so CORS must mirror the tRPC mount.
+    app.use("/v1/previewkit/*", cors(corsOptions));
     app.route("/v1/previewkit", previewkitHttpRouter);
 
     // ─── Stripe ───────────────────────────────────────────────────────

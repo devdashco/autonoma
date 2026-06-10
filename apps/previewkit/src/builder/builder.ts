@@ -18,6 +18,11 @@ export interface BuildRequest {
     buildArgs: Record<string, string>;
     imageTag: string;
     cacheKey: string;
+    // Preview namespace this build belongs to (e.g. `preview-acme-bank-pr-42`).
+    // Used as the key under which the builder streams live log output to the
+    // BuildLogSpool. Optional: when absent (or no spool is wired) the build runs
+    // exactly as before, logging only to disk + S3.
+    namespace?: string;
     // Names the workspace build tool. Dispatched by the builder to select a
     // tool-specific build path (turbo+pnpm, nx, bazel, sbt, ... all need
     // different build invocations - a single boolean can't carry that

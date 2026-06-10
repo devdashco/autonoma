@@ -4,6 +4,7 @@ import { createReadStream, createWriteStream, existsSync, type WriteStream } fro
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import type { BuildLogSpool } from "@autonoma/logger/build-log-spool";
 import type { S3Storage } from "@autonoma/storage";
 import { logger } from "../logger";
 import { BuildError, type Builder, type BuildRequest, type BuildResult, type BuildRuntime } from "./builder";
@@ -46,11 +47,48 @@ interface BuildKitBuilderOptions {
     jobManager: BuildKitJobManager;
     buildTimeoutMs: number;
     storage: S3Storage;
+    /** When set, every build-output chunk is mirrored to this spool (keyed by
+     *  `request.namespace`) for live streaming, in addition to the disk + S3
+     *  log. Optional so builds work unchanged when streaming is not configured. */
+    logSpool?: BuildLogSpool;
 }
 
 interface BuildDispatchResult {
     imageTag: string;
     runtime: BuildRuntime;
+}
+
+/**
+ * Minimal writable surface the build methods need from their log stream. The
+ * raw file WriteStream satisfies it directly; TeeBuildLog wraps one to also fan
+ * each chunk into the BuildLogSpool for live streaming.
+ */
+interface BuildLogWriter {
+    write(chunk: string | Uint8Array): boolean;
+    end(callback: () => void): void;
+}
+
+/** Tees build output to both the on-disk log file and the live BuildLogSpool. */
+class TeeBuildLog implements BuildLogWriter {
+    constructor(
+        private readonly file: WriteStream,
+        private readonly spool: BuildLogSpool,
+        private readonly namespace: string,
+        private readonly app: string,
+    ) {}
+
+    write(chunk: string | Uint8Array): boolean {
+        const ok = this.file.write(chunk);
+        const message = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+        // Fire-and-forget: the spool swallows + logs its own errors, so a Redis
+        // hiccup can never block or fail the build it is mirroring.
+        void this.spool.append(this.namespace, { kind: "log", app: this.app, message });
+        return ok;
+    }
+
+    end(callback: () => void): void {
+        this.file.end(callback);
+    }
 }
 
 /**
@@ -70,12 +108,14 @@ export class BuildKitBuilder implements Builder {
     private readonly buildTimeoutMs: number;
     private ecr: EcrRegistryClient;
     private readonly storage: S3Storage;
+    private readonly logSpool?: BuildLogSpool;
 
     constructor(options: BuildKitBuilderOptions) {
         this.jobManager = options.jobManager;
         this.buildTimeoutMs = options.buildTimeoutMs;
         this.ecr = new EcrRegistryClient();
         this.storage = options.storage;
+        this.logSpool = options.logSpool;
     }
 
     /**
@@ -97,7 +137,13 @@ export class BuildKitBuilder implements Builder {
         for (let attempt = 1; attempt <= BUILD_MAX_RETRIES; attempt++) {
             const isLastAttempt = attempt === BUILD_MAX_RETRIES;
             const logPath = this.buildLogPath(request.imageTag);
-            const logStream = createWriteStream(logPath, { flags: "a" });
+            const fileStream = createWriteStream(logPath, { flags: "a" });
+            // Mirror output to the live spool when one is wired and this build
+            // is tied to a namespace; otherwise write to the file alone.
+            const logStream: BuildLogWriter =
+                this.logSpool != null && request.namespace != null
+                    ? new TeeBuildLog(fileStream, this.logSpool, request.namespace, request.appName)
+                    : fileStream;
             // Fresh buildkitd per attempt: a transient failure usually means the
             // previous buildkit Job's pod is in a bad state (evicted, gracefully
             // stopped, etc.), so retrying against the same pod is pointless.
@@ -146,7 +192,7 @@ export class BuildKitBuilder implements Builder {
     private dispatchBuild(
         request: BuildRequest,
         buildkitHost: string,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         const dockerfilePath = this.resolveDockerfile(request.contextPath, request.dockerfile);
         if (dockerfilePath != null) {
@@ -167,7 +213,7 @@ export class BuildKitBuilder implements Builder {
         err: BuildError,
         attempt: number,
         appName: string,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
         logPath: string,
         imageTag: string,
     ): Promise<void> {
@@ -192,7 +238,7 @@ export class BuildKitBuilder implements Builder {
 
     private async annotateWithLogs(
         err: BuildError,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
         logPath: string,
         imageTag: string,
     ): Promise<never> {
@@ -229,7 +275,7 @@ export class BuildKitBuilder implements Builder {
         request: BuildRequest,
         dockerfilePath: string,
         buildkitHost: string,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         const dockerfileDir = dirname(dockerfilePath);
         const dockerfileName = basename(dockerfilePath);
@@ -288,7 +334,7 @@ export class BuildKitBuilder implements Builder {
     private async buildWithRailpack(
         request: BuildRequest,
         buildkitHost: string,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         logger.info("Building with railpack (auto-detect)", {
             app: request.appName,
@@ -367,7 +413,7 @@ export class BuildKitBuilder implements Builder {
         request: BuildRequest,
         buildContext: string,
         buildkitHost: string,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
     ): Promise<BuildDispatchResult> {
         const plan = planTurboMonorepoBuild({
             buildContext,
@@ -468,7 +514,7 @@ export class BuildKitBuilder implements Builder {
         command: string,
         args: string[],
         extraEnv: Record<string, string>,
-        logStream: WriteStream,
+        logStream: BuildLogWriter,
     ): Promise<void> {
         return new Promise((resolvePromise, reject) => {
             logStream.write(`\n$ ${command} ${args.join(" ")}\n`);
@@ -518,8 +564,8 @@ export class BuildKitBuilder implements Builder {
      * any failure (upload, empty file, stat) — callers are expected to either
      * propagate or annotate the original build error.
      */
-    private async closeAndUploadLog(logStream: WriteStream, logPath: string, imageTag: string): Promise<string> {
-        await new Promise<void>((res) => logStream.end(res));
+    private async closeAndUploadLog(logStream: BuildLogWriter, logPath: string, imageTag: string): Promise<string> {
+        await new Promise<void>((res) => logStream.end(() => res()));
 
         const { size } = await stat(logPath);
         if (size === 0) {

@@ -70,6 +70,35 @@ export class PreviewkitEnvironmentsService {
         if (row == null) return undefined;
         return toEnvironmentStatus(repoFullName, prNumber, row);
     }
+
+    /**
+     * Resolve the Redis stream key (`namespace`) + current `status` for one
+     * environment's live build-log stream, applying the same org-scoping as
+     * `getStatus`. Returns undefined when no such environment exists (or it
+     * belongs to another org), which the SSE route maps to a 404.
+     */
+    async resolveStreamTarget(
+        repoFullName: string,
+        prNumber: number,
+        callerOrgId: string | undefined,
+    ): Promise<PreviewkitStreamTarget | undefined> {
+        const row = await this.db.previewkitEnvironment.findFirst({
+            where:
+                callerOrgId != null
+                    ? { repoFullName, prNumber, organizationId: callerOrgId }
+                    : { repoFullName, prNumber },
+            select: { namespace: true, status: true },
+        });
+
+        if (row == null) return undefined;
+        return { namespace: row.namespace, status: row.status };
+    }
+}
+
+/** Identifies which Redis stream to relay and whether the build has already finished. */
+export interface PreviewkitStreamTarget {
+    namespace: string;
+    status: string;
 }
 
 /** Maps a `previewkit_environment` row to the public status shape. Pure; unit-tested. */
