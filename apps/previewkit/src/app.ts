@@ -19,6 +19,8 @@ interface AppOptions {
      *  Unset disables the service-secret path; only API-key callers will
      *  succeed. Suitable for local dev. */
     serviceSecret: string | undefined;
+    /** When true, deploys start a durable Temporal workflow instead of the in-process pipeline. */
+    useTemporal: boolean;
 }
 
 export function createApp(options: AppOptions) {
@@ -38,6 +40,7 @@ export function createApp(options: AppOptions) {
             previewPipeline: options.previewPipeline,
             teardownPipeline: options.teardownPipeline,
             gitProvider: options.gitProvider,
+            useTemporal: options.useTemporal,
         }),
     );
     app.route("/v1", docsRoute);

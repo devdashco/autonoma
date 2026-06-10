@@ -57,6 +57,8 @@ describe("NeonProvider", () => {
     });
 
     it("creates a branch + fetches the connection URI and returns expected outputs/state", async () => {
+        // find-or-create: list branches first (none exist), then create.
+        fetchMock.respond({ body: { branches: [] } });
         fetchMock.respond({
             body: {
                 branch: { id: "br_xyz" },
@@ -77,19 +79,22 @@ describe("NeonProvider", () => {
         });
         expect(result.state).toEqual({ branchId: "br_xyz", endpointId: "ep_xyz" });
 
-        // Sanity-check that we actually called Neon with the right shape.
-        expect(fetchMock.calls).toHaveLength(2);
-        expect(fetchMock.calls[0]!.method).toBe("POST");
+        // Sanity-check the call sequence: list (find) -> create -> connection_uri.
+        expect(fetchMock.calls).toHaveLength(3);
+        expect(fetchMock.calls[0]!.method).toBe("GET");
         expect(fetchMock.calls[0]!.url).toContain("/projects/epic-water-12345/branches");
-        expect(fetchMock.calls[0]!.authHeader).toBe("Bearer neon_test_token");
-        expect(fetchMock.calls[0]!.body).toMatchObject({
+        expect(fetchMock.calls[1]!.method).toBe("POST");
+        expect(fetchMock.calls[1]!.url).toContain("/projects/epic-water-12345/branches");
+        expect(fetchMock.calls[1]!.authHeader).toBe("Bearer neon_test_token");
+        expect(fetchMock.calls[1]!.body).toMatchObject({
             branch: { name: "previewkit-pr-42", parent_id: "br_main" },
             endpoints: [{ type: "read_write" }],
         });
-        expect(fetchMock.calls[1]!.url).toContain("connection_uri?branch_id=br_xyz");
+        expect(fetchMock.calls[2]!.url).toContain("connection_uri?branch_id=br_xyz");
     });
 
     it("omits parent_id when parent_branch_id is not configured (defaults to Neon's primary)", async () => {
+        fetchMock.respond({ body: { branches: [] } });
         fetchMock.respond({
             body: { branch: { id: "br_a" }, endpoints: [{ id: "ep_a", host: "h" }] },
         });
@@ -101,13 +106,13 @@ describe("NeonProvider", () => {
             options: { project_id: "epic-water-12345" },
         });
 
-        expect(fetchMock.calls[0]!.body).toMatchObject({
+        expect(fetchMock.calls[1]!.body).toMatchObject({
             branch: { name: "previewkit-pr-42" },
             endpoints: [{ type: "read_write" }],
         });
         // Crucially the body should NOT carry a parent_id when unspecified —
         // sending one defeats the point of the optional default.
-        const branchBody = (fetchMock.calls[0]!.body as { branch: Record<string, unknown> }).branch;
+        const branchBody = (fetchMock.calls[1]!.body as { branch: Record<string, unknown> }).branch;
         expect("parent_id" in branchBody).toBe(false);
     });
 

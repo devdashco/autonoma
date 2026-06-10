@@ -58,6 +58,7 @@ function buildApp(authCaller: AuthCaller = { kind: "user", userId: "user_1", org
             previewPipeline,
             teardownPipeline,
             gitProvider,
+            useTemporal: false,
         }),
     );
 
@@ -100,18 +101,21 @@ describe("createEnvironmentsRoute main branch deploy", () => {
         });
         expect(gitProvider.getRepository).toHaveBeenCalledWith(999, 123);
         expect(gitProvider.getBranchHead).toHaveBeenCalledWith("acme/web", "main");
-        expect(previewPipeline.deploy).toHaveBeenCalledWith({
-            action: "synchronize",
-            prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
-            repoFullName: "acme/web",
-            organizationId: "org_1",
-            githubRepositoryId: 123,
-            headSha: "abcdef123456",
-            headRef: "main",
-            baseSha: "abcdef123456",
-            baseRef: "main",
-            cloneUrl: "https://github.com/acme/web.git",
-        });
+        expect(previewPipeline.deploy).toHaveBeenCalledWith(
+            {
+                action: "synchronize",
+                prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+                repoFullName: "acme/web",
+                organizationId: "org_1",
+                githubRepositoryId: 123,
+                headSha: "abcdef123456",
+                headRef: "main",
+                baseSha: "abcdef123456",
+                baseRef: "main",
+                cloneUrl: "https://github.com/acme/web.git",
+            },
+            { configRevisionId: undefined },
+        );
     });
 
     it("trusts the Application id for service callers instead of adding user org scoping", async () => {

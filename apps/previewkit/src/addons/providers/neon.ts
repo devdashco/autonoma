@@ -35,7 +35,30 @@ const branchCreateResponseSchema = z.object({
         .min(1, "Neon returned a branch with no endpoints — refusing to continue"),
 });
 
+const branchListResponseSchema = z.object({
+    branches: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+const endpointSchema = z.object({
+    id: z.string(),
+    host: z.string(),
+    type: z.string(),
+});
+
+const endpointListResponseSchema = z.object({
+    endpoints: z.array(endpointSchema),
+});
+
+const endpointCreateResponseSchema = z.object({
+    endpoint: z.object({ id: z.string(), host: z.string() }),
+});
+
 const connectionUriResponseSchema = z.object({ uri: z.string() });
+
+interface ResolvedBranch {
+    branchId: string;
+    endpoint: { id: string; host: string };
+}
 
 export class NeonProvider implements AddonProvider {
     readonly name = "neon";
@@ -60,22 +83,19 @@ export class NeonProvider implements AddonProvider {
             namespace: input.namespace,
         });
 
-        const createBody: Record<string, unknown> = {
-            branch: { name: branchName },
-            endpoints: [{ type: "read_write" }],
-        };
-        if (options.parent_branch_id != null) {
-            (createBody.branch as Record<string, unknown>).parent_id = options.parent_branch_id;
-        }
-
-        const created = branchCreateResponseSchema.parse(
-            await this.fetchJson("POST", `/projects/${options.project_id}/branches`, auth.token, createBody),
-        );
-        const branchId = created.branch.id;
-        const endpoint = created.endpoints[0]!;
+        // Find-or-create by branch name. The branch *is* the preview env for
+        // this PR, so a retried provision (e.g. the build activity rescheduled
+        // after a later failure) must reuse the existing branch rather than
+        // create a second `previewkit-pr-<N>`. This is the idempotency the
+        // Temporal retry policy relies on.
+        const existing = await this.findBranchByName(options.project_id, auth.token, branchName);
+        const resolved =
+            existing != null
+                ? await this.reuseBranch(options.project_id, auth.token, existing.id, branchName)
+                : await this.createBranch(options.project_id, auth.token, branchName, options.parent_branch_id);
 
         const params = new URLSearchParams({
-            branch_id: branchId,
+            branch_id: resolved.branchId,
             database_name: options.database_name,
             role_name: options.role_name,
         });
@@ -83,16 +103,85 @@ export class NeonProvider implements AddonProvider {
             await this.fetchJson("GET", `/projects/${options.project_id}/connection_uri?${params}`, auth.token),
         );
 
-        this.logger.info("Neon branch provisioned", { projectId: options.project_id, branchId });
+        this.logger.info("Neon branch provisioned", {
+            projectId: options.project_id,
+            branchId: resolved.branchId,
+            reused: existing != null,
+        });
 
         return {
             outputs: {
                 connectionString: conn.uri,
-                host: endpoint.host,
+                host: resolved.endpoint.host,
                 database: options.database_name,
             },
-            state: { branchId, endpointId: endpoint.id } satisfies z.infer<typeof neonStateSchema>,
+            state: {
+                branchId: resolved.branchId,
+                endpointId: resolved.endpoint.id,
+            } satisfies z.infer<typeof neonStateSchema>,
         };
+    }
+
+    private async findBranchByName(
+        projectId: string,
+        token: string,
+        branchName: string,
+    ): Promise<{ id: string } | undefined> {
+        const list = branchListResponseSchema.parse(
+            await this.fetchJson("GET", `/projects/${projectId}/branches`, token),
+        );
+        const match = list.branches.find((branch) => branch.name === branchName);
+        return match != null ? { id: match.id } : undefined;
+    }
+
+    private async createBranch(
+        projectId: string,
+        token: string,
+        branchName: string,
+        parentBranchId: string | undefined,
+    ): Promise<ResolvedBranch> {
+        const createBody: Record<string, unknown> = {
+            branch: { name: branchName },
+            endpoints: [{ type: "read_write" }],
+        };
+        if (parentBranchId != null) {
+            (createBody.branch as Record<string, unknown>).parent_id = parentBranchId;
+        }
+
+        const created = branchCreateResponseSchema.parse(
+            await this.fetchJson("POST", `/projects/${projectId}/branches`, token, createBody),
+        );
+        return { branchId: created.branch.id, endpoint: created.endpoints[0]! };
+    }
+
+    /**
+     * Reuse an existing branch: find its read_write endpoint, creating one if
+     * the branch somehow has none (e.g. a prior run created the branch but
+     * failed before the endpoint, or the endpoint was reaped).
+     */
+    private async reuseBranch(
+        projectId: string,
+        token: string,
+        branchId: string,
+        branchName: string,
+    ): Promise<ResolvedBranch> {
+        this.logger.info("Reusing existing Neon branch", { projectId, branchId, branchName });
+
+        const endpoints = endpointListResponseSchema.parse(
+            await this.fetchJson("GET", `/projects/${projectId}/branches/${branchId}/endpoints`, token),
+        );
+        const readWrite = endpoints.endpoints.find((endpoint) => endpoint.type === "read_write");
+        if (readWrite != null) {
+            return { branchId, endpoint: { id: readWrite.id, host: readWrite.host } };
+        }
+
+        this.logger.warn("Existing Neon branch has no read_write endpoint; creating one", { projectId, branchId });
+        const created = endpointCreateResponseSchema.parse(
+            await this.fetchJson("POST", `/projects/${projectId}/endpoints`, token, {
+                endpoint: { branch_id: branchId, type: "read_write" },
+            }),
+        );
+        return { branchId, endpoint: { id: created.endpoint.id, host: created.endpoint.host } };
     }
 
     async deprovision(input: DeprovisionInput): Promise<void> {

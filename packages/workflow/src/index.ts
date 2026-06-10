@@ -14,6 +14,12 @@ export { triggerGenerationReviewWorkflow } from "./triggers/generation-review";
 export { triggerReplayReviewWorkflow } from "./triggers/replay-review";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";
 export { findLatestWorkflowByRunId, type TriggerRunWorkflowParams, triggerRunWorkflow } from "./triggers/run-replay";
+export {
+    buildPreviewDeployWorkflowId,
+    type TriggerPreviewDeployParams,
+    triggerPreviewDeploy,
+} from "./triggers/previewkit";
+export type { PreviewDeployEvent } from "./activities/previewkit-activities";
 export { getTemporalClient, resetTemporalClient } from "./client";
 export { TaskQueue } from "./task-queues";
 export type { WorkflowRef } from "./types";

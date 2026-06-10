@@ -55,3 +55,19 @@ export type {
 export type { WebActivities, RunWebGenerationInput, RunWebReplayInput } from "./web-activities";
 
 export type { MobileActivities, RunMobileGenerationInput, RunMobileReplayInput } from "./mobile-activities";
+
+export type {
+    PreviewkitActivities,
+    PreviewDeployEvent,
+    PreparePreviewDeployInput,
+    PreparePreviewDeployOutput,
+    BuildPreviewImagesInput,
+    BuildPreviewImagesOutput,
+    PreviewBuildOutcome,
+    DeployPreviewEnvironmentInput,
+    DeployPreviewEnvironmentOutput,
+    PreviewServiceResult,
+    PreviewAddonResult,
+    FinalizePreviewDeployInput,
+    FailPreviewDeployInput,
+} from "./previewkit-activities";

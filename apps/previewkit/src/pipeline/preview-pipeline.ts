@@ -9,11 +9,19 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { StorageProvider } from "@autonoma/storage";
+import type {
+    BuildPreviewImagesOutput,
+    DeployPreviewEnvironmentInput,
+    DeployPreviewEnvironmentOutput,
+    PreviewAddonResult,
+    PreviewBuildOutcome,
+    PreviewServiceResult,
+} from "@autonoma/workflow/activities";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildError, type Builder } from "../builder/builder";
 import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
-import type { BranchConvention, PreviewConfig, RepoDependency } from "../config/schema";
+import { type BranchConvention, type PreviewConfig, previewConfigSchema, type RepoDependency } from "../config/schema";
 import {
     type AppBuildOutcome,
     recordBuildFinished,
@@ -108,6 +116,15 @@ export interface DeployOptions {
     configRevisionId?: string | undefined;
 }
 
+/**
+ * Result of {@link PreviewPipeline.prepare}. `skipped` short-circuits the rest
+ * of the pipeline for repos that opted out (no active config revision / no
+ * `.preview.yaml`).
+ */
+export type PreparePreviewResult =
+    | { skipped: true }
+    | { skipped: false; namespace: string; commentId: string; feedbackEnabled: boolean };
+
 export class PreviewPipeline {
     private readonly provider: GitProvider;
     private readonly builder: Builder;
@@ -166,29 +183,55 @@ export class PreviewPipeline {
         return { config: fileConfig, revisionId: undefined };
     }
 
+    /**
+     * Full in-process deploy. Now a thin orchestrator over the same five
+     * serializable steps the Temporal workflow drives, so the legacy
+     * (flag-off) path and the Temporal (flag-on) path share one code path.
+     */
     async deploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
-        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, () =>
-            this.runDeploy(event, options),
-        );
+        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, async () => {
+            const configRevisionId = options?.configRevisionId;
+            const prep = await this.prepare(event, configRevisionId);
+            if (prep.skipped) return;
+
+            try {
+                const built = await this.build(event, prep.namespace, configRevisionId);
+                const deployed = await this.deployEnvironment({
+                    event,
+                    namespace: prep.namespace,
+                    commentId: prep.commentId,
+                    mergedConfigJson: built.mergedConfigJson,
+                    imageTags: built.imageTags,
+                    addonOutputs: built.addonOutputs,
+                    buildOutcomes: built.buildOutcomes,
+                    addons: built.addons,
+                    warnings: built.warnings,
+                    primaryAppNames: built.primaryAppNames,
+                });
+                await this.finalize(event, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : "Unknown error";
+                await this.fail(event, prep.namespace, prep.commentId, prep.feedbackEnabled, message);
+                throw err;
+            }
+        });
     }
 
-    private async runDeploy(event: PullRequestEvent, options?: DeployOptions): Promise<void> {
+    /**
+     * Step 1 - resolve the Application + config (active revision or `.preview.yaml`),
+     * set the initial commit status + PR comment, and ensure the namespace exists so
+     * status can be polled from the first moment. Returns `{ skipped: true }` for repos
+     * that opted out (not linked, or no active revision / `.preview.yaml`).
+     */
+    async prepare(event: PullRequestEvent, configRevisionId?: string | undefined): Promise<PreparePreviewResult> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
-        logger.info("Starting preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
+        logger.info("Preparing preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
 
-        // 1. Confirm the repo is linked to an Application (the user's opt-in signal).
-        //    Many repos under an installed GitHub App will never have one; we want
-        //    those PRs to be silently ignored rather than spammed with failed statuses.
-        //    Done first because it's a cheap local DB query and short-circuits before
-        //    we pay for the GitHub API call below.
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: {
-                id: true,
-                previewkitSecrets: { select: { appName: true, awsSecretArn: true } },
-            },
+            select: { id: true },
         });
         if (application == null) {
             logger.info("Repo not linked to an Application; skipping deployment", {
@@ -197,31 +240,20 @@ export class PreviewPipeline {
                 organizationId,
                 githubRepositoryId,
             });
-            return;
+            return { skipped: true };
         }
 
-        // 2. Resolve the primary app's config: the Application's active DB config
-        //    revision if it has one, else a fallback to the repo's `.preview.yaml`
-        //    at the deployed commit (for repos that haven't adopted server-side
-        //    config yet). Neither present is the opt-out signal: skip cleanly.
-        const resolved = await this.resolvePrimaryConfig(
-            application.id,
-            repoFullName,
-            headSha,
-            options?.configRevisionId,
-        );
+        const resolved = await this.resolvePrimaryConfig(application.id, repoFullName, headSha, configRevisionId);
         if (resolved == null) {
             logger.warn("No active config revision and no .preview.yaml; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
             });
-            return;
+            return { skipped: true };
         }
-        const primaryConfig = resolved.config;
-        const configRevisionId = resolved.revisionId;
 
-        // 1c. Synthetic non-PR environments (currently prNumber 0 for an Application's main branch)
+        // Synthetic non-PR environments (prNumber 0 for an Application's main branch)
         // stay quiet on GitHub because there is no PR thread to comment on.
         const isPullRequest = prNumber > 0;
         if (!isPullRequest) {
@@ -232,16 +264,10 @@ export class PreviewPipeline {
             });
         }
 
-        // 2. Set commit status to pending
         if (isPullRequest) {
             await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
         }
 
-        // 3. Reuse the existing PR comment if one was created on a previous push.
-        //    A single PR has exactly one comment that gets edited through every
-        //    push and through teardown — no comment-spam on PR conversations
-        //    that get many pushes. On the very first deploy this falls through
-        //    to postComment; on subsequent deploys it updates in place.
         let commentId = "";
         if (isPullRequest) {
             const result = await postOrUpdateCommentOnGithub({
@@ -270,7 +296,6 @@ export class PreviewPipeline {
             commentId = result?.status === "posted" || result?.status === "updated" ? result.commentId : "";
         }
 
-        // 4. Ensure namespace exists so status can be polled from the first moment
         const namespace = await this.deployer.ensureNamespace(repoFullName, prNumber, organizationId, {
             commentId,
             lastDeployedSha: headSha,
@@ -291,23 +316,45 @@ export class PreviewPipeline {
             }),
         );
 
-        // recordEnvironmentCreated runs through recordSafe (DB errors don't
-        // fail the deploy). For addon provisioning we need the env row's id,
-        // so look it up explicitly — if the earlier upsert was swallowed,
-        // we'll fall back to skipping addon provisioning rather than
-        // failing the whole deploy.
-        const environmentRow = await db.previewkitEnvironment.findUnique({
-            where: { namespace },
-            select: { id: true },
+        return { skipped: false, namespace, commentId, feedbackEnabled: isPullRequest };
+    }
+
+    /**
+     * Step 2 - resolve config, clone primary + dependency repos, merge configs,
+     * snapshot the resolved config, provision addons (their outputs feed
+     * `build_args`), and build every app image to ECR. Temp dirs are cloned and torn
+     * down entirely within this step. Throws when every build fails.
+     */
+    async build(
+        event: PullRequestEvent,
+        namespace: string,
+        configRevisionId?: string | undefined,
+    ): Promise<BuildPreviewImagesOutput> {
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const shortSha = headSha.slice(0, 7);
+
+        const application = await db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            select: {
+                id: true,
+                previewkitSecrets: { select: { appName: true, awsSecretArn: true } },
+            },
         });
+        if (application == null) {
+            throw new Error(`Application not found for ${repoFullName} (org ${organizationId})`);
+        }
+
+        const resolved = await this.resolvePrimaryConfig(application.id, repoFullName, headSha, configRevisionId);
+        if (resolved == null) {
+            throw new Error(`No active config revision and no .preview.yaml for ${repoFullName} at ${shortSha}`);
+        }
+        const primaryConfig = resolved.config;
+        const resolvedRevisionId = resolved.revisionId;
 
         let primaryDir: string | undefined;
         let dependencyEntries: DependencyEntry[] = [];
-        let addonOutcomes: AddonProvisionOutcome[] = [];
-        let addonOutputs: AddonOutputs = {};
 
         try {
-            // 5. Clone the primary repo and all dependency repos in parallel.
             await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
             primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
@@ -318,16 +365,15 @@ export class PreviewPipeline {
             ]);
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
 
-            // 6. Merge all configs into a single config for building and deploying.
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
             await recordSafe(() => recordEnvironmentManifest(namespace, mergedConfig));
+            // Snapshot the effective (merged) config so a re-deploy of this PR
+            // reproduces the same topology. configRevisionId records which primary
+            // revision fed it (undefined for a .preview.yaml-sourced deploy).
+            await recordSafe(() =>
+                recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId: resolvedRevisionId }),
+            );
 
-            // Snapshot the effective (merged) config onto the environment so a
-            // re-deploy of this PR reproduces the same topology. configRevisionId
-            // records which primary revision fed it.
-            await recordSafe(() => recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId }));
-
-            // 7. Build appRepoDirs: maps each app name to the directory it should be built from.
             const appRepoDirs = new Map<string, string>();
             for (const app of primaryConfig.apps) {
                 appRepoDirs.set(app.name, primaryDir);
@@ -338,15 +384,17 @@ export class PreviewPipeline {
                 }
             }
 
-            // 8. Provision third-party addons (Neon branches, etc.). Each
-            //      addon is its own failure domain — one bad addon does not
-            //      abort the build. Successful outputs flow into build_args
-            //      and runtime env via {{addonName.<key>}} templates. Apps
-            //      whose templates reference a failed addon will themselves
-            //      fail at template-resolve time, which the per-app status
-            //      table already surfaces cleanly.
+            // Provision addons before building - their outputs flow into build_args
+            // + runtime env via {{addonName.<key>}} templates. Each addon is its own
+            // failure domain.
+            let addonOutcomes: AddonProvisionOutcome[] = [];
+            let addonOutputs: AddonOutputs = {};
             if (mergedConfig.addons.length > 0) {
                 await this.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
+                const environmentRow = await db.previewkitEnvironment.findUnique({
+                    where: { namespace },
+                    select: { id: true },
+                });
                 if (environmentRow == null) {
                     logger.warn(
                         "Cannot provision addons: PreviewkitEnvironment row missing. " +
@@ -368,9 +416,7 @@ export class PreviewPipeline {
                     );
                 }
             }
-            // 8. Build all app images in parallel. Per-app build failures are
-            //    captured into the outcome map rather than thrown — only the
-            //    "every app failed" case aborts the pipeline as a global error.
+
             await this.updatePhase(repoFullName, prNumber, "building", "building-images");
             const buildStart = Date.now();
             const arnByApp = new Map<string, string>();
@@ -382,11 +428,6 @@ export class PreviewPipeline {
                 pr: prNumber,
                 applicationId: application.id,
                 registeredSecretApps: [...arnByApp.keys()].sort(),
-            });
-            logger.info("AWS secret ARNs by app", {
-                apps: Object.fromEntries(arnByApp),
-                registeredApps: [...arnByApp.keys()],
-                totalSecretRegistrations: arnByApp.size,
             });
             const appBuilds = await this.buildAllApps(
                 mergedConfig,
@@ -421,243 +462,292 @@ export class PreviewPipeline {
                 throw new Error("All app builds failed; see per-app build outcomes for details");
             }
 
-            const deployOpts = {
-                repoFullName,
-                prNumber,
-                headSha,
-                organizationId,
-                githubRepositoryId,
-                config: mergedConfig,
+            const warnings = dependencyEntries
+                .filter((e) => e.usedFallback)
+                .map(
+                    (entry) =>
+                        `${entry.dep.repo} branch ${entry.targetBranch} not found; used ${entry.dep.fallback_branch} instead.`,
+                );
+
+            return {
+                mergedConfigJson: JSON.stringify(mergedConfig),
                 imageTags,
                 addonOutputs,
-                commentId,
+                buildOutcomes: appBuilds,
+                addons: this.toAddonResults(mergedConfig, addonOutcomes),
+                warnings,
+                primaryAppNames: primaryConfig.apps.map((a) => a.name),
             };
-
-            // 10. Deploy services (postgres, redis, etc.) and wait for readiness.
-            //     App pods have not started yet at this point.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
-            const infraResult = await this.deployer.deployInfra(deployOpts);
-
-            // 11. Pre-deploy hooks (e.g. Postgres schema creation). Services are
-            //     up; app pods have not started yet, so there is no CrashLoopBackOff
-            //     race: schemas exist before any app tries to connect.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "pre-deploy-hooks");
-            await this.runPreDeployHooks(
-                mergedConfig,
-                infraResult.namespace,
-                repoFullName,
-                prNumber,
-                imageTags,
-                addonOutputs,
-            );
-
-            // 12. Deploy apps wave by wave. Each app is its own failure domain.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
-            const result = await this.deployer.deployApps(deployOpts, infraResult);
-
-            // 13. Collect apps that are ready now (for post_deploy hook filtering).
-            //     Apps in CrashLoopBackOff are not in this set and their own
-            //     hooks are skipped — but proxy hooks (e.g. running another
-            //     service's migration from a sibling pod) still run.
-            const readyAppNamesForHooks = new Set(
-                Object.entries(result.appOutcomes)
-                    .filter(([_, o]) => o.status === "ok")
-                    .map(([n]) => n),
-            );
-
-            // 14. Run post-deploy hooks only for apps that came up. Hooks that
-            //     target a failed app would fail at `kubectl exec` time with
-            //     "no pod" — better to skip silently than poison the pipeline.
-            await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
-            await this.runPostDeployHooks(
-                mergedConfig,
-                result,
-                readyAppNamesForHooks,
-                repoFullName,
-                prNumber,
-                imageTags,
-                addonOutputs,
-            );
-
-            // 15. Restart any apps that crashed during startup with CrashLoopBackOff.
-            //     Post_deploy hooks above typically run migrations — deleting the
-            //     crashing pods lets them restart immediately (bypassing exponential
-            //     backoff) with the schema changes already in place.
-            const crashedApps = Object.entries(result.appOutcomes).flatMap(([name, o]) => {
-                if (o.status === "failed" && o.crashLoopBackOff === true) {
-                    return [{ name, url: o.url }];
-                }
-                return [];
-            });
-            if (crashedApps.length > 0) {
-                logger.info("Restarting crash-looped apps after post_deploy hooks", {
-                    namespace: result.namespace,
-                    apps: crashedApps.map((a) => a.name),
-                });
-                const recovered = await this.deployer.restartCrashedApps(result.namespace, crashedApps);
-                for (const [name, outcome] of Object.entries(recovered)) {
-                    result.appOutcomes[name] = outcome;
-                }
-            }
-
-            // 16. Aggregate per-app outcomes for downstream reporting + decisions.
-            //     Re-computed after crash recovery so recovered apps show as ok.
-            const finalOutcomes = this.computeFinalOutcomes(mergedConfig, appBuilds, result.appOutcomes);
-            const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
-            const readyCount = readyAppNames.size;
-            const totalCount = finalOutcomes.length;
-
-            // 14. If nothing came up, treat as a global failure. Otherwise mark
-            //     the env ready — a partial preview is still useful.
-            if (readyCount === 0) {
-                throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
-            }
-
-            await this.deployer.updateStatus(repoFullName, prNumber, {
-                status: "ready",
-                phase: "ready",
-                urls: result.urls,
-            });
-            await recordSafe(() =>
-                recordEnvironmentReady({
-                    namespace,
-                    urls: result.urls,
-                    apps: toAppInstances(mergedConfig.apps, imageTags, readyAppNames),
-                    bypassToken: result.bypassToken,
-                }),
-            );
-
-            // 14. Update PR comment with per-app status table.
-            if (isPullRequest && commentId !== "") {
-                const fallbackDeps = dependencyEntries.filter((e) => e.usedFallback);
-                await postOrUpdateCommentOnGithub({
-                    client: this.provider,
-                    store: createPreviewkitCommentStore(db),
-                    repoFullName,
-                    prNumber,
-                    lastCommitSha: headSha,
-                    commentId,
-                    payload: await this.buildPreviewResultPayload(
-                        prNumber,
-                        headSha,
-                        finalOutcomes,
-                        mergedConfig,
-                        readyCount,
-                        totalCount,
-                        fallbackDeps,
-                        addonOutcomes,
+        } finally {
+            const dirsToClean = [primaryDir, ...dependencyEntries.map((e) => e.tmpDir)].filter((d) => d != null);
+            await Promise.all(
+                dirsToClean.map((dir) =>
+                    rm(dir, { recursive: true, force: true }).catch((err) =>
+                        logger.warn("Failed to clean up temp dir", { dir, err }),
                     ),
-                });
+                ),
+            );
+        }
+    }
+
+    /**
+     * Step 3 - deploy infra, run pre-deploy hooks, deploy apps wave-by-wave, run
+     * post-deploy hooks, restart crash-looped apps, and mark the env ready. Returns
+     * flat, comment-ready result rows. Throws when no app comes up.
+     */
+    async deployEnvironment(input: DeployPreviewEnvironmentInput): Promise<DeployPreviewEnvironmentOutput> {
+        const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const mergedConfig = previewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
+
+        const deployOpts = {
+            repoFullName,
+            prNumber,
+            headSha,
+            organizationId,
+            githubRepositoryId,
+            config: mergedConfig,
+            imageTags,
+            addonOutputs,
+            commentId,
+        };
+
+        await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-services");
+        const infraResult = await this.deployer.deployInfra(deployOpts);
+
+        await this.updatePhase(repoFullName, prNumber, "deploying", "pre-deploy-hooks");
+        await this.runPreDeployHooks(
+            mergedConfig,
+            infraResult.namespace,
+            repoFullName,
+            prNumber,
+            imageTags,
+            addonOutputs,
+        );
+
+        await this.updatePhase(repoFullName, prNumber, "deploying", "deploying-apps");
+        const result = await this.deployer.deployApps(deployOpts, infraResult);
+
+        const readyAppNamesForHooks = new Set(
+            Object.entries(result.appOutcomes)
+                .filter(([_, o]) => o.status === "ok")
+                .map(([n]) => n),
+        );
+
+        await this.updatePhase(repoFullName, prNumber, "deploying", "post-deploy-hooks");
+        await this.runPostDeployHooks(
+            mergedConfig,
+            result,
+            readyAppNamesForHooks,
+            repoFullName,
+            prNumber,
+            imageTags,
+            addonOutputs,
+        );
+
+        const crashedApps = Object.entries(result.appOutcomes).flatMap(([name, o]) => {
+            if (o.status === "failed" && o.crashLoopBackOff === true) {
+                return [{ name, url: o.url }];
             }
-
-            const allReady = readyCount === totalCount;
-
-            // 15. Single global commit status. Success only when every app
-            //     came up; otherwise failure with an "N/M ready" description.
-            //     Per-app contexts (`previewkit/<app>`) are a Stage B follow-up.
-            if (isPullRequest) {
-                const firstReadyUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
-                await this.provider.setCommitStatus(
-                    repoFullName,
-                    headSha,
-                    allReady ? "success" : "failure",
-                    allReady ? "Preview environment ready" : `${readyCount}/${totalCount} apps ready`,
-                    firstReadyUrl,
-                );
+            return [];
+        });
+        if (crashedApps.length > 0) {
+            logger.info("Restarting crash-looped apps after post_deploy hooks", {
+                namespace: result.namespace,
+                apps: crashedApps.map((a) => a.name),
+            });
+            const recovered = await this.deployer.restartCrashedApps(result.namespace, crashedApps);
+            for (const [name, outcome] of Object.entries(recovered)) {
+                result.appOutcomes[name] = outcome;
             }
+        }
 
-            // 16. Create GitHub Deployment so trigger-diffs.yml fires and runs diffs analysis.
-            try {
-                const primaryUrl = resolvePrimaryUrl(primaryConfig.apps, result.urls);
-                if (primaryUrl == null) {
-                    logger.warn("No primary URL resolved; deployment status will have no environment_url", {
-                        repo: repoFullName,
-                        pr: prNumber,
-                    });
-                }
-                const deploymentId = await this.provider.createDeployment(
-                    repoFullName,
-                    event.headRef,
-                    "preview",
-                    result.urls,
-                );
-                await this.provider.createDeploymentStatus(
-                    repoFullName,
-                    deploymentId,
-                    allReady ? "success" : "failure",
-                    primaryUrl,
-                    allReady ? "Preview environment ready" : `${readyCount}/${totalCount} apps ready`,
-                );
-            } catch (err) {
-                logger.fatal("Failed to create GitHub deployment for diffs trigger", err, {
+        const finalOutcomes = this.computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes);
+        const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
+        const readyCount = readyAppNames.size;
+        const totalCount = finalOutcomes.length;
+
+        if (readyCount === 0) {
+            throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
+        }
+
+        await this.deployer.updateStatus(repoFullName, prNumber, {
+            status: "ready",
+            phase: "ready",
+            urls: result.urls,
+        });
+        await recordSafe(() =>
+            recordEnvironmentReady({
+                namespace: result.namespace,
+                urls: result.urls,
+                apps: toAppInstances(mergedConfig.apps, imageTags, readyAppNames),
+                bypassToken: result.bypassToken,
+            }),
+        );
+
+        const services: PreviewServiceResult[] = finalOutcomes.map((o) => {
+            const svc: PreviewServiceResult = { name: o.name, status: o.status === "ok" ? "ready" : "failed" };
+            if (o.url != null) svc.url = o.url;
+            if (o.buildLogUrl != null) svc.logsUrl = o.buildLogUrl;
+            if (o.error != null) svc.error = o.error;
+            return svc;
+        });
+
+        const primaryApps = mergedConfig.apps.filter((a) => primaryAppNames.includes(a.name));
+        const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
+        const primaryUrl = resolvePrimaryUrl(primaryApps, result.urls);
+
+        const output: DeployPreviewEnvironmentOutput = {
+            ready: readyCount === totalCount,
+            readyCount,
+            totalCount,
+            urls: result.urls,
+            services,
+            addons,
+            warnings,
+        };
+        if (previewUrl != null) output.previewUrl = previewUrl;
+        if (primaryUrl != null) output.primaryUrl = primaryUrl;
+
+        logger.info("Preview environment deployed", {
+            repo: repoFullName,
+            pr: prNumber,
+            readyCount,
+            totalCount,
+            urls: result.urls,
+        });
+        return output;
+    }
+
+    /**
+     * Step 4 - the GitHub side effects that must land: update the PR comment with
+     * the per-app status table, set the final commit status, and create the GitHub
+     * deployment + deployment status (which triggers diffs).
+     */
+    async finalize(
+        event: PullRequestEvent,
+        _namespace: string,
+        commentId: string,
+        feedbackEnabled: boolean,
+        result: DeployPreviewEnvironmentOutput,
+    ): Promise<void> {
+        const { repoFullName, prNumber, headSha } = event;
+
+        if (feedbackEnabled && commentId !== "") {
+            await postOrUpdateCommentOnGithub({
+                client: this.provider,
+                store: createPreviewkitCommentStore(db),
+                repoFullName,
+                prNumber,
+                lastCommitSha: headSha,
+                commentId,
+                payload: await this.buildResultPayload(prNumber, headSha, result),
+            });
+        }
+
+        if (feedbackEnabled) {
+            await this.provider.setCommitStatus(
+                repoFullName,
+                headSha,
+                result.ready ? "success" : "failure",
+                result.ready ? "Preview environment ready" : `${result.readyCount}/${result.totalCount} apps ready`,
+                result.previewUrl,
+            );
+        }
+
+        try {
+            if (result.primaryUrl == null) {
+                logger.warn("No primary URL resolved; deployment status will have no environment_url", {
                     repo: repoFullName,
                     pr: prNumber,
                 });
             }
-
-            logger.info("Preview deployment complete", {
+            const deploymentId = await this.provider.createDeployment(
+                repoFullName,
+                event.headRef,
+                "preview",
+                result.urls,
+            );
+            await this.provider.createDeploymentStatus(
+                repoFullName,
+                deploymentId,
+                result.ready ? "success" : "failure",
+                result.primaryUrl,
+                result.ready ? "Preview environment ready" : `${result.readyCount}/${result.totalCount} apps ready`,
+            );
+        } catch (err) {
+            logger.fatal("Failed to create GitHub deployment for diffs trigger", err, {
                 repo: repoFullName,
                 pr: prNumber,
-                readyCount,
-                totalCount,
-                urls: result.urls,
             });
-        } catch (err) {
-            logger.error("Preview deployment failed", err, { repo: repoFullName, pr: prNumber });
-
-            const message = err instanceof Error ? err.message : "Unknown error";
-            await this.deployer
-                .updateStatus(repoFullName, prNumber, {
-                    status: "failed",
-                    phase: "failed",
-                    error: message,
-                })
-                .catch((e) => logger.error("Failed to record failed status", e));
-
-            await recordSafe(() =>
-                recordPhaseChanged({
-                    namespace,
-                    status: "failed",
-                    phase: "failed",
-                    error: message,
-                }),
-            );
-
-            if (isPullRequest && commentId !== "") {
-                await postOrUpdateCommentOnGithub({
-                    client: this.provider,
-                    store: createPreviewkitCommentStore(db),
-                    repoFullName,
-                    prNumber,
-                    lastCommitSha: headSha,
-                    commentId,
-                    payload: payloadBuilder({
-                        state: "critical",
-                        prNumber,
-                        commitSha: headSha,
-                        assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-                        message: "Autonoma could not finish building the preview environment.",
-                        details: [
-                            {
-                                summary: "Preview deployment error",
-                                body: err instanceof Error ? err.message : "Unknown error occurred",
-                            },
-                        ],
-                    }),
-                }).catch((e) => logger.error("Failed to update failure comment", e));
-            }
-
-            if (isPullRequest) {
-                await this.provider
-                    .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
-                    .catch((e) => logger.error("Failed to set failure status", e));
-            }
-
-            throw err;
-        } finally {
-            const dirsToClean = [primaryDir, ...dependencyEntries.map((e) => e.tmpDir)].filter((d) => d != null);
-            await Promise.all(dirsToClean.map((dir) => rm(dir, { recursive: true, force: true }).catch(() => {})));
         }
+
+        logger.info("Preview deployment complete", {
+            repo: repoFullName,
+            pr: prNumber,
+            readyCount: result.readyCount,
+            totalCount: result.totalCount,
+            urls: result.urls,
+        });
+    }
+
+    /**
+     * Failure finalizer - records the failed status/phase and surfaces the error on
+     * the PR comment + commit status. Best-effort: never throws.
+     */
+    async fail(
+        event: PullRequestEvent,
+        namespace: string,
+        commentId: string,
+        feedbackEnabled: boolean,
+        error: string,
+    ): Promise<void> {
+        const { repoFullName, prNumber, headSha } = event;
+        logger.error("Preview deployment failed", new Error(error), { repo: repoFullName, pr: prNumber });
+
+        await this.deployer
+            .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
+            .catch((e) => logger.error("Failed to record failed status", e));
+
+        await recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error }));
+
+        if (feedbackEnabled && commentId !== "") {
+            await postOrUpdateCommentOnGithub({
+                client: this.provider,
+                store: createPreviewkitCommentStore(db),
+                repoFullName,
+                prNumber,
+                lastCommitSha: headSha,
+                commentId,
+                payload: payloadBuilder({
+                    state: "critical",
+                    prNumber,
+                    commitSha: headSha,
+                    assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
+                    message: "Autonoma could not finish building the preview environment.",
+                    details: [{ summary: "Preview deployment error", body: error }],
+                }),
+            }).catch((e) => logger.error("Failed to update failure comment", e));
+        }
+
+        if (feedbackEnabled) {
+            await this.provider
+                .setCommitStatus(repoFullName, headSha, "failure", "Preview deployment failed")
+                .catch((e) => logger.error("Failed to set failure status", e));
+        }
+    }
+
+    private toAddonResults(config: PreviewConfig, addonOutcomes: AddonProvisionOutcome[]): PreviewAddonResult[] {
+        return addonOutcomes.map((outcome) => {
+            const addon = config.addons.find((candidate) => candidate.name === outcome.name);
+            const row: PreviewAddonResult = {
+                name: outcome.name,
+                provider: addon?.provider ?? "unknown",
+                status: outcome.status === "ok" ? "ready" : "failed",
+            };
+            if (outcome.status === "failed") row.error = outcome.error;
+            return row;
+        });
     }
 
     // Resolves the target branch, fetches the .preview.yaml, and clones the repo into a temp dir.
@@ -1011,7 +1101,7 @@ export class PreviewPipeline {
      */
     private computeFinalOutcomes(
         config: PreviewConfig,
-        appBuilds: Record<string, AppBuildOutcome>,
+        appBuilds: Record<string, PreviewBuildOutcome>,
         deployOutcomes: Record<string, AppDeployOutcome>,
     ): AppFinalOutcome[] {
         return config.apps.map((app) => {
@@ -1080,64 +1170,47 @@ export class PreviewPipeline {
         }
     }
 
-    private async buildPreviewResultPayload(
-        prNumber: number,
-        headSha: string,
-        outcomes: AppFinalOutcome[],
-        config: PreviewConfig,
-        readyCount: number,
-        totalCount: number,
-        fallbackDeps: DependencyEntry[],
-        addonOutcomes: AddonProvisionOutcome[],
-    ) {
-        const allReady = readyCount === totalCount;
+    /**
+     * Builds the PR comment payload from the flat deploy result. The result rows
+     * carry the raw build-log S3 URLs; this presigns them (best-effort) so the
+     * "view logs" links open in a browser, then formats the comment.
+     */
+    private async buildResultPayload(prNumber: number, headSha: string, result: DeployPreviewEnvironmentOutput) {
         const services = await Promise.all(
-            outcomes.map(async (outcome) => ({
-                name: outcome.name,
-                status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
-                url: outcome.url,
-                logsUrl: await this.signBuildLogUrl(outcome.buildLogUrl, outcome.name),
-                error: outcome.error,
+            result.services.map(async (service) => ({
+                name: service.name,
+                status: service.status,
+                url: service.url,
+                logsUrl: await this.signBuildLogUrl(service.logsUrl, service.name),
+                error: service.error,
             })),
         );
 
-        const addons = addonOutcomes.map((outcome) => {
-            const addon = config.addons.find((candidate) => candidate.name === outcome.name);
-            return {
-                name: outcome.name,
-                provider: addon?.provider ?? "unknown",
-                status: outcome.status === "ok" ? ("ready" as const) : ("failed" as const),
-            };
-        });
+        const addons = result.addons.map((addon) => ({
+            name: addon.name,
+            provider: addon.provider,
+            status: addon.status,
+        }));
 
-        // Plain text; markdown.ts escapes these when rendering the warnings callout.
-        const warnings = fallbackDeps.map(
-            (entry) =>
-                `${entry.dep.repo} branch ${entry.targetBranch} not found; used ${entry.dep.fallback_branch} instead.`,
-        );
-
-        const serviceErrorDetails = services
+        const serviceErrorDetails = result.services
             .filter((service) => service.error != null && service.error !== "")
             .map((service) => ({ summary: `${service.name} - error`, body: service.error! }));
-        const addonErrorDetails = addonOutcomes
-            .filter(
-                (outcome): outcome is Extract<AddonProvisionOutcome, { status: "failed" }> =>
-                    outcome.status === "failed",
-            )
-            .map((outcome) => ({ summary: `${outcome.name} (addon) - error`, body: outcome.error }));
+        const addonErrorDetails = result.addons
+            .filter((addon) => addon.status === "failed" && addon.error != null && addon.error !== "")
+            .map((addon) => ({ summary: `${addon.name} (addon) - error`, body: addon.error! }));
 
         return payloadBuilder({
-            state: allReady ? "running" : "critical",
+            state: result.ready ? "running" : "critical",
             prNumber,
             commitSha: headSha,
             assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-            previewUrl: outcomes.find((outcome) => outcome.status === "ok")?.url,
-            message: allReady
+            previewUrl: result.previewUrl,
+            message: result.ready
                 ? "Preview is ready. Autonoma can run the selected tests against this commit."
-                : `${readyCount}/${totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,
+                : `${result.readyCount}/${result.totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,
             services,
             addons,
-            warnings,
+            warnings: result.warnings,
             details: [...serviceErrorDetails, ...addonErrorDetails],
         });
     }

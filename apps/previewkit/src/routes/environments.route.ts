@@ -1,5 +1,6 @@
 import type { AuthCaller, CallerAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
+import { triggerPreviewDeploy } from "@autonoma/workflow";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { GitProvider, PullRequestEvent } from "../git-provider/git-provider";
@@ -8,6 +9,30 @@ import type { PreviewPipeline } from "../pipeline/preview-pipeline";
 import type { TeardownPipeline } from "../pipeline/teardown-pipeline";
 
 export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
+
+/**
+ * Kicks off a deploy. When `useTemporal` is on, this starts a durable workflow
+ * (the new path); otherwise it falls back to the legacy in-process
+ * fire-and-forget pipeline. `configRevisionId` pins the config revision (redeploy
+ * reproducing the original topology). Either way the handler returns 202.
+ */
+function startPreviewDeploy(
+    previewPipeline: PreviewPipeline,
+    event: PullRequestEvent,
+    logContext: Record<string, string | number>,
+    useTemporal: boolean,
+    configRevisionId?: string | undefined,
+): void {
+    if (useTemporal) {
+        triggerPreviewDeploy({ event, configRevisionId }).catch((err) => {
+            logger.error("Failed to trigger preview deploy workflow", err, logContext);
+        });
+        return;
+    }
+    previewPipeline.deploy(event, { configRevisionId }).catch((err) => {
+        logger.error("Deploy failed", err, logContext);
+    });
+}
 
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
@@ -28,9 +53,16 @@ interface EnvironmentsRouteDeps {
     previewPipeline: PreviewPipeline;
     teardownPipeline: TeardownPipeline;
     gitProvider: GitProvider;
+    /** When true, deploys start a durable Temporal workflow instead of the in-process pipeline. */
+    useTemporal: boolean;
 }
 
-export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, gitProvider }: EnvironmentsRouteDeps) {
+export function createEnvironmentsRoute({
+    previewPipeline,
+    teardownPipeline,
+    gitProvider,
+    useTemporal,
+}: EnvironmentsRouteDeps) {
     return new Hono<{ Variables: CallerAuthVariables }>()
         .post("/environments", async (c) => {
             const body = await c.req.json().catch(() => undefined);
@@ -52,9 +84,7 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, git
                 cloneUrl: parsed.data.cloneUrl,
             };
 
-            previewPipeline.deploy(event).catch((err) => {
-                logger.error("Deploy failed", err, { repo: event.repoFullName, pr: event.prNumber });
-            });
+            startPreviewDeploy(previewPipeline, event, { repo: event.repoFullName, pr: event.prNumber }, useTemporal);
 
             return c.json(
                 {
@@ -152,13 +182,12 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, git
                 cloneUrl: `https://github.com/${repo.fullName}.git`,
             };
 
-            previewPipeline.deploy(event).catch((err) => {
-                logger.error("Main branch deploy failed", err, {
-                    applicationId: application.id,
-                    repo: event.repoFullName,
-                    branch: branchName,
-                });
-            });
+            startPreviewDeploy(
+                previewPipeline,
+                event,
+                { applicationId: application.id, repo: event.repoFullName, branch: branchName },
+                useTemporal,
+            );
 
             return c.json(
                 {
@@ -262,9 +291,13 @@ export function createEnvironmentsRoute({ previewPipeline, teardownPipeline, git
             // Pin the config revision this environment was originally deployed with so the
             // redeploy reproduces the same topology even if the Application's active config
             // changed since. Undefined (a .preview.yaml-sourced deploy) re-resolves normally.
-            previewPipeline.deploy(event, { configRevisionId: env.configRevisionId ?? undefined }).catch((err) => {
-                logger.error("Redeploy failed", err, { repo: repoFullName, pr });
-            });
+            startPreviewDeploy(
+                previewPipeline,
+                event,
+                { repo: repoFullName, pr },
+                useTemporal,
+                env.configRevisionId ?? undefined,
+            );
 
             return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
         });

@@ -93,6 +93,16 @@ export const env = createEnv({
         // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
+
+        // Feature flag: when true, deploy webhooks start a durable Temporal
+        // workflow (the `previewkit` task queue) instead of the in-process
+        // fire-and-forget pipeline. Off keeps the legacy path as an instant
+        // rollback. TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE are read by
+        // @autonoma/workflow's own env from process.env on the worker side.
+        PREVIEWKIT_USE_TEMPORAL: z
+            .enum(["true", "false"])
+            .default("false")
+            .transform((value) => value === "true"),
     },
     runtimeEnv: process.env,
 });
