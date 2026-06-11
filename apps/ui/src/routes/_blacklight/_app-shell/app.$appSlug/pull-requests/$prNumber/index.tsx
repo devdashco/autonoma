@@ -370,6 +370,7 @@ function useSnapshotDetails(snapshots: Snapshot[]): SnapshotDetail[] {
 const TEST_CATEGORY_ORDER: EntryCategory[] = [
   "modified",
   "added",
+  "checked",
   "removed",
   "newly-quarantined",
   "proposed-pending",
@@ -379,6 +380,7 @@ const TEST_CATEGORY_ORDER: EntryCategory[] = [
 const TEST_CATEGORY_TITLE: Record<EntryCategory, string> = {
   added: "Added",
   modified: "Edited",
+  checked: "Checked",
   removed: "Removed",
   "newly-quarantined": "Newly quarantined",
   "proposed-pending": "Proposed",
@@ -596,7 +598,9 @@ function categoryLabel(category: TestEntry["category"]): string {
   return CATEGORY[category].label;
 }
 
-function categoryVariant(category: TestEntry["category"]): "success" | "warn" | "critical" | "high" | "outline" {
+function categoryVariant(
+  category: TestEntry["category"],
+): "success" | "warn" | "critical" | "high" | "outline" | "neutral" {
   if (category === "added") return "outline";
   return CATEGORY[category].variant;
 }

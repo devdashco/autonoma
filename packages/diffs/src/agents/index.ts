@@ -9,6 +9,7 @@ export { DiffsAgent, type DiffsAgentConfig, type DiffsAgentInput, type DiffsAgen
 export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
 
 export {
+    type RejectedCandidate,
     ResolutionAgent,
     type ResolutionAgentConfig,
     type ResolutionAgentInput,

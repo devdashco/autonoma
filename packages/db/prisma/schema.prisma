@@ -1991,6 +1991,7 @@ model TestCandidate {
   reasoning   String @db.Text
 
   status             TestCandidateStatus @default(pending)
+  rejectionReasoning String?             @map("rejection_reasoning") @db.Text
   acceptedTestCaseId String?             @unique @map("accepted_test_case_id")
   acceptedTestCase   TestCase?           @relation(fields: [acceptedTestCaseId], references: [id], onDelete: SetNull)
 

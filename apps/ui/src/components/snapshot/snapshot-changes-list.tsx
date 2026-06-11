@@ -1,5 +1,6 @@
-import { Badge } from "@autonoma/blacklight";
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { InfoIcon } from "@phosphor-icons/react/Info";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { Link } from "@tanstack/react-router";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -22,15 +23,30 @@ export function SnapshotChangesList({
         if (section.entries.length === 0) return null;
         return (
           <div key={section.title} className="flex flex-col border-b border-border-dim last:border-b-0">
-            <div className="flex items-baseline gap-2 px-3 py-2">
+            <div className="flex items-center gap-2 px-3 py-2">
               <h3 className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">
                 {section.title}
               </h3>
               <Badge variant="outline" className="text-3xs">
                 {section.entries.length}
               </Badge>
+              {section.hint != null && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`About ${section.title}`}
+                        className="flex items-center text-text-tertiary transition-colors hover:text-text-primary"
+                      >
+                        <InfoIcon size={12} />
+                      </button>
+                    }
+                  />
+                  <TooltipContent className="max-w-xs">{section.hint}</TooltipContent>
+                </Tooltip>
+              )}
             </div>
-            {section.hint != null && <p className="px-3 pb-2 text-2xs text-text-tertiary">{section.hint}</p>}
             <ul>
               {section.entries.map((entry) => (
                 <li key={entry.urlId} className="flex items-stretch border-t border-border-dim/60">

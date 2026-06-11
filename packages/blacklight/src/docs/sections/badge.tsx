@@ -28,8 +28,9 @@ export function BadgeSection() {
 
       <SubTitle>Severity Variants</SubTitle>
       <Paragraph>
-        Use <Code>critical</Code>, <Code>high</Code>, <Code>warn</Code>, and <Code>success</Code> for severity
-        indicators. These use mono font with uppercase tracking.
+        Use <Code>critical</Code>, <Code>high</Code>, <Code>warn</Code>, <Code>success</Code>, and <Code>neutral</Code>{" "}
+        for severity indicators. These use mono font with uppercase tracking; <Code>neutral</Code> is the non-semantic
+        tone for informational tags.
       </Paragraph>
       <PreviewBox>
         <div className="flex flex-wrap items-center gap-3">
@@ -37,6 +38,7 @@ export function BadgeSection() {
           <Badge variant="high">High</Badge>
           <Badge variant="warn">Warning</Badge>
           <Badge variant="success">Success</Badge>
+          <Badge variant="neutral">Neutral</Badge>
         </div>
       </PreviewBox>
 

@@ -20,6 +20,8 @@ const badgeVariants = cva(
         warn: "bg-status-warn/10 text-status-warn font-mono text-[9px] font-bold uppercase tracking-wider",
         success:
           "border-status-success bg-status-success/10 text-status-success font-mono text-[9px] font-bold uppercase tracking-wider",
+        neutral:
+          "border-status-pending/30 bg-status-pending/10 text-status-pending font-mono text-[9px] font-bold uppercase tracking-wider",
 
         /* Status pill variants */
         "status-passed":

@@ -1,8 +1,19 @@
-/** Format a duration in milliseconds as "Nms" or "N.Ns". */
+/** Format a duration in milliseconds as a parsed, human-readable string ("1h 2m 3s", "29m 11s", "5s", "200ms"). */
 export function formatDuration(ms: number | null | undefined): string {
     if (ms == null) return "-";
     if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
+
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+
+    return parts.join(" ");
 }
 
 /** Format a date to a human-readable string. */

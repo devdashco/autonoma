@@ -68,10 +68,17 @@ export function SnapshotChangesDetail({ entry, prNumber }: { entry: TestEntry; p
       </header>
 
       {entry.reasoning != null && entry.reasoning.trim().length > 0 && (
-        <DetailSection label="Why this changed">
+        <DetailSection label={entry.category === "checked" ? "Why this was checked" : "Why this changed"}>
           <Prose>{entry.reasoning}</Prose>
         </DetailSection>
       )}
+      {entry.category === "proposed-rejected" &&
+        entry.rejectionReasoning != null &&
+        entry.rejectionReasoning.trim().length > 0 && (
+          <DetailSection label="Why this was rejected">
+            <Prose>{entry.rejectionReasoning}</Prose>
+          </DetailSection>
+        )}
       {entry.plan != null && entry.plan.trim().length > 0 && (
         <DetailSection label="Plan">
           <ClampedProse>{entry.plan}</ClampedProse>

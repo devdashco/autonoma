@@ -407,6 +407,7 @@ export class BranchesService extends Service {
                                 name: true,
                                 instruction: true,
                                 reasoning: true,
+                                rejectionReasoning: true,
                                 status: true,
                                 acceptedTestCase: { select: { id: true, name: true, slug: true } },
                             },

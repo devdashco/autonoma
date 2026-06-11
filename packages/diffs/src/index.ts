@@ -40,6 +40,7 @@ export {
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
+    type RejectedCandidate,
     type RemovedTest,
     ReplayReviewer,
     type ReplayReviewerConfig,

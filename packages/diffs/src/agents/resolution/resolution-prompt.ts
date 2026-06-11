@@ -73,6 +73,8 @@ Step 1 suggested the following new tests. Review each candidate and decide wheth
 
 When you call \`add_test\` to accept a candidate, set \`acceptingCandidateId\` to the id shown above so the system can link your new test back to the candidate. Omit \`acceptingCandidateId\` only when you are creating a test that does NOT correspond to a Step 1 candidate.
 
+For every candidate you do NOT accept, record it in the \`rejectedCandidates\` array when you call \`finish\`, with a short reason (e.g. duplicate coverage, out of scope, not user-facing). Do not list accepted candidates there.
+
 `;
         for (const candidate of testCandidates) {
             prompt += `### ${candidate.name} (candidate \`${candidate.candidateId}\`)
@@ -100,7 +102,7 @@ Additionally:
 
 Look for cross-cutting patterns - if multiple tests failed for the same underlying reason, explore the codebase once and apply that understanding across all affected tests.
 
-When done, call \`finish\` with your overall reasoning.`;
+When done, call \`finish\` with your overall reasoning and the \`rejectedCandidates\` for any Step 1 candidates you did not accept.`;
     } else {
         prompt += `## Instructions
 
@@ -109,7 +111,7 @@ There are no test replay failures to resolve. Your job is to review the test can
 - Use \`list_tests\` and \`read_tests\` to explore existing tests and avoid duplicating coverage. Always batch every slug you need to read into one \`read_tests\` call.
 - Do not invent failures or call \`modify_test\`, \`remove_test\`, or \`report_bug\` - there are no failed tests in this run.
 
-When done, call \`finish\` with your overall reasoning.`;
+When done, call \`finish\` with your overall reasoning and the \`rejectedCandidates\` for any Step 1 candidates you did not accept.`;
     }
 
     return prompt;
@@ -141,7 +143,7 @@ export const RESOLUTION_SYSTEM_PROMPT = `You are a QA engineer resolving test fa
 
 3. **Report application bugs (application_bug)**: When a test correctly identified a real bug in the application, use \`report_bug\` to create a detailed report. Explore the codebase to find the root cause and suggest a fix.
 
-4. **Create new tests**: Review test candidates suggested by Step 1. If a candidate is valid and covers important new functionality, use \`add_test\` to create it. You may also suggest new tests on your own.
+4. **Create new tests**: Review test candidates suggested by Step 1. If a candidate is valid and covers important new functionality, use \`add_test\` to create it. You may also suggest new tests on your own. For each candidate you decide NOT to accept, record it in the \`rejectedCandidates\` argument of \`finish\` with a short reason so reviewers understand why it was dropped.
 
 5. **Identify patterns**: Look across all verdicts for common failure causes. If multiple tests failed because the same navigation flow changed, explore the flow once and apply that understanding to all affected tests.
 

@@ -9,6 +9,7 @@ import type {
 export type EntryCategory =
     | "added"
     | "modified"
+    | "checked"
     | "removed"
     | "newly-quarantined"
     | "proposed-pending"
@@ -20,6 +21,7 @@ export interface TestEntry {
     testName: string;
     testSlug?: string;
     reasoning?: string;
+    rejectionReasoning?: string;
     plan?: string;
     previousPlan?: string;
     generation?: { id: string; status: string; reviewReasoning?: string };
@@ -39,14 +41,15 @@ export interface Section {
 
 export const CATEGORY: Record<
     EntryCategory,
-    { label: string; variant: "success" | "warn" | "critical" | "high" | "outline" }
+    { label: string; variant: "success" | "warn" | "critical" | "high" | "outline" | "neutral" }
 > = {
     added: { label: "added", variant: "success" },
     modified: { label: "modified", variant: "warn" },
+    checked: { label: "checked", variant: "neutral" },
     removed: { label: "removed", variant: "critical" },
     "newly-quarantined": { label: "newly quarantined", variant: "high" },
-    "proposed-pending": { label: "proposed", variant: "outline" },
-    "proposed-rejected": { label: "rejected", variant: "outline" },
+    "proposed-pending": { label: "proposed", variant: "neutral" },
+    "proposed-rejected": { label: "rejected", variant: "neutral" },
 };
 
 export function buildSections({
@@ -72,6 +75,7 @@ export function buildSections({
 
     const added: TestEntry[] = [];
     const modified: TestEntry[] = [];
+    const checked: TestEntry[] = [];
     const removed: TestEntry[] = [];
     const newlyQuarantined: TestEntry[] = [];
     const proposed: TestEntry[] = [];
@@ -122,11 +126,14 @@ export function buildSections({
         surfaced.add(change.testCaseId);
     }
 
+    // Tests flagged as potentially affected by the diff but never edited (no "updated"
+    // change was emitted for them). They were replayed to confirm the change did not
+    // break them, so they are "checked", not "modified".
     for (const affected of affectedTests) {
         if (surfaced.has(affected.testCase.id)) continue;
-        modified.push({
+        checked.push({
             urlId: affected.testCase.id,
-            category: "modified",
+            category: "checked",
             testName: affected.testCase.name,
             testSlug: affected.testCase.slug,
             reasoning: affected.reasoning,
@@ -158,6 +165,7 @@ export function buildSections({
             testName: c.acceptedTestCase?.name ?? c.name,
             testSlug: c.acceptedTestCase?.slug,
             reasoning: c.reasoning,
+            rejectionReasoning: c.rejectionReasoning ?? undefined,
             plan: c.instruction,
         });
     }
@@ -165,6 +173,11 @@ export function buildSections({
     return [
         { title: "Added", entries: added },
         { title: "Modified", entries: modified },
+        {
+            title: "Checked",
+            hint: "Replayed because the change might affect them; their definitions were not modified.",
+            entries: checked,
+        },
         { title: "Removed", entries: removed },
         { title: "Newly quarantined", entries: newlyQuarantined },
         {

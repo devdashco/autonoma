@@ -70,11 +70,18 @@ export interface ResolutionAgentInput {
     testScopeGuidelines?: string;
 }
 
+/** A Step 1 candidate the agent decided not to graduate into a test, with its reasoning. */
+export interface RejectedCandidate {
+    candidateId: string;
+    reasoning: string;
+}
+
 export interface ResolutionAgentResult {
     modifiedTests: ModifiedTest[];
     removedTests: RemovedTest[];
     reportedBugs: ReportedBug[];
     newTests: GeneratedTest[];
+    rejectedCandidates: RejectedCandidate[];
     reasoning: string;
 }
 

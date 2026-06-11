@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import type { Codebase } from "@autonoma/diffs";
+import type { Codebase, RejectedCandidate } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
@@ -46,6 +46,7 @@ export async function runDiffsResolution({
     let modifiedSlugs: string[] = [];
     let newTestsCount = 0;
     let acceptedCandidates: AcceptedCandidateLink[] = [];
+    let rejectedCandidates: RejectedCandidate[] = [];
     let resolutionConversation: ModelMessage[] = [];
 
     if (!shouldRunAgent) {
@@ -63,6 +64,7 @@ export async function runDiffsResolution({
         modifiedSlugs = agentResult.modifiedTests.map((t) => t.slug);
         newTestsCount = agentResult.newTests.length;
         acceptedCandidates = agentResult.accepted;
+        rejectedCandidates = agentResult.rejectedCandidates;
         resolutionConversation = agentResult.conversation;
     }
 
@@ -70,6 +72,7 @@ export async function runDiffsResolution({
         snapshotId,
         modifiedSlugs,
         accepted: acceptedCandidates,
+        rejected: rejectedCandidates,
         logger,
     });
 
@@ -98,6 +101,7 @@ interface LinkResolutionOutcomesParams {
     snapshotId: string;
     modifiedSlugs: string[];
     accepted: AcceptedCandidateLink[];
+    rejected: RejectedCandidate[];
     logger: ReturnType<typeof rootLogger.child>;
 }
 
@@ -105,13 +109,14 @@ async function linkResolutionOutcomes({
     snapshotId,
     modifiedSlugs,
     accepted,
+    rejected,
     logger,
 }: LinkResolutionOutcomesParams): Promise<void> {
     if (modifiedSlugs.length > 0) {
         await linkModifiedToGenerations(snapshotId, modifiedSlugs, logger);
     }
 
-    await reconcileTestCandidates(snapshotId, accepted, logger);
+    await reconcileTestCandidates(snapshotId, accepted, rejected, logger);
 }
 
 async function linkModifiedToGenerations(
@@ -147,14 +152,20 @@ async function linkModifiedToGenerations(
 async function reconcileTestCandidates(
     snapshotId: string,
     accepted: AcceptedCandidateLink[],
+    rejected: RejectedCandidate[],
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<void> {
+    await markAcceptedCandidates(snapshotId, accepted, logger);
+    await rejectRemainingCandidates(snapshotId, accepted, rejected, logger);
+}
+
+async function markAcceptedCandidates(
+    snapshotId: string,
+    accepted: AcceptedCandidateLink[],
     logger: ReturnType<typeof rootLogger.child>,
 ): Promise<void> {
     if (accepted.length === 0) {
         logger.info("No new test candidates accepted");
-        await db.testCandidate.updateMany({
-            where: { snapshotId, status: "pending" },
-            data: { status: "rejected" },
-        });
         return;
     }
 
@@ -188,6 +199,37 @@ async function reconcileTestCandidates(
                         });
                     }),
             ),
+    );
+}
+
+/**
+ * Rejects every still-pending candidate. Candidates the agent explicitly
+ * rejected (and did not accept) get their reasoning persisted; the rest are
+ * bulk-rejected without a reason as a fallback.
+ */
+async function rejectRemainingCandidates(
+    snapshotId: string,
+    accepted: AcceptedCandidateLink[],
+    rejected: RejectedCandidate[],
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<void> {
+    const acceptedIds = new Set(accepted.map((a) => a.candidateId));
+    const reasoningByCandidateId = new Map<string, string>();
+    for (const r of rejected) {
+        if (!acceptedIds.has(r.candidateId)) reasoningByCandidateId.set(r.candidateId, r.reasoning);
+    }
+
+    await Promise.all(
+        [...reasoningByCandidateId].map(([candidateId, reasoning]) =>
+            db.testCandidate
+                .updateMany({
+                    where: { id: candidateId, snapshotId, status: "pending" },
+                    data: { status: "rejected", rejectionReasoning: reasoning },
+                })
+                .catch((error) => {
+                    logger.warn("Failed to persist candidate rejection reasoning", { candidateId, error });
+                }),
+        ),
     );
 
     await db.testCandidate.updateMany({

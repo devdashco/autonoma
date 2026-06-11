@@ -10,6 +10,21 @@ const resolutionResultInputSchema = z.object({
         .describe(
             "Overall summary of the resolution: what patterns you found across failures, what tests were modified, removed, or created, what bugs were reported, and why",
         ),
+    rejectedCandidates: z
+        .array(
+            z.object({
+                candidateId: z.string().describe("The `candidate` id from the Test Candidates list that you rejected"),
+                reasoning: z
+                    .string()
+                    .min(1)
+                    .describe("Why this candidate was not turned into a test (e.g. duplicate coverage, out of scope)"),
+            }),
+        )
+        .optional()
+        .describe(
+            "Every Step 1 test candidate you decided NOT to accept via `add_test`, each with a short reason. " +
+                "Do not include candidates you accepted.",
+        ),
 });
 
 type ResolutionResultInput = z.infer<typeof resolutionResultInputSchema>;
@@ -66,6 +81,7 @@ export class ResolutionResultTool extends ReportResultTool<
             removedTests: [...loop.removedTests],
             reportedBugs: [...loop.reportedBugs],
             newTests: [...loop.newTests],
+            rejectedCandidates: input.rejectedCandidates ?? [],
             reasoning: input.reasoning,
         };
     }
