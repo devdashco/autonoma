@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CATEGORY, type TestEntry } from "./snapshot-entries";
+import { useChangesDetailParams } from "./use-changes-params";
+import { useSnapshotEntry } from "./use-snapshot-sections";
 
 const QUARANTINE_REASON: Record<
   "application_bug" | "engine_limitation",
@@ -39,8 +41,24 @@ const GENERATION_STATUS_BADGE: Record<string, "status-pending" | "status-running
     failed: "status-failed",
   };
 
-export function SnapshotChangesDetail({ entry, prNumber }: { entry: TestEntry; prNumber: number }) {
+export function SnapshotChangesDetail() {
+  const { snapshotId, testId } = useChangesDetailParams();
+  const entry = useSnapshotEntry(snapshotId, testId);
+
+  if (entry == null) {
+    return (
+      <div className="flex h-full items-center justify-center px-5 py-10">
+        <p className="text-xs text-text-tertiary">Test not found in this checkpoint&apos;s changes.</p>
+      </div>
+    );
+  }
+
+  return <TestEntryDetail entry={entry} />;
+}
+
+function TestEntryDetail({ entry }: { entry: TestEntry }) {
   const app = useCurrentApplication();
+  const { prNumber } = useChangesDetailParams();
   const generationFailed = entry.generation?.status === "failed";
   const showRun = entry.run != null && !generationFailed;
 

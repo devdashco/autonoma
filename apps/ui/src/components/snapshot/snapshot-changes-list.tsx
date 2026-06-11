@@ -4,18 +4,14 @@ import { InfoIcon } from "@phosphor-icons/react/Info";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { Link } from "@tanstack/react-router";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { CATEGORY, type Section } from "./snapshot-entries";
+import { CATEGORY } from "./snapshot-entries";
+import { useChangesParams } from "./use-changes-params";
+import { useSnapshotSections } from "./use-snapshot-sections";
 
-export function SnapshotChangesList({
-  sections,
-  prNumber,
-  snapshotId,
-}: {
-  sections: Section[];
-  prNumber: number;
-  snapshotId: string;
-}) {
+export function SnapshotChangesList() {
   const app = useCurrentApplication();
+  const { prNumber, snapshotId } = useChangesParams();
+  const sections = useSnapshotSections(snapshotId);
 
   return (
     <nav aria-label="Test suite changes" className="flex flex-col">
