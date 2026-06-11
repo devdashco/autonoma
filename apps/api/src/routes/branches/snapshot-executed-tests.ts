@@ -32,12 +32,13 @@ const runSelect = {
     completedAt: true,
     createdAt: true,
     planId: true,
-    assignment: { select: { testCaseId: true } },
+    assignment: { select: { testCaseId: true, snapshotId: true } },
     runReview: { select: { verdict: true, reasoning: true, status: true } },
 } satisfies Prisma.RunSelect;
 
 const generationSelect = {
     id: true,
+    snapshotId: true,
     status: true,
     createdAt: true,
     updatedAt: true,
@@ -49,6 +50,11 @@ const generationSelect = {
     },
     generationReview: { select: { verdict: true, reasoning: true, status: true } },
 } satisfies Prisma.TestGenerationSelect;
+
+const assignmentSelect = {
+    testCaseId: true,
+    testCase: { select: { id: true, name: true, slug: true } },
+} satisfies Prisma.TestCaseAssignmentSelect;
 
 const refinementLoopSelect = {
     iterations: {
@@ -72,6 +78,7 @@ const refinementLoopSelect = {
 type RunRow = Prisma.RunGetPayload<{ select: typeof runSelect }>;
 type GenerationRow = Prisma.TestGenerationGetPayload<{ select: typeof generationSelect }>;
 type RefinementLoopRow = Prisma.RefinementLoopGetPayload<{ select: typeof refinementLoopSelect }>;
+type AssignmentRow = Prisma.TestCaseAssignmentGetPayload<{ select: typeof assignmentSelect }>;
 
 export async function listExecutedTestsForSnapshot(
     db: PrismaClient,
@@ -80,10 +87,7 @@ export async function listExecutedTestsForSnapshot(
     const [assignments, runs, generations, refinementLoop] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId, quarantineIssueId: null },
-            select: {
-                testCaseId: true,
-                testCase: { select: { id: true, name: true, slug: true } },
-            },
+            select: assignmentSelect,
         }),
         db.run.findMany({
             where: { assignment: { snapshotId, quarantineIssueId: null } },
@@ -108,6 +112,91 @@ export async function listExecutedTestsForSnapshot(
         }),
     ]);
 
+    return buildExecutedTests(assignments, runs, generations, refinementLoop);
+}
+
+/**
+ * Bulk equivalent of {@link listExecutedTestsForSnapshot} for many snapshots at
+ * once. Issues a fixed number of queries (one per relation, scoped with `IN`)
+ * instead of fanning out four queries per snapshot, then groups the rows in
+ * memory and runs the exact same assembly logic per snapshot. Used by list
+ * views (PR list, snapshot history) that need health for every snapshot without
+ * an N+1 explosion.
+ */
+export async function listExecutedTestsForSnapshots(
+    db: PrismaClient,
+    snapshotIds: string[],
+): Promise<Map<string, SnapshotExecutedTest[]>> {
+    if (snapshotIds.length === 0) return new Map();
+
+    const [assignments, runs, generations, refinementLoops] = await Promise.all([
+        db.testCaseAssignment.findMany({
+            where: { snapshotId: { in: snapshotIds }, quarantineIssueId: null },
+            select: { ...assignmentSelect, snapshotId: true },
+        }),
+        db.run.findMany({
+            where: { assignment: { snapshotId: { in: snapshotIds }, quarantineIssueId: null } },
+            select: runSelect,
+        }),
+        db.testGeneration.findMany({
+            where: {
+                snapshotId: { in: snapshotIds },
+                testPlan: {
+                    testCase: {
+                        assignments: {
+                            some: { snapshotId: { in: snapshotIds }, quarantineIssueId: null },
+                        },
+                    },
+                },
+            },
+            select: generationSelect,
+        }),
+        db.refinementLoop.findMany({
+            where: { snapshotId: { in: snapshotIds } },
+            select: { ...refinementLoopSelect, snapshotId: true },
+        }),
+    ]);
+
+    const assignmentsBySnapshot = groupBy(assignments, (a) => a.snapshotId);
+    const runsBySnapshot = groupBy(runs, (r) => r.assignment.snapshotId);
+    const generationsBySnapshot = groupBy(generations, (g) => g.snapshotId);
+    const refinementLoopBySnapshot = new Map(refinementLoops.map((loop) => [loop.snapshotId, loop]));
+
+    const result = new Map<string, SnapshotExecutedTest[]>();
+    for (const snapshotId of snapshotIds) {
+        result.set(
+            snapshotId,
+            buildExecutedTests(
+                assignmentsBySnapshot.get(snapshotId) ?? [],
+                runsBySnapshot.get(snapshotId) ?? [],
+                generationsBySnapshot.get(snapshotId) ?? [],
+                refinementLoopBySnapshot.get(snapshotId) ?? null,
+            ),
+        );
+    }
+    return result;
+}
+
+function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
+    const groups = new Map<string, T[]>();
+    for (const item of items) {
+        const key = keyOf(item);
+        let group = groups.get(key);
+        if (group == null) {
+            group = [];
+            groups.set(key, group);
+        }
+        group.push(item);
+    }
+    return groups;
+}
+
+function buildExecutedTests(
+    assignments: AssignmentRow[],
+    runs: RunRow[],
+    generations: GenerationRow[],
+    refinementLoop: RefinementLoopRow | null,
+): SnapshotExecutedTest[] {
     const latestRunByTestCaseId = new Map<string, RunRow>();
     const latestGenerationByTestCaseId = new Map<string, GenerationRow>();
     const runById = new Map(runs.map((run) => [run.id, run]));

@@ -1,7 +1,8 @@
 import { Button } from "@autonoma/blacklight";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
+import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { TalkToSupport } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
 import { isOnboardingStep, type OnboardingStep } from "lib/onboarding/onboarding-steps";
@@ -76,7 +77,7 @@ function GridBackground() {
 
 function OnboardingLayout() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
   const { step, appId } = Route.useSearch();
@@ -109,6 +110,15 @@ function OnboardingLayout() {
         <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
         <div className="flex items-center gap-2">
           <span className="font-mono text-2xs text-text-tertiary">{user?.name ?? user?.email ?? ""}</span>
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="flex items-center gap-1.5 rounded px-2 py-1 font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
+            >
+              <ShieldCheckIcon size={14} />
+              Admin
+            </Link>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"

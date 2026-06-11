@@ -14,9 +14,10 @@ import {
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, notFound } from "@tanstack/react-router";
 import {
   type PullRequestStateFilter,
+  ensureBranchesData,
   useBranchDetail,
   useBranches,
   useSnapshotHistory,
@@ -49,6 +50,13 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
     if (isPullRequestStateFilter(search.state)) return { state: search.state };
     return { state: "open" };
   },
+  loaderDeps: ({ search: { state } }) => ({ state }),
+  loader: async ({ context, params: { appSlug }, deps: { state } }) => {
+    const app = context.applications.find((a) => a.slug === appSlug);
+    if (app == null) throw notFound();
+    await ensureBranchesData(context.queryClient, app.id, state);
+  },
+  pendingComponent: PullRequestsPageSkeleton,
   component: PullRequestsPage,
 });
 
@@ -177,6 +185,32 @@ function ContentSkeleton() {
         </div>
       </PanelBody>
     </Panel>
+  );
+}
+
+function PullRequestsPageSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-medium tracking-tight text-text-primary">Pull Requests</h1>
+          <p className="mt-1 font-mono text-xs text-text-secondary">Branches tracked by Autonoma, one entry per PR</p>
+        </div>
+        <Skeleton className="h-9 w-44" />
+      </header>
+
+      <Tabs value="open">
+        <TabsList variant="line">
+          {PR_STATE_TABS.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <ContentSkeleton />
+    </div>
   );
 }
 

@@ -10,6 +10,14 @@ export function useBranches(state: PullRequestStateFilter = "open") {
     return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));
 }
 
+export async function ensureBranchesData(
+    queryClient: QueryClient,
+    applicationId: string,
+    state: PullRequestStateFilter = "open",
+) {
+    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state }));
+}
+
 export function useBranchDetail(applicationId: string, branchName: string) {
     return useSuspenseQuery(trpc.branches.detailByName.queryOptions({ applicationId, branchName }));
 }

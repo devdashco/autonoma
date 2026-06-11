@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { listExecutedTestsForSnapshot } from "./snapshot-executed-tests";
+import { listExecutedTestsForSnapshots } from "./snapshot-executed-tests";
 
 export type SnapshotHealth = "healthy" | "critical" | "running" | "unknown";
 
@@ -40,19 +40,13 @@ export async function aggregateSnapshotHealth(
     const snapshotIds = snapshotsWithStatus.map((s) => s.id);
     logger.info("Aggregating snapshot health", { count: snapshotIds.length });
 
-    const [assignments, executedTestsBySnapshotEntries] = await Promise.all([
+    const [assignments, executedTestsBySnapshot] = await Promise.all([
         db.testCaseAssignment.findMany({
             where: { snapshotId: { in: snapshotIds } },
             select: { snapshotId: true, testCaseId: true, quarantineIssueId: true },
         }),
-        Promise.all(
-            snapshotIds.map(
-                async (snapshotId) => [snapshotId, await listExecutedTestsForSnapshot(db, snapshotId)] as const,
-            ),
-        ),
+        listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
-
-    const executedTestsBySnapshot = new Map(executedTestsBySnapshotEntries);
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {

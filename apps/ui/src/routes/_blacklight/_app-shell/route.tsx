@@ -7,11 +7,11 @@ import { AppShellLayout } from "./-layout/app-shell-layout";
 export const Route = createFileRoute("/_blacklight/_app-shell")({
   component: AppShell,
   beforeLoad: async (opts) => {
-    return getAppShellContext(opts.context);
+    return getAppShellContext(opts.context, opts.location.pathname);
   },
 });
 
-async function getAppShellContext({ queryClient, trpc }: RouteContext) {
+async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname: string) {
   const session = await ensureSessionData(queryClient);
   if (session == null) throw redirect({ to: "/login", search: { error: undefined } });
 
@@ -38,7 +38,13 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext) {
 
   const applications = await queryClient.fetchQuery(trpc.applications.list.queryOptions());
 
-  if (applications.length === 0) {
+  // Admins must keep access to /admin even when the active org has no
+  // applications - it is the only place to switch orgs. Without this exemption
+  // the onboarding redirect below traps them on the create-application screen
+  // with no way out.
+  const isAdminEscapeHatch = isAdmin && pathname.startsWith("/admin");
+
+  if (applications.length === 0 && !isAdminEscapeHatch) {
     throw redirect({
       to: "/onboarding",
       search: { step: "cli-setup", appId: undefined, apiKey: undefined, setupId: undefined },
