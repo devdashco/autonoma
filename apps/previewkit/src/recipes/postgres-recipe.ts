@@ -112,6 +112,12 @@ export class PostgresRecipe extends BaseRecipe {
                                     {
                                         name: "data",
                                         mountPath: "/var/lib/postgresql/data",
+                                        // Mount a subdirectory rather than the volume root. A
+                                        // freshly formatted ext4 PVC contains a lost+found dir at
+                                        // its root, and initdb refuses to initialize into a
+                                        // non-empty data directory. The subPath keeps lost+found
+                                        // out of PGDATA's view.
+                                        subPath: "pgdata",
                                     },
                                     ...(hasExtraDatabases
                                         ? [
