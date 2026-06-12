@@ -26,8 +26,8 @@ export const env = createEnv({
         REGISTRY_URL: z.string().default("registry.previewkit.svc.cluster.local:5000"),
 
         // ECR pull-through cache for Docker Hub. Every platform-managed (non-client)
-        // image reference that resolves to Docker Hub - service recipes, the nginx
-        // access proxy, the buildkit Job - is rewritten to pull through this prefix
+        // image reference that resolves to Docker Hub - service recipes and the nginx
+        // access proxy - is rewritten to pull through this prefix
         // (no trailing slash), avoiding Docker Hub rate limits. Official images get
         // the `library/` namespace the cache path requires (postgres:16 ->
         // {mirror}/library/postgres:16). References to other registries are never

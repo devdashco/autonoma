@@ -141,8 +141,9 @@ generated config (previews are public) - read `buildNginxConfig` for the current
 ## Key env vars (`src/env.ts`)
 
 `REGISTRY_URL`, `DOCKER_HUB_MIRROR` (ECR pull-through cache prefix; every platform-managed
-image resolving to Docker Hub - recipe services, the nginx proxy, the buildkit Job - is
-rewritten through it via `deployer/image-mirror.ts`; client app images are never touched;
+image resolving to Docker Hub - recipe services and the nginx proxy - is
+rewritten through it via `deployer/image-mirror.ts`; the buildkit Job and client app
+images are never touched;
 empty string disables), `BUILDKIT_*`, `BUILD_TIMEOUT_MS`,
 `BUILD_READINESS_TIMEOUT_MS` (provisioning budget - bounds Karpenter scheduling a
 buildkit node), `BUILD_STARTUP_TIMEOUT_MS` (startup budget once scheduled - image
