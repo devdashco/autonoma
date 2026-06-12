@@ -39,6 +39,15 @@ export interface MainBranchDeployResult {
     prNumber: number;
 }
 
+/** A push webhook resolved to the main-branch environment it updates. */
+interface MainBranchPushTarget {
+    repoFullName: string;
+    branch: string;
+    headSha: string;
+    githubRepositoryId: number;
+    cloneUrl: string;
+}
+
 /** The two GitHub reads the main-branch preflight needs. */
 export type PreviewkitGitHubReader = Pick<GitHubInstallationService, "getRepository" | "getBranchHead">;
 
@@ -55,6 +64,21 @@ const pullRequestWebhookSchema = z.object({
         clone_url: z.string(),
     }),
 });
+
+/** The push webhook fields the main-branch environment update needs. */
+const pushWebhookSchema = z.object({
+    ref: z.string(),
+    after: z.string(),
+    deleted: z.boolean().optional(),
+    repository: z.object({
+        id: z.number().int().positive(),
+        full_name: z.string(),
+        clone_url: z.string(),
+    }),
+});
+
+/** `after` on a branch-deletion push (40 zeros for SHA-1 repos, 64 for SHA-256). */
+const ZERO_SHA = /^0+$/;
 
 /**
  * Starts preview-environment Temporal workflows directly from the API - the
@@ -257,6 +281,98 @@ export class PreviewkitTriggerService extends Service {
             branch: branchName,
             headSha,
             prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+        };
+    }
+
+    /**
+     * True when a `push` webhook would update a main-branch environment. The
+     * webhook router checks this before recording the delivery - push fires
+     * for every branch of every connected repo, and the ones that don't touch
+     * a main-branch environment are noise.
+     */
+    async pushTargetsMainBranchEnvironment(organizationId: string, payload: Record<string, unknown>): Promise<boolean> {
+        const target = await this.resolveMainBranchPushTarget(organizationId, payload);
+        return target != null;
+    }
+
+    /**
+     * Deploy entry point for `push` webhooks. A push to the branch a live
+     * main-branch environment tracks redeploys environment 0 at the pushed
+     * head - the same update a PR environment gets from `synchronize`. Any
+     * other push (different branch, no environment, torn down, branch
+     * deletion, tag) is skipped.
+     */
+    async deployMainBranchFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        const target = await this.resolveMainBranchPushTarget(organizationId, payload);
+        if (target == null) return;
+
+        this.logger.info("Push updates main-branch environment", {
+            repo: target.repoFullName,
+            branch: target.branch,
+            sha: target.headSha,
+        });
+
+        await this.deploy(
+            {
+                repoFullName: target.repoFullName,
+                prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+                organizationId,
+                githubRepositoryId: target.githubRepositoryId,
+                headSha: target.headSha,
+                headRef: target.branch,
+                baseSha: target.headSha,
+                baseRef: target.branch,
+                cloneUrl: target.cloneUrl,
+            },
+            "synchronize",
+        );
+    }
+
+    /**
+     * Resolves a push webhook to the main-branch environment it updates, or
+     * undefined when the push is irrelevant: a tag push, a branch deletion, a
+     * branch the environment doesn't track, or no live environment 0 at all.
+     */
+    private async resolveMainBranchPushTarget(
+        organizationId: string,
+        payload: Record<string, unknown>,
+    ): Promise<MainBranchPushTarget | undefined> {
+        const parsed = pushWebhookSchema.safeParse(payload);
+        if (!parsed.success) {
+            this.logger.warn("Push webhook missing ref, after or repository payload", { organizationId });
+            return undefined;
+        }
+
+        const { ref, after, deleted, repository } = parsed.data;
+        if (!ref.startsWith("refs/heads/")) return undefined;
+        if (deleted === true || ZERO_SHA.test(after)) return undefined;
+
+        const branch = normalizeBranchName(ref);
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: {
+                repoFullName: repository.full_name,
+                prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+                organizationId,
+                status: { not: "torn_down" },
+            },
+            select: { headRef: true },
+        });
+        if (environment == null) return undefined;
+        if (environment.headRef !== branch) {
+            this.logger.debug("Push branch does not match main-branch environment", {
+                repo: repository.full_name,
+                pushedBranch: branch,
+                environmentBranch: environment.headRef,
+            });
+            return undefined;
+        }
+
+        return {
+            repoFullName: repository.full_name,
+            branch,
+            headSha: after,
+            githubRepositoryId: repository.id,
+            cloneUrl: repository.clone_url,
         };
     }
 

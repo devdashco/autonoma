@@ -205,6 +205,10 @@ Each app gets its own bundle - the `api` container never sees `web`'s secrets an
 GitHub `pull_request` events are received by the autonoma API at `POST /v1/github/webhook`, which
 starts the deploy/teardown Temporal workflows. Configure your GitHub App's webhook URL there.
 
+GitHub `push` events arrive at the same endpoint: a push to the branch a live main-branch
+environment (environment 0) tracks redeploys it at the pushed head, the same way `synchronize`
+updates a PR environment. Pushes to any other branch are ignored (and not recorded).
+
 ## Environment Variables
 
 Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env` (`S3_*`) and `@autonoma/logger/env` (`SENTRY_DSN`, `LOG_LEVEL`).
@@ -331,7 +335,7 @@ On PR close, the entire namespace is deleted, cascading to all resources.
 
 - An EKS cluster with the ingress-nginx controller and a wildcard DNS record `*.{PREVIEW_DOMAIN}` pointing at the shared gateway
 - Karpenter (build/preview node pools) and the External Secrets Operator (AWS Secrets Manager integration)
-- A GitHub App with `pull_request` webhook events enabled, pointed at the autonoma API's `/v1/github/webhook`
+- A GitHub App with `pull_request` and `push` webhook events enabled, pointed at the autonoma API's `/v1/github/webhook` (`push` keeps main-branch environments current)
 
 ### Manifests
 

@@ -14,6 +14,8 @@ Once the Previewkit GitHub App is installed on your repository, every `pull_requ
 
 Each preview gets a unique, opaque URL — a short deterministic hash derived from the service name, PR number, and repo. One PR may expose many apps under one preview — each app gets its own hostname under `preview.autonoma.app`.
 
+A repository can also have a standing **main-branch environment**: a preview deployed from the repository's main branch instead of a PR. Once it exists, every push to that branch redeploys it at the new head automatically, the same way a new commit updates a PR's preview.
+
 ## What you author
 
 A single file: `.preview.yaml` at the repo root. It declares:

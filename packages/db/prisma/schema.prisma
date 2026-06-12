@@ -1467,6 +1467,7 @@ enum GitHubWebhookEventType {
   pull_request_synchronize
   pull_request_closed
   pull_request_reopened
+  push
 
   @@map("github_webhook_event_type")
 }

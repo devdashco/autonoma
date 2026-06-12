@@ -1,8 +1,9 @@
-import { ApplicationArchitecture } from "@autonoma/db";
+import { ApplicationArchitecture, type PreviewkitStatus } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { expect, vi } from "vitest";
 import { PreviewkitTriggerService } from "../../src/previewkit/previewkit-trigger.service";
 import { apiTestSuite } from "../api-test";
+import type { APITestHarness } from "../harness";
 
 const REPO_ID = 2001;
 const REPO_FULL_NAME = "acme/web";
@@ -20,6 +21,41 @@ function pullRequestPayload(prNumber: number): Record<string, unknown> {
             clone_url: "https://github.com/acme/web.git",
         },
     };
+}
+
+function pushPayload(branch: string, sha: string, deleted = false): Record<string, unknown> {
+    return {
+        ref: `refs/heads/${branch}`,
+        after: sha,
+        deleted,
+        repository: {
+            id: REPO_ID,
+            full_name: REPO_FULL_NAME,
+            clone_url: "https://github.com/acme/web.git",
+        },
+    };
+}
+
+/** Puts the shared main-branch environment row (environment 0) into the state a case needs. */
+async function setMainBranchEnvironment(
+    harness: APITestHarness,
+    headRef: string,
+    status: PreviewkitStatus,
+): Promise<void> {
+    await harness.db.previewkitEnvironment.upsert({
+        where: { repoFullName_prNumber: { repoFullName: REPO_FULL_NAME, prNumber: 0 } },
+        create: {
+            namespace: "preview-acme-web-pr-0",
+            repoFullName: REPO_FULL_NAME,
+            prNumber: 0,
+            headSha: "main-sha-1",
+            headRef,
+            githubRepositoryId: REPO_ID,
+            status,
+            organizationId: harness.organizationId,
+        },
+        update: { headRef, status },
+    });
 }
 
 apiTestSuite({
@@ -244,6 +280,141 @@ apiTestSuite({
                 /Main branch ref 'main' not found/,
             );
             expect(deploySpy).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook updates environment 0 on a push to the tracked branch", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+
+            await expect(
+                service.pushTargetsMainBranchEnvironment(harness.organizationId, pushPayload("main", "push-sha-1")),
+            ).resolves.toBe(true);
+
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-1"));
+
+            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                event: {
+                    action: "synchronize",
+                    prNumber: 0,
+                    repoFullName: REPO_FULL_NAME,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: REPO_ID,
+                    headSha: "push-sha-1",
+                    headRef: "main",
+                    baseSha: "push-sha-1",
+                    baseRef: "main",
+                    cloneUrl: "https://github.com/acme/web.git",
+                },
+                configRevisionId: undefined,
+            });
+        });
+
+        test("deployMainBranchFromPushWebhook ignores a push to a branch the environment does not track", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployMainBranchFromPushWebhook(
+                harness.organizationId,
+                pushPayload("develop", "push-sha-2"),
+            );
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook ignores a push when the environment is torn down", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "torn_down");
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-3"));
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook ignores a repo without a main-branch environment", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            const unrelatedRepoPush = {
+                ref: "refs/heads/main",
+                after: "push-sha-4",
+                deleted: false,
+                repository: {
+                    id: 9999,
+                    full_name: "acme/unrelated",
+                    clone_url: "https://github.com/acme/unrelated.git",
+                },
+            };
+
+            await expect(
+                service.pushTargetsMainBranchEnvironment(harness.organizationId, unrelatedRepoPush),
+            ).resolves.toBe(false);
+
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, unrelatedRepoPush);
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook ignores branch deletions, zero-sha pushes and tag pushes", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployMainBranchFromPushWebhook(
+                harness.organizationId,
+                pushPayload("main", "push-sha-5", true),
+            );
+            await service.deployMainBranchFromPushWebhook(
+                harness.organizationId,
+                pushPayload("main", "0".repeat(40)),
+            );
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, {
+                ref: "refs/tags/v1.0.0",
+                after: "push-sha-6",
+                deleted: false,
+                repository: {
+                    id: REPO_ID,
+                    full_name: REPO_FULL_NAME,
+                    clone_url: "https://github.com/acme/web.git",
+                },
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook scopes to the webhook's organization", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployMainBranchFromPushWebhook("some-other-org", pushPayload("main", "push-sha-7"));
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("deployMainBranchFromPushWebhook skips an unparseable payload without triggering", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            await service.deployMainBranchFromPushWebhook(harness.organizationId, { ref: "refs/heads/main" });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
         test("redeploy reconstructs the event and pins the config revision", async ({

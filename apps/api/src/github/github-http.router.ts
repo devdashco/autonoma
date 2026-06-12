@@ -88,6 +88,8 @@ const WEBHOOK_EVENT_TYPES = {
     "pull_request.synchronize": "pull_request_synchronize",
     "pull_request.closed": "pull_request_closed",
     "pull_request.reopened": "pull_request_reopened",
+    // push payloads carry no `action`; the event name alone is the key.
+    push: "push",
 } as const satisfies Record<string, GitHubWebhookEventType>;
 
 githubHttpRouter.post("/webhook", async (ctx) => {
@@ -111,8 +113,8 @@ githubHttpRouter.post("/webhook", async (ctx) => {
 
     const payload = JSON.parse(body) as Record<string, unknown>;
     const action = payload.action as string | undefined;
-    const eventKey = action != null ? `${event}.${action}` : undefined;
-    const eventType = eventKey != null ? WEBHOOK_EVENT_TYPES[eventKey as keyof typeof WEBHOOK_EVENT_TYPES] : undefined;
+    const eventKey = action != null ? `${event}.${action}` : event;
+    const eventType = isWebhookEventKey(eventKey) ? WEBHOOK_EVENT_TYPES[eventKey] : undefined;
 
     const installation = payload.installation as { id: number; account?: { login?: string } } | undefined;
     const installationId = installation?.id;
@@ -126,6 +128,14 @@ githubHttpRouter.post("/webhook", async (ctx) => {
     const organizationId = await githubService.findOrganizationIdByInstallationId(installationId);
     if (organizationId == null) {
         logger.warn("GitHub webhook: no organization linked to installation", { installationId, deliveryId });
+        return ctx.json({ ok: true, ignored: true });
+    }
+
+    // push fires for every branch of every connected repo; only one that
+    // updates a live main-branch preview environment is modeled. Checked
+    // before recording so the event log isn't flooded with unrelated pushes.
+    if (eventType === "push" && !(await pushUpdatesMainBranchPreview(organizationId, payload))) {
+        logger.info("GitHub webhook: push does not update a main-branch preview", { organizationId, deliveryId });
         return ctx.json({ ok: true, ignored: true });
     }
 
@@ -191,9 +201,16 @@ async function dispatchWebhookEvent(
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
             return;
+        case "push":
+            await startMainBranchPushDeploy(organizationId, payload);
+            return;
         default:
             return;
     }
+}
+
+function isWebhookEventKey(key: string): key is keyof typeof WEBHOOK_EVENT_TYPES {
+    return Object.hasOwn(WEBHOOK_EVENT_TYPES, key);
 }
 
 /**
@@ -220,4 +237,22 @@ async function startPullRequestTeardown(organizationId: string, payload: Record<
         return;
     }
     await previewkitTriggerService.teardownFromWebhook(organizationId, payload);
+}
+
+/** Pre-record relevance check for push: is there a live main-branch environment tracking the pushed branch? */
+async function pushUpdatesMainBranchPreview(organizationId: string, payload: Record<string, unknown>): Promise<boolean> {
+    if (!env.PREVIEWKIT_ENABLED) return false;
+    return await previewkitTriggerService.pushTargetsMainBranchEnvironment(organizationId, payload);
+}
+
+/**
+ * Deploy path for push: redeploys the main-branch preview environment at the
+ * pushed head, the same way `synchronize` updates a PR environment.
+ */
+async function startMainBranchPushDeploy(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+    if (!env.PREVIEWKIT_ENABLED) {
+        logger.info("Skipping main-branch push deploy: PREVIEWKIT_ENABLED is off", { organizationId });
+        return;
+    }
+    await previewkitTriggerService.deployMainBranchFromPushWebhook(organizationId, payload);
 }

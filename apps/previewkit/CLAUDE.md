@@ -32,6 +32,12 @@ GitHub pull_request webhook
 On `pull_request.closed`, `triggerPreviewTeardown()` starts `previewTeardownWorkflow`, whose
 single activity runs `TeardownPipeline` (addon deprovision + namespace delete + PR comment).
 
+Main-branch environments (environment 0, created via `POST /v1/previewkit/applications/:id/0`)
+ride the same deploy path: a GitHub `push` webhook to the branch a live environment 0 tracks
+redeploys it at the pushed head (`deployMainBranchFromPushWebhook`, action `synchronize`).
+Pushes that don't update such an environment are dropped by the webhook handler before they
+are even recorded - push fires for every branch of every connected repo.
+
 **Concurrency model:** every workflow start for a (repo, pr) - deploy, redeploy, AND teardown -
 uses the same deterministic workflowId `previewkit-{slug}-{pr}`, the per-environment mutex. The
 trigger (`triggers/previewkit.ts`) first issues a graceful `handle.cancel()` on the in-flight run,
