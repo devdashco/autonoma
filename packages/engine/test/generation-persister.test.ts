@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type AssertCommandSpec, type FailedStep, type GeneratedStep, GenerationPersister } from "@autonoma/engine";
 import { Screenshot } from "@autonoma/image";
 import { integrationTestSuite } from "@autonoma/integration-test";
@@ -6,6 +9,35 @@ import { FakeStorageProvider, PersisterTestHarness } from "./persister-harness";
 
 function fakeScreenshot(label: string): Screenshot {
     return Screenshot.fromBuffer(Buffer.from(label));
+}
+
+interface CompletionResultOptions {
+    success: boolean;
+    finishReason: "success" | "max_steps" | "error";
+    reasoning?: string;
+}
+
+function completionResult({ success, finishReason, reasoning }: CompletionResultOptions) {
+    return {
+        generatedSteps: [],
+        memory: {},
+        success,
+        finishReason,
+        reasoning,
+        conversation: [],
+    };
+}
+
+/** Writes a throwaway video file so markCompleted's upload step has something to read. */
+async function withVideoFile(run: (videoPath: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(join(tmpdir(), "gen-persister-"));
+    const videoPath = join(dir, "recording.webm");
+    await writeFile(videoPath, Buffer.from("fake-video"));
+    try {
+        await run(videoPath);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
 }
 
 function successAttempt(
@@ -219,6 +251,150 @@ integrationTestSuite({
             });
             // The replay list skips the failure: two successful steps, contiguous orders.
             expect(inputs.map((i) => i.order)).toEqual([1, 2]);
+        });
+    },
+});
+
+integrationTestSuite({
+    name: "GenerationPersister.markCompleted",
+    createHarness: () => PersisterTestHarness.create(),
+    cases: (test) => {
+        test("a max_steps failure records status failed + failure {max_steps} and keeps the reasoning prose", async ({
+            harness,
+        }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({
+                    result: completionResult({
+                        success: false,
+                        finishReason: "max_steps",
+                        reasoning: "I kept retrying the login but never reached the dashboard.",
+                    }),
+                    videoPath,
+                }),
+            );
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, failure: true, reasoning: true },
+            });
+            expect(generation.status).toBe("failed");
+            expect(generation.failure).toEqual({ kind: "max_steps" });
+            expect(generation.reasoning).toBe("I kept retrying the login but never reached the dashboard.");
+        });
+
+        test("an error finishReason records failure {agent_failed} and keeps the reasoning prose", async ({
+            harness,
+        }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({
+                    result: completionResult({
+                        success: false,
+                        finishReason: "error",
+                        reasoning: "The expected confirmation never appeared, so I gave up.",
+                    }),
+                    videoPath,
+                }),
+            );
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, failure: true, reasoning: true },
+            });
+            expect(generation.status).toBe("failed");
+            expect(generation.failure).toEqual({ kind: "agent_failed" });
+            expect(generation.reasoning).toBe("The expected confirmation never appeared, so I gave up.");
+        });
+
+        test("a successful completion records status success and leaves failure null", async ({ harness }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({
+                    result: completionResult({ success: true, finishReason: "success" }),
+                    videoPath,
+                }),
+            );
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, failure: true },
+            });
+            expect(generation.status).toBe("success");
+            expect(generation.failure).toBeNull();
+        });
+    },
+});
+
+integrationTestSuite({
+    name: "GenerationPersister.markFailed",
+    createHarness: () => PersisterTestHarness.create(),
+    cases: (test) => {
+        test("an engine/driver exception records failure {engine_error} with the real message and no reasoning", async ({
+            harness,
+        }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await persister.markFailed(new Error("Driver crashed: ECONNREFUSED"));
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, failure: true, reasoning: true },
+            });
+            expect(generation.status).toBe("failed");
+            expect(generation.failure).toEqual({ kind: "engine_error", message: "Driver crashed: ECONNREFUSED" });
+            expect(generation.reasoning).toBeNull();
+        });
+
+        test("a non-Error failure falls back to a generic engine_error message", async ({ harness }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await persister.markFailed("a raw string throw, not an Error");
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, failure: true },
+            });
+            expect(generation.status).toBe("failed");
+            expect(generation.failure).toEqual({ kind: "engine_error", message: "Unknown error" });
         });
     },
 });

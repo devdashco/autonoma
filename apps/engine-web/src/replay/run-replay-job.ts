@@ -63,7 +63,7 @@ export async function runWebReplayJob(runId: string) {
         logger.error("Run replay job failed", error);
 
         try {
-            await runPersister.markFailed();
+            await runPersister.markFailed(error);
         } catch (markFailedError) {
             logger.error("Failed to mark run as failed", markFailedError);
         }

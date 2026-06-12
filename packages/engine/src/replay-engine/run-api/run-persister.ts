@@ -168,13 +168,18 @@ export class RunPersister<TSpec extends CommandSpec> {
         };
     }
 
-    public async markFailed(): Promise<void> {
-        this.logger.info("Marking run as failed");
+    public async markFailed(error: unknown): Promise<void> {
+        // A thrown exception inside the replay engine (driver/engine crash) - classify it as a
+        // system `engine_error` so the run carries a real message that renders in the critical
+        // failure panel, instead of failing silently with no detail as it did before.
+        const message = error instanceof Error ? error.message : "Unknown error";
+        this.logger.info("Marking run as failed", { extra: { message } });
         await this.db.run.update({
             where: { id: this.id },
             data: {
                 status: "failed",
                 completedAt: new Date(),
+                failure: { kind: "engine_error", message },
             },
         });
     }
@@ -247,12 +252,18 @@ export class RunPersister<TSpec extends CommandSpec> {
     public async markCompleted({ result, videoPath }: ReplayRunResult<TSpec>): Promise<void> {
         this.logger.info("Marking run as completed", { success: result.success });
 
+        // The replay ran to completion but a step regressed. Classify it as `replay_failed`
+        // so every failed run answers "what failed" in one field; the per-step error detail
+        // already lives on the failing StepAttempt, so this variant carries no message.
+        const failure: PrismaJson.RunFailure | undefined = result.success ? undefined : { kind: "replay_failed" };
+
         await this.db.run.update({
             where: { id: this.id },
             data: {
                 status: result.success ? "success" : "failed",
                 completedAt: new Date(),
                 reasoning: result.reasoning ?? null,
+                failure,
             },
         });
 

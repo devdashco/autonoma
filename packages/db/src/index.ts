@@ -117,6 +117,29 @@ declare global {
          */
         export type ScenarioGeneratedData = unknown;
         export type ScenarioLastError = { message: string };
+
+        /**
+         * Failure modes shared by both generations and runs. Each carries a
+         * human-readable `message` (the unwrapped root cause) and renders in the
+         * shared critical failure panel.
+         * - `scenario_setup`: the scenario environment never came up.
+         * - `engine_error`: the execution engine threw before/while running.
+         */
+        export type SystemFailure =
+            | { kind: "scenario_setup"; message: string }
+            | { kind: "engine_error"; message: string };
+        /**
+         * Why a `TestGeneration` ended in `status == failed`. System variants
+         * carry a message; `agent_failed`/`max_steps` are outcome states the
+         * agent reports without a system message.
+         */
+        export type GenerationFailure = SystemFailure | { kind: "agent_failed" } | { kind: "max_steps" };
+        /**
+         * Why a `Run` ended in `status == failed`. System variants carry a
+         * message; `replay_failed` is the agent-reported replay outcome.
+         */
+        export type RunFailure = SystemFailure | { kind: "replay_failed" };
+
         export type AgentLogEntry = Array<{ id: string; message: string; timestamp: string }>;
         export type GitHubWebhookPayload = EmitterWebhookEvent["payload"];
         export type PreviewkitManifest = {

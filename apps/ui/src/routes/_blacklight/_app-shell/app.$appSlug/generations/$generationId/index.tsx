@@ -27,6 +27,7 @@ import { DetailRow } from "components/detail-row";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { type PullRequestRef, PullRequestDetailRows } from "components/pull-request-detail-rows";
 import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "components/screenshot-lightbox";
+import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { ensureGenerationDetailData, useGenerationDetail } from "lib/query/generations.queries";
@@ -77,6 +78,7 @@ function GenerationDetailPage() {
 
   const status = generation.status as GenerationStatus;
   const isActive = status === "queued" || status === "running";
+  const failure = generation.failure;
 
   const review = generation.review;
   const reviewStatus = review?.status;
@@ -193,6 +195,7 @@ function GenerationDetailPage() {
               createdAt={generation.createdAt}
               stepCount={generation.steps.length}
               reasoning={generation.reasoning ?? undefined}
+              failure={failure ?? undefined}
               reasoningScreenshot={generation.finalScreenshot ?? undefined}
               videoUrl={generation.videoUrl ?? undefined}
               test={generation.testCase ?? undefined}
@@ -202,15 +205,9 @@ function GenerationDetailPage() {
         )}
 
         {/* Steps */}
-        <div className={`flex min-w-0 flex-1 flex-col overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
-          {generation.steps.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
-              <StackIcon size={24} className="text-text-tertiary" />
-              <p className="text-sm text-text-tertiary">
-                {isActive ? "Steps will appear here as the AI generates them..." : "No steps recorded"}
-              </p>
-            </div>
-          ) : (
+        <div className={`flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
+          {isSystemFailure(failure) && <SystemFailurePanel failure={failure} />}
+          {generation.steps.length > 0 ? (
             <div>
               {generation.steps.map((step: GenerationStep, i: number) => {
                 const hasScreenshot = (step.screenshotBefore ?? step.screenshotAfter) != null;
@@ -225,6 +222,15 @@ function GenerationDetailPage() {
                 );
               })}
             </div>
+          ) : (
+            !isSystemFailure(failure) && (
+              <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
+                <StackIcon size={24} className="text-text-tertiary" />
+                <p className="text-sm text-text-tertiary">
+                  {isActive ? "Steps will appear here as the AI generates them..." : "No steps recorded"}
+                </p>
+              </div>
+            )
           )}
         </div>
 
@@ -255,11 +261,22 @@ function GenerationDetailPage() {
 
 // --- Sidebar ---
 
+// The agent ran to completion but did not pass. These verdicts keep their prose in
+// `reasoning` and render under the lightbulb box (not the critical SystemFailurePanel);
+// the sub-label just tells the two apart. System failures return undefined here.
+function agentVerdictLabel(failure: { kind: string } | undefined): string | undefined {
+  if (failure == null) return undefined;
+  if (failure.kind === "agent_failed") return "Agent could not complete the test";
+  if (failure.kind === "max_steps") return "Ran out of steps";
+  return undefined;
+}
+
 interface GenerationDetailSidebarProps {
   status: GenerationStatus;
   createdAt: Date;
   stepCount: number;
   reasoning?: string;
+  failure?: { kind: string };
   reasoningScreenshot?: string;
   videoUrl?: string;
   test?: { id: string; name: string; slug: string };
@@ -271,11 +288,13 @@ function GenerationDetailSidebar({
   createdAt,
   stepCount,
   reasoning,
+  failure,
   reasoningScreenshot,
   videoUrl,
   test,
   pullRequest,
 }: GenerationDetailSidebarProps) {
+  const verdictLabel = agentVerdictLabel(failure);
   return (
     <div className="flex flex-col gap-4">
       <Panel>
@@ -327,6 +346,7 @@ function GenerationDetailSidebar({
               Reasoning
             </span>
           </div>
+          {verdictLabel != null && <p className="mb-3 text-xs font-medium text-text-secondary">{verdictLabel}</p>}
           {reasoningScreenshot != null && (
             <div className="mb-3">
               <ScreenshotLightbox

@@ -690,6 +690,13 @@ model TestGeneration {
   finalScreenshot String?          @map("final_screenshot")
   videoUrl        String?          @map("video_url")
 
+  /// Structured failure detail. Set iff status == failed (for rows created
+  /// after this column existed; historical failed rows have null). System
+  /// failures (scenario_setup, engine_error) carry a message and render in the
+  /// critical failure panel; agent_failed/max_steps render via the agent UI.
+  /// [GenerationFailure]
+  failure Json? @map("failure")
+
   snapshotId String         @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
 
@@ -1235,6 +1242,13 @@ model Run {
   affectedTest AffectedTest?
 
   reasoning String? @map("reasoning") @db.Text
+
+  /// Structured failure detail. Set iff status == failed (for rows created
+  /// after this column existed; historical failed rows have null). System
+  /// failures (scenario_setup, engine_error) carry a message and render in the
+  /// critical failure panel; replay_failed renders via the agent UI.
+  /// [RunFailure]
+  failure Json? @map("failure")
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")

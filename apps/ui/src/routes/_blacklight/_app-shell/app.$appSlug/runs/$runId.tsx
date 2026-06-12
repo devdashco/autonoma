@@ -26,6 +26,7 @@ import { DetailRow } from "components/detail-row";
 import { SentryLogsLink, TemporalLink } from "components/observability-links";
 import { type PullRequestRef, PullRequestDetailRows } from "components/pull-request-detail-rows";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
+import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import { useRequestRunReview } from "lib/query/issues.queries";
@@ -109,6 +110,7 @@ function RunDetailPage() {
 
   const status = run.status as RunStatus;
   const steps = run.steps as unknown as RunStep[];
+  const failure = run.failure;
   const review = run.review;
   const reviewStatus = review?.status;
   const testCaseSlug = run.testCaseSlug;
@@ -279,17 +281,9 @@ function RunDetailPage() {
         </div>
 
         {/* Steps */}
-        <div className={`flex min-w-0 flex-1 flex-col overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
-          {steps.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
-              <Stack size={24} className="text-text-tertiary" />
-              <p className="text-sm text-text-tertiary">
-                {status === "running" || status === "pending"
-                  ? "Steps will appear here as the test runs..."
-                  : "No steps recorded"}
-              </p>
-            </div>
-          ) : (
+        <div className={`flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto ${showDebug ? "lg:max-w-2xl" : ""}`}>
+          {isSystemFailure(failure) && <SystemFailurePanel failure={failure} />}
+          {steps.length > 0 ? (
             <div>
               {steps.map((step, i) => {
                 const hasScreenshot = (step.screenshotBefore ?? step.screenshotAfter) != null;
@@ -304,6 +298,17 @@ function RunDetailPage() {
                 );
               })}
             </div>
+          ) : (
+            !isSystemFailure(failure) && (
+              <div className="flex flex-col items-center justify-center gap-2 border border-dashed border-border-dim py-14 text-center">
+                <Stack size={24} className="text-text-tertiary" />
+                <p className="text-sm text-text-tertiary">
+                  {status === "running" || status === "pending"
+                    ? "Steps will appear here as the test runs..."
+                    : "No steps recorded"}
+                </p>
+              </div>
+            )
           )}
         </div>
 

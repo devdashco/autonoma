@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type AssertCommandSpec, RunPersister } from "@autonoma/engine";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
@@ -18,6 +21,26 @@ function persisterFor(harness: PersisterTestHarness, runId: string): RunPersiste
 async function readRunOutputs(harness: PersisterTestHarness, runId: string) {
     const list = await harness.db.stepOutputList.findFirstOrThrow({ where: { runId } });
     return harness.db.stepOutput.findMany({ where: { listId: list.id }, orderBy: { order: "asc" } });
+}
+
+function replayResult({ success, reasoning }: { success: boolean; reasoning?: string }) {
+    return {
+        state: { executedSteps: [], executionResults: [] },
+        success,
+        reasoning,
+    };
+}
+
+/** Writes a throwaway video file so markCompleted's upload step has something to read. */
+async function withVideoFile(run: (videoPath: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(join(tmpdir(), "run-persister-"));
+    const videoPath = join(dir, "recording.webm");
+    await writeFile(videoPath, Buffer.from("fake-video"));
+    try {
+        await run(videoPath);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
 }
 
 integrationTestSuite({
@@ -74,6 +97,84 @@ integrationTestSuite({
             // discriminant that keeps successful command outputs out of the failure
             // branch (no command output ever carries an `errorName` field).
             expect(outputs[0]!.output).not.toHaveProperty("errorName");
+        });
+    },
+});
+
+integrationTestSuite({
+    name: "RunPersister.markCompleted",
+    createHarness: () => PersisterTestHarness.create(),
+    cases: (test) => {
+        test("a regressed replay records status failed + failure {replay_failed} and keeps reasoning", async ({
+            harness,
+        }) => {
+            const seed = await harness.seedRun();
+            const persister = persisterFor(harness, seed.runId);
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({
+                    result: replayResult({ success: false, reasoning: "Step 3 no longer finds the submit button." }),
+                    videoPath,
+                }),
+            );
+
+            const run = await harness.db.run.findUniqueOrThrow({
+                where: { id: seed.runId },
+                select: { status: true, failure: true, reasoning: true },
+            });
+            expect(run.status).toBe("failed");
+            expect(run.failure).toEqual({ kind: "replay_failed" });
+            expect(run.reasoning).toBe("Step 3 no longer finds the submit button.");
+        });
+
+        test("a successful replay records status success and leaves failure null", async ({ harness }) => {
+            const seed = await harness.seedRun();
+            const persister = persisterFor(harness, seed.runId);
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({ result: replayResult({ success: true }), videoPath }),
+            );
+
+            const run = await harness.db.run.findUniqueOrThrow({
+                where: { id: seed.runId },
+                select: { status: true, failure: true },
+            });
+            expect(run.status).toBe("success");
+            expect(run.failure).toBeNull();
+        });
+    },
+});
+
+integrationTestSuite({
+    name: "RunPersister.markFailed",
+    createHarness: () => PersisterTestHarness.create(),
+    cases: (test) => {
+        test("an engine/driver exception records failure {engine_error} with the real message", async ({ harness }) => {
+            const seed = await harness.seedRun();
+            const persister = persisterFor(harness, seed.runId);
+
+            await persister.markFailed(new Error("Appium session crashed"));
+
+            const run = await harness.db.run.findUniqueOrThrow({
+                where: { id: seed.runId },
+                select: { status: true, failure: true },
+            });
+            expect(run.status).toBe("failed");
+            expect(run.failure).toEqual({ kind: "engine_error", message: "Appium session crashed" });
+        });
+
+        test("a non-Error failure falls back to a generic engine_error message", async ({ harness }) => {
+            const seed = await harness.seedRun();
+            const persister = persisterFor(harness, seed.runId);
+
+            await persister.markFailed("a raw string throw, not an Error");
+
+            const run = await harness.db.run.findUniqueOrThrow({
+                where: { id: seed.runId },
+                select: { status: true, failure: true },
+            });
+            expect(run.status).toBe("failed");
+            expect(run.failure).toEqual({ kind: "engine_error", message: "Unknown error" });
         });
     },
 });

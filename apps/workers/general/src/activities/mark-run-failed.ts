@@ -7,7 +7,7 @@ export async function markRunFailed(input: MarkRunFailedInput): Promise<void> {
         name: "markRunFailed",
         runId: input.runId,
     });
-    logger.info("Marking run as failed", { reason: input.reason });
+    logger.info("Marking run as failed", { extra: { failureKind: input.failure.kind } });
 
     const run = await db.run.findUnique({
         where: { id: input.runId },
@@ -31,7 +31,7 @@ export async function markRunFailed(input: MarkRunFailedInput): Promise<void> {
             where: { id: input.runId },
             data: {
                 status: "failed",
-                reasoning: input.reason ?? "Replay execution failed unexpectedly.",
+                failure: input.failure,
             },
         });
         logger.info("Run marked as failed");

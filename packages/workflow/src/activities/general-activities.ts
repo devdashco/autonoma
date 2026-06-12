@@ -66,12 +66,14 @@ export interface NotifyGenerationExitInput {
 
 export interface MarkGenerationFailedInput {
     testGenerationId: string;
-    reason?: string;
+    /** Structured reason the generation failed; persisted to the `failure` column. */
+    failure: PrismaJson.GenerationFailure;
 }
 
 export interface MarkRunFailedInput {
     runId: string;
-    reason?: string;
+    /** Structured reason the run failed; persisted to the `failure` column. */
+    failure: PrismaJson.RunFailure;
 }
 
 // Refinement loop activity inputs.

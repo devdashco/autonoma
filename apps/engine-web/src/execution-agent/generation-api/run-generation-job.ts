@@ -58,8 +58,7 @@ export async function runWebGenerationJob(testGenerationId: string) {
         logger.error("Generation job failed", error);
 
         try {
-            const reason = error instanceof Error ? error.message : "Unknown error";
-            await generationPersister.markFailed(reason);
+            await generationPersister.markFailed(error);
         } catch (markFailedError) {
             logger.error("Failed to mark generation as failed", markFailedError);
         }

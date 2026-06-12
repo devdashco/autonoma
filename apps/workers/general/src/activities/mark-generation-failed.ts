@@ -7,7 +7,7 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
         name: "markGenerationFailed",
         generationId: input.testGenerationId,
     });
-    logger.info("Marking generation as failed", { reason: input.reason });
+    logger.info("Marking generation as failed", { extra: { failureKind: input.failure.kind } });
 
     const generation = await db.testGeneration.findUnique({
         where: { id: input.testGenerationId },
@@ -31,8 +31,7 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
             where: { id: input.testGenerationId },
             data: {
                 status: "failed",
-                reasoning:
-                    input.reason ?? "Scenario setup failed. Check your scenario webhook configuration and try again.",
+                failure: input.failure,
             },
         });
         logger.info("Generation marked as failed");

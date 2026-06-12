@@ -87,7 +87,7 @@ export abstract class RunAPIRunner<
             await this.persister.markCompleted(runResult);
         } catch (error) {
             this.runnerLogger.error("Replay failed, marking run as failed", error);
-            await this.persister.markFailed();
+            await this.persister.markFailed(error);
             throw error;
         }
     }

@@ -24,11 +24,13 @@ export async function handleMarkGenerationFailed(generationId: string): Promise<
 
     log.info("Marking generation as failed due to scenario setup failure", { currentStatus: generation.status });
 
+    // No unwrapped cause is available in this reaper, so the message is static
+    // guidance; the failure panel supplies the webhook-config hint regardless.
     await db.testGeneration.update({
         where: { id: generationId },
         data: {
             status: "failed",
-            reasoning: "Scenario setup failed. Check your scenario webhook configuration and try again.",
+            failure: { kind: "scenario_setup", message: "Scenario setup failed before the generation could start." },
         },
     });
 

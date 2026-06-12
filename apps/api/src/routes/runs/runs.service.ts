@@ -255,6 +255,7 @@ export class RunsService extends Service {
             startedAt: run.startedAt?.toISOString() ?? null,
             duration: computeDuration(run.startedAt, run.completedAt),
             reasoning: run.reasoning ?? null,
+            failure: run.failure ?? undefined,
             temporalWorkflow,
             steps,
             review:

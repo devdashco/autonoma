@@ -29,9 +29,13 @@ export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps)
 
     if (instance.status === "UP_FAILED") {
         logger.error("Scenario up failed", { instanceId: instance.id, lastError: instance.lastError });
-        throw new Error(
-            `Scenario up failed: instanceId=${instance.id}, lastError=${JSON.stringify(instance.lastError)}`,
-        );
+        // Surface the underlying error message (e.g. "SDK returned HTTP 500")
+        // as the primary message so it flows cleanly through to the failure
+        // panel, while carrying the instance id on `cause` so it is preserved
+        // in the error chain (Temporal history, Sentry) for debugging.
+        throw new Error(instance.lastError?.message ?? "Scenario environment failed to start", {
+            cause: new Error(`scenario instance ${instance.id} failed to come up`),
+        });
     }
 
     logger.info("Scenario instance started", { instanceId: instance.id });

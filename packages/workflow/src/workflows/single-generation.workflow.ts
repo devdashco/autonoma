@@ -1,5 +1,6 @@
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities, GeneralActivities, MobileActivities, WebActivities } from "../activities";
+import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 
@@ -39,12 +40,12 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
             scenarioInstanceId = scenarioUpResult.scenarioInstanceId;
             log.info("Scenario setup complete", { testGenerationId, scenarioInstanceId });
         } catch (error) {
-            const reason = error instanceof Error ? error.message : "Scenario setup failed";
-            log.error("Scenario setup failed", { testGenerationId, scenarioId, reason });
+            const message = rootFailureMessage(error);
+            log.error("Scenario setup failed", { testGenerationId, scenarioId, message });
             await CancellationScope.nonCancellable(() =>
                 general.markGenerationFailed({
                     testGenerationId,
-                    reason: `Scenario setup failed: ${reason}`,
+                    failure: { kind: "scenario_setup", message },
                 }),
             );
             throw error;
@@ -56,9 +57,11 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     try {
         await runExecution(architecture, testGenerationId);
     } catch (error) {
-        const reason = error instanceof Error ? error.message : "Execution failed";
-        log.error("Generation execution failed, marking as failed", { testGenerationId, reason });
-        await CancellationScope.nonCancellable(() => general.markGenerationFailed({ testGenerationId, reason }));
+        const message = rootFailureMessage(error);
+        log.error("Generation execution failed, marking as failed", { testGenerationId, message });
+        await CancellationScope.nonCancellable(() =>
+            general.markGenerationFailed({ testGenerationId, failure: { kind: "engine_error", message } }),
+        );
         throw error;
     } finally {
         const cancelled = CancellationScope.current().consideredCancelled;

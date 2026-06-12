@@ -1,5 +1,6 @@
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities, GeneralActivities, MobileActivities, WebActivities } from "../activities";
+import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
 
@@ -34,24 +35,37 @@ export async function runReplayWorkflow(input: RunReplayInput): Promise<void> {
         // Step 1: Scenario up (if needed)
         if (scenarioId != null) {
             log.info("Starting scenario setup", { runId, scenarioId });
-            const result = await general.scenarioUp({
-                scenarioJobType: "run",
-                entityId: runId,
-                scenarioId,
-            });
-            scenarioInstanceId = result.scenarioInstanceId;
-            log.info("Scenario setup complete", { runId, scenarioInstanceId });
+            try {
+                const result = await general.scenarioUp({
+                    scenarioJobType: "run",
+                    entityId: runId,
+                    scenarioId,
+                });
+                scenarioInstanceId = result.scenarioInstanceId;
+                log.info("Scenario setup complete", { runId, scenarioInstanceId });
+            } catch (error) {
+                const message = rootFailureMessage(error);
+                log.error("Scenario setup failed", { runId, scenarioId, message });
+                await CancellationScope.nonCancellable(() =>
+                    general.markRunFailed({ runId, failure: { kind: "scenario_setup", message } }),
+                );
+                throw error;
+            }
         } else {
             log.warn("Scenario setup skipped: run has no linked scenario", { runId });
         }
 
         // Step 2: Run the replay execution agent
-        await runReplayExecution(architecture, runId);
-    } catch (error) {
-        const reason = error instanceof Error ? error.message : "Replay failed";
-        log.error("Run replay failed, marking as failed", { runId, reason });
-        await CancellationScope.nonCancellable(() => general.markRunFailed({ runId, reason }));
-        throw error;
+        try {
+            await runReplayExecution(architecture, runId);
+        } catch (error) {
+            const message = rootFailureMessage(error);
+            log.error("Run replay failed, marking as failed", { runId, message });
+            await CancellationScope.nonCancellable(() =>
+                general.markRunFailed({ runId, failure: { kind: "engine_error", message } }),
+            );
+            throw error;
+        }
     } finally {
         // Step 3: After replay completes (or fails), run cleanup in parallel.
         // Use allSettled so that a failure in one step does not prevent the others

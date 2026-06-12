@@ -122,17 +122,22 @@ export class GenerationPersister<TSpec extends CommandSpec> {
     }
 
     /**
-     * Marks the generation as failed.
+     * Marks the generation as failed with an `engine_error` system failure.
      *
-     * @param reason - Optional human-readable reason for the failure, stored in
-     *   the `reasoning` field and displayed in the UI.
+     * @param error - The caught error; its message is unwrapped and stored as the
+     *   `engine_error` failure message and rendered in the critical failure panel.
      */
-    public async markFailed(reason?: string) {
+    public async markFailed(error: unknown) {
+        // A thrown exception inside the engine (driver/engine crash) - classify it as a
+        // system `engine_error` so it renders in the critical failure panel with the real
+        // message, instead of polluting `reasoning` (which is reserved for AI test outcomes).
+        const message = error instanceof Error ? error.message : "Unknown error";
+        this.logger.info("Marking generation as failed", { extra: { message } });
         await this.db.testGeneration.update({
             where: { id: this.id },
             data: {
                 status: "failed",
-                ...(reason != null ? { reasoning: reason } : {}),
+                failure: { kind: "engine_error", message },
             },
         });
     }
@@ -321,11 +326,26 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             );
         }
 
+        // The agent ran to completion but did not pass. Classify the verdict via
+        // finishReason: "max_steps" means it hit the step ceiling, anything else
+        // ("error") means it gave up. These carry no message - the agent prose stays
+        // in `reasoning`, and they render via the agent UI, not the SystemFailurePanel.
+        const failure: PrismaJson.GenerationFailure | undefined = result.success
+            ? undefined
+            : result.finishReason === "max_steps"
+              ? { kind: "max_steps" }
+              : { kind: "agent_failed" };
+
+        if (failure != null) {
+            this.logger.info("Recording generation failure verdict", { extra: { failureKind: failure.kind } });
+        }
+
         await this.db.testGeneration.update({
             where: { id: this.id },
             data: {
                 status: result.success ? "success" : "failed",
                 reasoning: result.reasoning,
+                failure,
                 finalScreenshot: finalScreenshotUrl,
                 memory: result.memory,
             },
