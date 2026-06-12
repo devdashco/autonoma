@@ -27,8 +27,7 @@ async function main(): Promise<void> {
         throw new Error("Missing <iterationId>. Usage: capture:healing <iterationId> [--name <case-name>] [--force]");
     }
 
-    const params: Parameters<typeof captureHealing>[0] = { iterationId, force: values.force };
-    if (values.name != null) params.name = values.name;
+    const params: Parameters<typeof captureHealing>[0] = { iterationId, force: values.force, name: values.name };
 
     const caseDir = await captureHealing(params);
 

@@ -15,6 +15,7 @@ import {
     type SnapshotChangeContext,
     type SnapshotContext,
     type SnapshotRunContext,
+    type SnapshotRunReview,
     resolveScenarioDataForGeneration,
     resolveScenarioDataForRun,
 } from "@autonoma/diffs";
@@ -190,7 +191,7 @@ export class DiffJobContextLoader {
             hasScenario: scenario != null,
         });
 
-        const context: RunContext = {
+        return {
             runId: run.id,
             organizationId: run.organizationId,
             testPlanPrompt: run.plan?.prompt ?? "No test plan prompt available",
@@ -199,11 +200,10 @@ export class DiffJobContextLoader {
             videoS3Key: `run/${runId}/video.webm`,
             finalScreenshotKey,
             architecture: run.assignment.snapshot.branch.application.architecture,
+            change,
+            lineage,
+            scenario,
         };
-        if (change != null) context.change = change;
-        if (lineage != null) context.lineage = lineage;
-        if (scenario != null) context.scenario = scenario;
-        return context;
     }
 
     /**
@@ -217,28 +217,22 @@ export class DiffJobContextLoader {
      * same shape.
      */
     private toReplayStep(step: ReplayStepOutputRow): RunStepData {
-        const reviewStep: RunStepData = {
+        const overlayPoints = getStepOverlayPoints(step.output);
+        const failure = readPersistedFailure(step.output);
+
+        return {
             order: step.order,
             interaction: step.stepInput.interaction,
             params: step.stepInput.params,
-            status: "success",
+            status: failure != null ? "failed" : "success",
+            screenshotBeforeKey: step.screenshotBefore ?? undefined,
+            screenshotAfterKey: step.screenshotAfter ?? undefined,
+            overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
+            // Failure attribution on failed steps; the command's structured result on successful ones.
+            error: failure?.error,
+            errorName: failure?.errorName,
+            output: failure == null ? (step.output ?? undefined) : undefined,
         };
-        if (step.screenshotBefore != null) reviewStep.screenshotBeforeKey = step.screenshotBefore;
-        if (step.screenshotAfter != null) reviewStep.screenshotAfterKey = step.screenshotAfter;
-
-        const overlayPoints = getStepOverlayPoints(step.output);
-        if (overlayPoints.length > 0) reviewStep.overlayPoints = overlayPoints;
-
-        const failure = readPersistedFailure(step.output);
-        if (failure != null) {
-            reviewStep.status = "failed";
-            if (failure.error != null) reviewStep.error = failure.error;
-            reviewStep.errorName = failure.errorName;
-            return reviewStep;
-        }
-
-        if (step.output != null) reviewStep.output = step.output;
-        return reviewStep;
     }
 
     /**
@@ -344,7 +338,7 @@ export class DiffJobContextLoader {
             hasScenario: scenario != null,
         });
 
-        const context: GenerationContext = {
+        return {
             generationId: generation.id,
             organizationId: generation.organizationId,
             selfReportedStatus: generation.status,
@@ -352,14 +346,13 @@ export class DiffJobContextLoader {
             conversation,
             steps,
             architecture: generation.snapshot.branch.application.architecture,
+            reasoning: generation.reasoning ?? undefined,
+            videoUrl: generation.videoUrl ?? undefined,
+            finalScreenshotKey: generation.finalScreenshot ?? undefined,
+            change,
+            lineage,
+            scenario,
         };
-        if (generation.reasoning != null) context.reasoning = generation.reasoning;
-        if (generation.videoUrl != null) context.videoUrl = generation.videoUrl;
-        if (generation.finalScreenshot != null) context.finalScreenshotKey = generation.finalScreenshot;
-        if (change != null) context.change = change;
-        if (lineage != null) context.lineage = lineage;
-        if (scenario != null) context.scenario = scenario;
-        return context;
     }
 
     /**
@@ -376,20 +369,19 @@ export class DiffJobContextLoader {
     ): GenerationStepData[] {
         if (attempts.length > 0) {
             return attempts.map((attempt) => {
-                const step: GenerationStepData = {
+                const overlayPoints = getStepOverlayPoints(attempt.output);
+                return {
                     order: attempt.order,
                     interaction: attempt.interaction,
                     params: attempt.params,
                     status: attempt.status,
+                    output: attempt.output ?? undefined,
+                    error: attempt.error ?? undefined,
+                    errorName: attempt.errorName ?? undefined,
+                    screenshotBeforeKey: attempt.screenshotBefore ?? undefined,
+                    screenshotAfterKey: attempt.screenshotAfter ?? undefined,
+                    overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
                 };
-                if (attempt.output != null) step.output = attempt.output;
-                if (attempt.error != null) step.error = attempt.error;
-                if (attempt.errorName != null) step.errorName = attempt.errorName;
-                if (attempt.screenshotBefore != null) step.screenshotBeforeKey = attempt.screenshotBefore;
-                if (attempt.screenshotAfter != null) step.screenshotAfterKey = attempt.screenshotAfter;
-                const overlayPoints = getStepOverlayPoints(attempt.output);
-                if (overlayPoints.length > 0) step.overlayPoints = overlayPoints;
-                return step;
             });
         }
 
@@ -401,19 +393,18 @@ export class DiffJobContextLoader {
         }
 
         return stepInputs.map((input) => {
-            const step: GenerationStepData = {
+            const output = input.outputs[0]?.output;
+            const overlayPoints = getStepOverlayPoints(output);
+            return {
                 order: input.order,
                 interaction: input.interaction,
                 params: input.params,
                 status: "success",
+                output: output ?? undefined,
+                screenshotBeforeKey: input.screenshotBefore ?? undefined,
+                screenshotAfterKey: input.screenshotAfter ?? undefined,
+                overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
             };
-            const output = input.outputs[0]?.output;
-            if (output != null) step.output = output;
-            if (input.screenshotBefore != null) step.screenshotBeforeKey = input.screenshotBefore;
-            if (input.screenshotAfter != null) step.screenshotAfterKey = input.screenshotAfter;
-            const overlayPoints = getStepOverlayPoints(output);
-            if (overlayPoints.length > 0) step.overlayPoints = overlayPoints;
-            return step;
         });
     }
 
@@ -507,7 +498,18 @@ export class DiffJobContextLoader {
                         this.buildLineage(run.id, run.planId, affected.testCase.id),
                     ]);
 
-                    const runContext: SnapshotRunContext = {
+                    const completedReview = run.runReview?.status === "completed" ? run.runReview : undefined;
+                    const review: SnapshotRunReview | undefined =
+                        completedReview == null
+                            ? undefined
+                            : {
+                                  reasoning: completedReview.reasoning ?? "",
+                                  verdict: completedReview.verdict ?? undefined,
+                                  issueTitle: completedReview.issue?.title ?? undefined,
+                                  issueDescription: completedReview.issue?.description ?? undefined,
+                              };
+
+                    return {
                         runId: run.id,
                         testCaseId: affected.testCase.id,
                         testSlug: affected.testCase.slug,
@@ -517,20 +519,10 @@ export class DiffJobContextLoader {
                         quarantined: affected.testCase.assignments[0]?.quarantineIssueId != null,
                         affectedReason: affected.affectedReason,
                         affectedReasoning: affected.reasoning,
+                        review,
+                        scenario,
+                        lineage,
                     };
-
-                    const review = run.runReview;
-                    if (review != null && review.status === "completed") {
-                        const runReview: SnapshotRunContext["review"] = { reasoning: review.reasoning ?? "" };
-                        if (review.verdict != null) runReview.verdict = review.verdict;
-                        if (review.issue?.title != null) runReview.issueTitle = review.issue.title;
-                        if (review.issue?.description != null) runReview.issueDescription = review.issue.description;
-                        runContext.review = runReview;
-                    }
-                    if (scenario != null) runContext.scenario = scenario;
-                    if (lineage != null) runContext.lineage = lineage;
-
-                    return runContext;
                 }),
             )
         ).filter((run): run is SnapshotRunContext => run != null);
@@ -545,16 +537,15 @@ export class DiffJobContextLoader {
             runsWithScenario: runs.filter((r) => r.scenario != null).length,
         });
 
-        const context: SnapshotContext = {
+        return {
             snapshotId,
             organizationId: snapshot.branch.organizationId,
             runs,
+            change,
+            // Analysis reasoning is a snapshot-level fact, not part of the diff
+            // anchor: it is carried even when the SHAs (and thus `change`) are absent.
+            analysisReasoning,
         };
-        if (change != null) context.change = change;
-        // Analysis reasoning is a snapshot-level fact, not part of the diff anchor:
-        // it is carried even when the SHAs (and thus `change`) are absent.
-        if (analysisReasoning != null) context.analysisReasoning = analysisReasoning;
-        return context;
     }
 
     /**
@@ -615,15 +606,14 @@ export class DiffJobContextLoader {
                     this.buildLineage(subject.sourceId, subject.planId, subject.testCaseId),
                 ]);
 
-                const subjectContext: HealingSubjectContext = { failureKey: subject.failureKey };
                 const affected = affectedByTestCase.get(subject.testCaseId);
-                if (affected != null) {
-                    subjectContext.affectedReason = affected.affectedReason;
-                    subjectContext.affectedReasoning = affected.reasoning;
-                }
-                if (lineage != null) subjectContext.lineage = lineage;
-                if (scenario != null) subjectContext.scenario = scenario;
-                return subjectContext;
+                return {
+                    failureKey: subject.failureKey,
+                    affectedReason: affected?.affectedReason,
+                    affectedReasoning: affected?.reasoning,
+                    lineage,
+                    scenario,
+                };
             }),
         );
 
@@ -636,15 +626,14 @@ export class DiffJobContextLoader {
             subjectsWithScenario: subjectContexts.filter((subject) => subject.scenario != null).length,
         });
 
-        const context: HealingContext = {
+        return {
             snapshotId,
             organizationId: snapshot.branch.organizationId,
             applicationId: snapshot.branch.applicationId,
             subjects: subjectContexts,
+            change,
+            analysisReasoning,
         };
-        if (change != null) context.change = change;
-        if (analysisReasoning != null) context.analysisReasoning = analysisReasoning;
-        return context;
     }
 
     /**
@@ -777,15 +766,11 @@ export class DiffJobContextLoader {
         });
         const reasoningByPlanId = new Map(actions.map((action) => [action.planId, action.reasoning]));
 
-        return inputs.map((input) => {
-            const revision: PlanRevision = {
-                iterationNumber: input.iteration.number,
-                prompt: input.plan.prompt,
-            };
-            const healingReasoning = reasoningByPlanId.get(input.plan.id);
-            if (healingReasoning != null) revision.healingReasoning = healingReasoning;
-            return revision;
-        });
+        return inputs.map((input) => ({
+            iterationNumber: input.iteration.number,
+            prompt: input.plan.prompt,
+            healingReasoning: reasoningByPlanId.get(input.plan.id) ?? undefined,
+        }));
     }
 
     /**
@@ -849,20 +834,13 @@ export class DiffJobContextLoader {
             return undefined;
         }
 
-        const change: ChangeContext = {
+        return {
             baseSha: snapshot.baseSha,
             headSha: snapshot.headSha,
+            analysisReasoning: snapshot.diffsJob?.analysisReasoning ?? undefined,
+            affectedReason: affectedTest?.affectedReason,
+            affectedReasoning: affectedTest?.reasoning,
         };
-
-        const analysisReasoning = snapshot.diffsJob?.analysisReasoning;
-        if (analysisReasoning != null) change.analysisReasoning = analysisReasoning;
-
-        if (affectedTest != null) {
-            change.affectedReason = affectedTest.affectedReason;
-            change.affectedReasoning = affectedTest.reasoning;
-        }
-
-        return change;
     }
 }
 
@@ -879,10 +857,8 @@ function readPersistedFailure(output: unknown): { error?: string; errorName: str
     const errorName = output["errorName"];
     if (typeof errorName !== "string") return undefined;
 
-    const failure: { error?: string; errorName: string } = { errorName };
     const outcome = output["outcome"];
-    if (typeof outcome === "string") failure.error = outcome;
-    return failure;
+    return { errorName, error: typeof outcome === "string" ? outcome : undefined };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

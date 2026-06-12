@@ -86,7 +86,7 @@ import { foo } from "./foo.js";
 
 ### TypeScript - Strictest Configuration
 
-All strict flags enabled. Every package extends `tsconfig.base.json`. This includes `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, etc.
+`strict: true` plus extra strictness flags, set once in `tsconfig.base.json` and inherited by every package: `noUncheckedIndexedAccess`, `verbatimModuleSyntax`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, etc. Assigning an `undefined`-valued key to an optional (`field?:`) property is allowed - prefer inlining optional fields into an object literal over the `if (x != null) obj.field = x` idiom.
 
 ### No `as` Casts
 

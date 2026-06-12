@@ -93,11 +93,8 @@ export function rehydrateAnalysisInput(parsed: AnalysisCaseInput): RehydratedAna
         merges: parsed.merges ?? [],
         preClassifiedConflicts: parsed.preClassifiedConflicts ?? [],
         scenarioRecipes: parsed.scenarioRecipes ?? [],
+        testScopeGuidelines: parsed.testScopeGuidelines,
     };
-
-    if (parsed.testScopeGuidelines != null) {
-        agentInput.testScopeGuidelines = parsed.testScopeGuidelines;
-    }
 
     return { coords: parsed.codebase, agentInput };
 }

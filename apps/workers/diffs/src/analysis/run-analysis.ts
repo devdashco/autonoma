@@ -69,9 +69,7 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
         extra: { preparedRuns: replays.length, reasoning: agentResult.reasoning.slice(0, 200) },
     });
 
-    const output: DiffsAnalysisResult = { replays, reasoning: agentResult.reasoning };
-    if (conversationUrl != null) output.conversationUrl = conversationUrl;
-    return output;
+    return { replays, reasoning: agentResult.reasoning, conversationUrl };
 }
 
 /** Merge the deterministically-imported affected tests with the agent's, deduping by slug (imports win). */

@@ -107,11 +107,8 @@ export function rehydrateResolutionInput(parsed: ResolutionCaseInput): Rehydrate
         verdicts: parsed.verdicts,
         step1Reasoning: parsed.step1Reasoning,
         testCandidates: parsed.testCandidates,
+        testScopeGuidelines: parsed.testScopeGuidelines,
     };
-
-    if (parsed.testScopeGuidelines != null) {
-        agentInput.testScopeGuidelines = parsed.testScopeGuidelines;
-    }
 
     return { coords: parsed.codebase, agentInput };
 }

@@ -151,9 +151,9 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
             flows,
             testScopeGuidelines: parsed.planAuthoring.testScopeGuidelines,
         },
+        change: parsed.change,
+        analysisReasoning: parsed.analysisReasoning,
     };
-    if (parsed.change != null) agentInput.change = parsed.change;
-    if (parsed.analysisReasoning != null) agentInput.analysisReasoning = parsed.analysisReasoning;
 
     return { coords: parsed.codebase, agentInput };
 }

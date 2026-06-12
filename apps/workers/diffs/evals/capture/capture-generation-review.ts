@@ -75,9 +75,11 @@ export async function captureGenerationReview(params: CaptureGenerationReviewPar
         if (step.screenshotBeforeKey != null) screenshots.push(step.screenshotBeforeKey);
         if (step.screenshotAfterKey != null) screenshots.push(step.screenshotAfterKey);
     }
-    const evidenceKeys: Parameters<typeof probeEvidence>[0] = { screenshots };
-    if (context.finalScreenshotKey != null) evidenceKeys.finalScreenshot = context.finalScreenshotKey;
-    if (context.videoUrl != null) evidenceKeys.video = context.videoUrl;
+    const evidenceKeys: Parameters<typeof probeEvidence>[0] = {
+        screenshots,
+        finalScreenshot: context.finalScreenshotKey,
+        video: context.videoUrl,
+    };
     await probeEvidence(evidenceKeys, evidenceLoader);
 
     const frozen = serializeGenerationReviewInput(coords, context);
@@ -146,8 +148,7 @@ async function main(): Promise<void> {
         );
     }
 
-    const captureParams: CaptureGenerationReviewParams = { generationId, force: values.force };
-    if (values.name != null) captureParams.name = values.name;
+    const captureParams: CaptureGenerationReviewParams = { generationId, force: values.force, name: values.name };
 
     const caseDir = await captureGenerationReview(captureParams);
 

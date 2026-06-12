@@ -92,9 +92,7 @@ export async function runDiffsResolution({
         },
     });
 
-    const output: DiffsResolutionResult = { reasoning: resolutionReasoning };
-    if (resolutionConversationUrl != null) output.conversationUrl = resolutionConversationUrl;
-    return output;
+    return { reasoning: resolutionReasoning, conversationUrl: resolutionConversationUrl };
 }
 
 interface LinkResolutionOutcomesParams {

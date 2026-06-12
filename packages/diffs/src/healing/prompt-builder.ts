@@ -58,8 +58,11 @@ export function buildHealingPrompt(input: HealingInput): string {
  */
 function buildChangeFactsSection(input: HealingInput): string | undefined {
     if (input.change != null) {
-        const change: ChangeContext = { baseSha: input.change.baseSha, headSha: input.change.headSha };
-        if (input.analysisReasoning != null) change.analysisReasoning = input.analysisReasoning;
+        const change: ChangeContext = {
+            baseSha: input.change.baseSha,
+            headSha: input.change.headSha,
+            analysisReasoning: input.analysisReasoning,
+        };
         return buildChangeContextSection(
             change,
             "# Code Change\n\nThe failing plans were authored against an earlier state of the app. Inspect the diff that triggered this loop to see what moved:",

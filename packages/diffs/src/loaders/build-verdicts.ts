@@ -40,7 +40,7 @@ export function buildVerdicts(runs: SnapshotRunContext[], logger: Logger): RunRe
             continue;
         }
 
-        const verdict: RunReviewVerdict = {
+        verdicts.push({
             runId: run.runId,
             testSlug: slug,
             testName: run.testName,
@@ -49,11 +49,10 @@ export function buildVerdicts(runs: SnapshotRunContext[], logger: Logger): RunRe
             verdict: run.review.verdict ?? "unknown",
             reviewReasoning: run.review.reasoning,
             affectedReason: run.affectedReason,
-        };
-        if (run.review.issueTitle != null) verdict.issueTitle = run.review.issueTitle;
-        if (run.review.issueDescription != null) verdict.issueDescription = run.review.issueDescription;
-        if (run.scenario != null) verdict.scenario = run.scenario;
-        verdicts.push(verdict);
+            issueTitle: run.review.issueTitle,
+            issueDescription: run.review.issueDescription,
+            scenario: run.scenario,
+        });
         runsActionable.push(slug);
     }
 

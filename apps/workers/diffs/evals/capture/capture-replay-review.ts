@@ -82,9 +82,11 @@ export async function captureReplayReview(params: CaptureReplayReviewParams): Pr
         if (step.screenshotBeforeKey != null) screenshots.push(step.screenshotBeforeKey);
         if (step.screenshotAfterKey != null) screenshots.push(step.screenshotAfterKey);
     }
-    const evidenceKeys: Parameters<typeof probeEvidence>[0] = { screenshots };
-    if (context.finalScreenshotKey != null) evidenceKeys.finalScreenshot = context.finalScreenshotKey;
-    if (context.videoS3Key != null) evidenceKeys.video = context.videoS3Key;
+    const evidenceKeys: Parameters<typeof probeEvidence>[0] = {
+        screenshots,
+        finalScreenshot: context.finalScreenshotKey,
+        video: context.videoS3Key,
+    };
     await probeEvidence(evidenceKeys, evidenceLoader);
 
     const frozen = serializeReplayReviewInput(coords, context);
@@ -152,8 +154,7 @@ async function main(): Promise<void> {
         throw new Error("Missing <runId>. Usage: capture:replay-review <runId> [--name <case-name>] [--force]");
     }
 
-    const captureParams: CaptureReplayReviewParams = { runId, force: values.force };
-    if (values.name != null) captureParams.name = values.name;
+    const captureParams: CaptureReplayReviewParams = { runId, force: values.force, name: values.name };
 
     const caseDir = await captureReplayReview(captureParams);
 

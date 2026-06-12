@@ -157,9 +157,11 @@ export class GenerationReviewEvaluation extends Evaluation<GenerationReviewCase>
             if (step.screenshotAfterKey != null) screenshots.push(step.screenshotAfterKey);
         }
 
-        const keys: Parameters<typeof probeEvidence>[0] = { screenshots };
-        if (context.finalScreenshotKey != null) keys.finalScreenshot = context.finalScreenshotKey;
-        if (context.videoUrl != null) keys.video = context.videoUrl;
+        const keys: Parameters<typeof probeEvidence>[0] = {
+            screenshots,
+            finalScreenshot: context.finalScreenshotKey,
+            video: context.videoUrl,
+        };
 
         try {
             await probeEvidence(keys, loader);

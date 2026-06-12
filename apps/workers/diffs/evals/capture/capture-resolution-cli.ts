@@ -32,8 +32,11 @@ async function main(): Promise<void> {
         throw new Error("Missing <snapshotId>. Usage: capture:resolution <snapshotId> [--name <case-name>] [--force]");
     }
 
-    const captureParams: Parameters<typeof captureResolution>[0] = { snapshotId, force: values.force };
-    if (values.name != null) captureParams.name = values.name;
+    const captureParams: Parameters<typeof captureResolution>[0] = {
+        snapshotId,
+        force: values.force,
+        name: values.name,
+    };
 
     const caseDir = await captureResolution(captureParams);
 

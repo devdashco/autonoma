@@ -60,8 +60,8 @@ async function cloneResolved(resolved: ResolvedClone, targetDirSeed: string): Pr
     const opts: { repoName: string; commitSha: string; baseSha?: string } = {
         repoName: resolved.repoName,
         commitSha: resolved.commitSha,
+        baseSha: resolved.baseSha,
     };
-    if (resolved.baseSha != null) opts.baseSha = resolved.baseSha;
     return await Codebase.clone(resolved.githubClient, `/tmp/codebase/${targetDirSeed}`, opts);
 }
 

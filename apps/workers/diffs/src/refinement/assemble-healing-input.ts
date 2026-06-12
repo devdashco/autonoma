@@ -106,9 +106,9 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         snapshotId,
         applicationId,
         organizationId,
+        change: diffJobContext.change,
+        analysisReasoning: diffJobContext.analysisReasoning,
     };
-    if (diffJobContext.change != null) agentInput.change = diffJobContext.change;
-    if (diffJobContext.analysisReasoning != null) agentInput.analysisReasoning = diffJobContext.analysisReasoning;
 
     return { agentInput, meta: { snapshotId, organizationId, applicationId, iterationNumber } };
 }
@@ -136,12 +136,15 @@ function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: Healing
         const context = contextByKey.get(failure.key);
         if (context == null) return failure;
 
-        const merged: FailureRecord = { ...failure };
-        if (context.affectedReason != null) merged.affectedReason = context.affectedReason;
-        if (context.affectedReasoning != null) merged.affectedReasoning = context.affectedReasoning;
-        if (context.lineage != null) merged.lineage = context.lineage;
-        if (context.scenario != null) merged.scenario = context.scenario;
-        return merged;
+        // Override-only-when-present: the gathered context wins, but a field it
+        // didn't resolve keeps whatever the base failure already carried.
+        return {
+            ...failure,
+            affectedReason: context.affectedReason ?? failure.affectedReason,
+            affectedReasoning: context.affectedReasoning ?? failure.affectedReasoning,
+            lineage: context.lineage ?? failure.lineage,
+            scenario: context.scenario ?? failure.scenario,
+        };
     });
 }
 

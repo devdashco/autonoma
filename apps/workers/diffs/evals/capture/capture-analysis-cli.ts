@@ -28,8 +28,7 @@ async function main(): Promise<void> {
         throw new Error("Missing <snapshotId>. Usage: capture:analysis <snapshotId> [--name <case-name>] [--force]");
     }
 
-    const params: Parameters<typeof captureAnalysis>[0] = { snapshotId, force: values.force };
-    if (values.name != null) params.name = values.name;
+    const params: Parameters<typeof captureAnalysis>[0] = { snapshotId, force: values.force, name: values.name };
 
     const caseDir = await captureAnalysis(params);
 

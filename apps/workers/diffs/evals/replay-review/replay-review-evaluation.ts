@@ -150,9 +150,11 @@ export class ReplayReviewEvaluation extends Evaluation<ReplayReviewCase> {
             if (step.screenshotAfterKey != null) screenshots.push(step.screenshotAfterKey);
         }
 
-        const keys: Parameters<typeof probeEvidence>[0] = { screenshots };
-        if (context.finalScreenshotKey != null) keys.finalScreenshot = context.finalScreenshotKey;
-        if (context.videoS3Key != null) keys.video = context.videoS3Key;
+        const keys: Parameters<typeof probeEvidence>[0] = {
+            screenshots,
+            finalScreenshot: context.finalScreenshotKey,
+            video: context.videoS3Key,
+        };
 
         try {
             await probeEvidence(keys, loader);
