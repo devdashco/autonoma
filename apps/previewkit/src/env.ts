@@ -99,10 +99,13 @@ export const env = createEnv({
         // Required only when AWS secret registrations are present for any organization.
         CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
 
-        // nginx auth proxy image. Each preview namespace gets an nginx deployment
-        // that gates access via bypass token header or pk_session cookie.
-        // The config is injected via ConfigMap so the default plain nginx:alpine works.
-        NGINX_IMAGE: z.string().default("nginx:alpine"),
+        // Gatekeeper image: the per-namespace auth + scale-to-zero proxy deployed
+        // into every preview namespace (replaces the old stock-nginx proxy). Built
+        // and published by the standalone gatekeeper repo.
+        GATEKEEPER_IMAGE: z.string().default("public.ecr.aws/autonoma/gatekeeper:latest"),
+        // How long a preview environment may sit with no requests before Gatekeeper
+        // scales all its workloads to zero. Go duration string (e.g. "30m", "1h").
+        GATEKEEPER_IDLE_TIMEOUT: z.string().default("30m"),
         APP_URL: z.string().url().default("https://beta.autonoma.app"),
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
         // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens

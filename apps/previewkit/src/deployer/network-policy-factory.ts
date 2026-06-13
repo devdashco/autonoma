@@ -1,5 +1,6 @@
 import type * as k8s from "@kubernetes/client-node";
 import { LABEL_ORGANIZATION } from "./namespace-manager";
+import { GATEKEEPER_APP_LABEL } from "./resource-factory";
 
 export interface NetworkPolicyFactoryOptions {
     namespace: string;
@@ -15,6 +16,38 @@ export function buildNetworkPolicies(opts: NetworkPolicyFactoryOptions): k8s.V1N
         buildDnsEgressPolicy(opts.namespace),
         buildInternetEgressPolicy(opts.namespace),
     ];
+}
+
+/**
+ * Gatekeeper must reach the in-cluster Kubernetes API server to scale workloads.
+ * The strict tenant-isolation policies above (default-deny + allow-internet-egress,
+ * which excludes RFC1918 ranges) would otherwise block it - the API server sits on
+ * a ClusterIP / VPC address inside those excluded ranges - so every scale call would
+ * hang. This is applied separately (NOT part of buildNetworkPolicies) and selects only
+ * the Gatekeeper pod, so user app pods keep their strict egress unchanged.
+ */
+export function buildGatekeeperApiEgressPolicy(namespace: string): k8s.V1NetworkPolicy {
+    return {
+        apiVersion: "networking.k8s.io/v1",
+        kind: "NetworkPolicy",
+        metadata: {
+            name: "allow-gatekeeper-apiserver-egress",
+            namespace,
+        },
+        spec: {
+            podSelector: { matchLabels: { app: GATEKEEPER_APP_LABEL } },
+            policyTypes: ["Egress"],
+            egress: [
+                {
+                    to: [{ ipBlock: { cidr: "0.0.0.0/0" } }],
+                    ports: [
+                        { protocol: "TCP", port: 443 },
+                        { protocol: "TCP", port: 6443 },
+                    ],
+                },
+            ],
+        },
+    };
 }
 
 function buildDefaultDenyPolicy(namespace: string): k8s.V1NetworkPolicy {

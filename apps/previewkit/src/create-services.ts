@@ -126,11 +126,12 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         previewkitDefaults.defaults.domain,
         env.PREVIEW_URL_SECRET,
         awsExternalSecretManager,
-        env.NGINX_IMAGE,
+        env.GATEKEEPER_IMAGE,
         env.APP_URL,
         env.INGRESS_CLASS_NAME,
         env.INGRESS_NAMESPACE,
         env.DEPLOY_TIMEOUT_MS,
+        env.GATEKEEPER_IDLE_TIMEOUT,
         env.DOCKER_HUB_MIRROR,
     );
 

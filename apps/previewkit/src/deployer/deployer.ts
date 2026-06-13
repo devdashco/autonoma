@@ -10,16 +10,19 @@ import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
-import { buildNetworkPolicies } from "./network-policy-factory";
+import { buildGatekeeperApiEgressPolicy, buildNetworkPolicies } from "./network-policy-factory";
 import { PostgresRestorer } from "./postgres-restorer";
 import {
     buildAppDeployment,
     buildAppHostname,
     buildAppIngress,
     buildAppService,
-    buildNginxConfigMap,
-    buildNginxDeployment,
-    buildNginxService,
+    buildGatekeeperConfigMap,
+    buildGatekeeperDeployment,
+    buildGatekeeperRole,
+    buildGatekeeperRoleBinding,
+    buildGatekeeperService,
+    buildGatekeeperServiceAccount,
 } from "./resource-factory";
 
 /**
@@ -90,6 +93,7 @@ export class Deployer {
     private coreApi: k8s.CoreV1Api;
     private appsApi: k8s.AppsV1Api;
     private networkingApi: k8s.NetworkingV1Api;
+    private rbacApi: k8s.RbacAuthorizationV1Api;
     private namespaceManager: NamespaceManager;
     private envInjector: EnvInjector;
     private recipeRegistry: RecipeRegistry;
@@ -99,7 +103,7 @@ export class Deployer {
         private domain: string,
         private secret: string,
         private awsExternalSecretManager?: AwsExternalSecretManager,
-        private nginxImage: string = "nginx:alpine",
+        private gatekeeperImage: string = "public.ecr.aws/autonoma/gatekeeper:latest",
         private appUrl: string = "https://app.autonoma.app",
         // Shared in-cluster ingress controller. Per-preview Ingresses carry this
         // class and ingress-nginx (in ingressNamespace) routes them by Host; the
@@ -109,6 +113,7 @@ export class Deployer {
         private ingressClassName: string = "nginx",
         private ingressNamespace: string = "system",
         private deployTimeoutMs: number = 600_000,
+        private idleTimeout: string = "30m",
         // Docker Hub pull-through cache prefix (see DOCKER_HUB_MIRROR in env.ts).
         // Applied to every platform-managed image: service recipes and the nginx
         // proxy. Client app images come from our own registry and are never touched.
@@ -117,10 +122,10 @@ export class Deployer {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.appsApi = kc.makeApiClient(k8s.AppsV1Api);
         this.networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
+        this.rbacApi = kc.makeApiClient(k8s.RbacAuthorizationV1Api);
         this.namespaceManager = new NamespaceManager(kc);
         this.recipeRegistry = new RecipeRegistry();
         this.envInjector = new EnvInjector(this.recipeRegistry);
-        this.nginxImage = mirrorDockerHubImage(nginxImage, dockerHubMirrorUrl);
     }
 
     /**
@@ -205,28 +210,40 @@ export class Deployer {
         // 6.5 Restore postgres from backup if configured (runs before apps boot)
         await this.restorePostgresDatabases(namespace, config);
 
-        // 7. Deploy nginx reverse proxy (handles auth + per-app routing per hostname)
+        // 7. Deploy Gatekeeper: the per-namespace auth + scale-to-zero proxy. It needs
+        //    its own ServiceAccount/Role/RoleBinding (to scale workloads from inside the
+        //    namespace) plus an egress NetworkPolicy to reach the API server, then the
+        //    routing ConfigMap, Deployment, and Service the per-app Ingress targets.
         const domain = config.domain ?? this.domain;
-        const nginxApps = config.apps.map((a) => ({
+        const gatekeeperApps = config.apps.map((a) => ({
             name: a.name,
             port: a.port,
             hostname: buildAppHostname(a.name, prNumber, repoFullName, domain, this.secret),
         }));
-        const nginxConfigMap = buildNginxConfigMap({
-            apps: nginxApps,
+        await this.applyServiceAccount(namespace, buildGatekeeperServiceAccount(namespace, prNumber));
+        await this.applyRole(namespace, buildGatekeeperRole(namespace, prNumber));
+        await this.applyRoleBinding(namespace, buildGatekeeperRoleBinding(namespace, prNumber));
+        await this.applyNetworkPolicy(namespace, buildGatekeeperApiEgressPolicy(namespace));
+        await this.applyCoreResource(
             namespace,
-            prNumber,
-            bypassToken,
-            domain,
-            appUrl: this.appUrl,
-            nginxImage: this.nginxImage,
-        });
-        const nginxDeployment = buildNginxDeployment(namespace, prNumber, this.nginxImage);
-        const nginxService = buildNginxService(namespace, prNumber);
-        await this.applyCoreResource(namespace, nginxConfigMap, "configmaps");
-        await this.applyDeployment(namespace, nginxDeployment);
-        await this.applyService(namespace, nginxService);
-        logger.info("Deployed nginx proxy", { namespace });
+            buildGatekeeperConfigMap({ apps: gatekeeperApps, namespace, prNumber }),
+            "configmaps",
+        );
+        await this.applyDeployment(
+            namespace,
+            buildGatekeeperDeployment({
+                apps: gatekeeperApps,
+                namespace,
+                prNumber,
+                bypassToken,
+                cookieDomain: domain,
+                appUrl: this.appUrl,
+                image: this.gatekeeperImage,
+                idleTimeout: this.idleTimeout,
+            }),
+        );
+        await this.applyService(namespace, buildGatekeeperService(namespace, prNumber));
+        logger.info("Deployed Gatekeeper proxy", { namespace });
 
         // 7. Deploy apps wave by wave; apps within each wave are deployed in parallel.
         //    Each app is its own failure domain — one app's failure (build skip
@@ -809,6 +826,45 @@ export class Deployer {
                     namespace,
                     body: policy,
                 });
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    private async applyServiceAccount(namespace: string, serviceAccount: k8s.V1ServiceAccount): Promise<void> {
+        const name = serviceAccount.metadata!.name!;
+        try {
+            await this.coreApi.createNamespacedServiceAccount({ namespace, body: serviceAccount });
+        } catch (err: unknown) {
+            if (isConflict(err)) {
+                await this.coreApi.replaceNamespacedServiceAccount({ name, namespace, body: serviceAccount });
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    private async applyRole(namespace: string, role: k8s.V1Role): Promise<void> {
+        const name = role.metadata!.name!;
+        try {
+            await this.rbacApi.createNamespacedRole({ namespace, body: role });
+        } catch (err: unknown) {
+            if (isConflict(err)) {
+                await this.rbacApi.replaceNamespacedRole({ name, namespace, body: role });
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    private async applyRoleBinding(namespace: string, roleBinding: k8s.V1RoleBinding): Promise<void> {
+        const name = roleBinding.metadata!.name!;
+        try {
+            await this.rbacApi.createNamespacedRoleBinding({ namespace, body: roleBinding });
+        } catch (err: unknown) {
+            if (isConflict(err)) {
+                await this.rbacApi.replaceNamespacedRoleBinding({ name, namespace, body: roleBinding });
             } else {
                 throw err;
             }

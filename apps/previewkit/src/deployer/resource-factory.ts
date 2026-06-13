@@ -25,11 +25,17 @@ const BASE_LABELS = {
     "previewkit.dev/managed-by": "previewkit",
 };
 
-export const NGINX_SERVICE_NAME = "previewkit-nginx";
-export const NGINX_SERVICE_PORT = 80;
-export const NGINX_CONTAINER_PORT = 80;
-export const NGINX_CONFIGMAP_NAME = "previewkit-nginx-config";
-export const NGINX_HEALTH_PATH = "/nginx-health";
+// Gatekeeper is the per-namespace auth + scale-to-zero proxy (replaces the old
+// stock-nginx proxy). One Deployment/Service/ServiceAccount/Role/RoleBinding per
+// namespace, all sharing this name. It listens on 8080 (nonroot cannot bind <1024)
+// behind a Service exposed on port 80, which the per-app Ingress targets.
+export const GATEKEEPER_NAME = "gatekeeper";
+export const GATEKEEPER_APP_LABEL = "gatekeeper";
+export const GATEKEEPER_SERVICE_NAME = "gatekeeper";
+export const GATEKEEPER_SERVICE_PORT = 80;
+export const GATEKEEPER_CONTAINER_PORT = 8080;
+export const GATEKEEPER_CONFIGMAP_NAME = "gatekeeper-routes";
+export const GATEKEEPER_HEALTH_PATH = "/gatekeeper-health";
 
 export function buildAppHostname(
     appName: string,
@@ -152,9 +158,9 @@ export function buildAppService(opts: AppResourceOptions): k8s.V1Service {
  * 1 target group no matter how many previews exist, sidestepping the per-ALB
  * 100-rule / 100-target-group quotas that one-route-per-preview would hit.
  *
- * The Ingress targets this namespace's `previewkit-nginx` Service (which still
- * does preview-auth gating); TLS terminates upstream at the ALB, so the Ingress
- * declares no `tls` block.
+ * The Ingress targets this namespace's `gatekeeper` Service, which authenticates
+ * every request and scales the namespace to zero when idle; TLS terminates
+ * upstream at the ALB, so the Ingress declares no `tls` block.
  */
 export function buildAppIngress(opts: AppRouteOptions): k8s.V1Ingress {
     const { app, namespace, prNumber, repoFullName, domain, secret, ingressClassName } = opts;
@@ -180,8 +186,8 @@ export function buildAppIngress(opts: AppRouteOptions): k8s.V1Ingress {
                                 pathType: "Prefix",
                                 backend: {
                                     service: {
-                                        name: NGINX_SERVICE_NAME,
-                                        port: { number: NGINX_SERVICE_PORT },
+                                        name: GATEKEEPER_SERVICE_NAME,
+                                        port: { number: GATEKEEPER_SERVICE_PORT },
                                     },
                                 },
                             },
@@ -193,165 +199,91 @@ export function buildAppIngress(opts: AppRouteOptions): k8s.V1Ingress {
     };
 }
 
-interface NginxOptions {
+interface GatekeeperOptions {
     apps: Array<{ name: string; port: number; hostname: string }>;
     namespace: string;
     prNumber: number;
     bypassToken: string;
-    domain: string;
+    cookieDomain: string;
     appUrl: string;
-    nginxImage: string;
+    image: string;
+    idleTimeout: string;
 }
 
-// Replaced at container start with the pod's cluster DNS server IP (read from
-// /etc/resolv.conf). nginx's `resolver` directive needs a literal IP, which we
-// don't know when this config is generated, so we emit a placeholder and the
-// nginx Deployment's entrypoint substitutes it. See `buildNginxDeployment`.
-const NGINX_RESOLVER_PLACEHOLDER = "__PREVIEWKIT_RESOLVER__";
+function gatekeeperLabels(prNumber: number): Record<string, string> {
+    return {
+        ...BASE_LABELS,
+        app: GATEKEEPER_APP_LABEL,
+        "previewkit.dev/pr-number": String(prNumber),
+    };
+}
 
-// nginx needs a literal resolver IP, so at container start we read the pod's
-// cluster DNS server from /etc/resolv.conf and substitute it into the config.
-// The ConfigMap mount is read-only, so we render the resolved config to a
-// writable path and point nginx at it. This replaces the image's default
-// entrypoint (which we don't need).
-const NGINX_ENTRYPOINT_SCRIPT = [
-    "set -e",
-    "resolver=$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)",
-    `sed "s/${NGINX_RESOLVER_PLACEHOLDER}/$resolver/g" /etc/nginx/nginx.conf > /tmp/nginx.conf`,
-    "exec nginx -c /tmp/nginx.conf -g 'daemon off;'",
-].join("\n");
-
-export function buildNginxConfig(opts: {
+/**
+ * ConfigMap holding the host -> upstream routing table Gatekeeper reads via the
+ * ROUTES_JSON env var. Keys are the per-app HMAC preview hostnames.
+ */
+export function buildGatekeeperConfigMap(opts: {
     apps: Array<{ name: string; port: number; hostname: string }>;
     namespace: string;
-}): string {
-    const { apps, namespace } = opts;
-
-    const serverBlocks = apps
-        .map(
-            ({ name, port, hostname }) => `
-    server {
-        listen 80;
-        server_name ${hostname};
-
-        location = ${NGINX_HEALTH_PATH} {
-            return 200 "ok";
-            add_header Content-Type text/plain;
-        }
-
-        location / {
-            # Resolve the upstream lazily via a variable + the http-level resolver.
-            # A literal proxy_pass host is resolved at startup, so a single app
-            # whose Service does not exist yet (still deploying, or its build
-            # failed) makes nginx exit with "host not found in upstream" and takes
-            # the whole preview down. With a variable, nginx always starts and an
-            # unresolvable/unreachable upstream just returns a normal 502/504. The
-            # short connect timeout makes that failure fast rather than a 60s hang,
-            # and the resolver's valid= re-resolution means nginx picks the app up
-            # within seconds once its Service appears - no restart needed.
-            set $backend "${name}.${namespace}.svc.cluster.local:${port}";
-            proxy_pass http://$backend;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
-            proxy_set_header Host $host;
-            proxy_set_header X-Forwarded-Host $host;
-            proxy_set_header X-Forwarded-Proto https;
-            proxy_connect_timeout 5s;
-            proxy_read_timeout 60s;
-            proxy_send_timeout 60s;
-        }
-    }`,
-        )
-        .join("\n");
-
-    // Access control is intentionally disabled: the proxy forwards every request
-    // straight to the app. There is no bypass-token / pk_session gate, so preview
-    // environments are publicly reachable by anyone who has the URL. The bypass
-    // token is still generated and stored upstream, so re-enabling the gate later
-    // is purely a change to this generated config.
-    return `events {}
-
-http {
-    map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ""      close;
+    prNumber: number;
+}): k8s.V1ConfigMap {
+    const routes: Record<string, { service: string; port: number }> = {};
+    for (const app of opts.apps) {
+        routes[app.hostname] = { service: app.name, port: app.port };
     }
-
-    resolver ${NGINX_RESOLVER_PLACEHOLDER} valid=5s ipv6=off;
-    # Bound DNS resolution so an unresolvable upstream fails fast (5s) instead of
-    # hanging on nginx's 30s resolver default if cluster DNS is ever slow.
-    resolver_timeout 5s;
-${serverBlocks}
-}
-`;
-}
-
-export function buildNginxConfigMap(opts: NginxOptions): k8s.V1ConfigMap {
-    const labels = {
-        ...BASE_LABELS,
-        app: NGINX_SERVICE_NAME,
-        "previewkit.dev/pr-number": String(opts.prNumber),
-    };
-    const nginxConf = buildNginxConfig({
-        apps: opts.apps,
-        namespace: opts.namespace,
-    });
     return {
         apiVersion: "v1",
         kind: "ConfigMap",
-        metadata: { name: NGINX_CONFIGMAP_NAME, namespace: opts.namespace, labels },
-        data: { "nginx.conf": nginxConf },
+        metadata: {
+            name: GATEKEEPER_CONFIGMAP_NAME,
+            namespace: opts.namespace,
+            labels: gatekeeperLabels(opts.prNumber),
+        },
+        data: { "routes.json": JSON.stringify(routes) },
     };
 }
 
-export function buildNginxDeployment(namespace: string, prNumber: number, nginxImage: string): k8s.V1Deployment {
-    const labels = {
-        ...BASE_LABELS,
-        app: NGINX_SERVICE_NAME,
-        "previewkit.dev/pr-number": String(prNumber),
-    };
+export function buildGatekeeperDeployment(opts: GatekeeperOptions): k8s.V1Deployment {
+    const env: k8s.V1EnvVar[] = [
+        { name: "NAMESPACE", valueFrom: { fieldRef: { fieldPath: "metadata.namespace" } } },
+        { name: "BYPASS_TOKEN", value: opts.bypassToken },
+        { name: "COOKIE_DOMAIN", value: opts.cookieDomain },
+        { name: "APP_URL", value: opts.appUrl },
+        { name: "IDLE_TIMEOUT", value: opts.idleTimeout },
+        {
+            name: "ROUTES_JSON",
+            valueFrom: { configMapKeyRef: { name: GATEKEEPER_CONFIGMAP_NAME, key: "routes.json" } },
+        },
+    ];
+
     return {
         apiVersion: "apps/v1",
         kind: "Deployment",
-        metadata: { name: NGINX_SERVICE_NAME, namespace, labels },
+        metadata: { name: GATEKEEPER_NAME, namespace: opts.namespace, labels: gatekeeperLabels(opts.prNumber) },
         spec: {
             replicas: 1,
-            selector: { matchLabels: { app: NGINX_SERVICE_NAME } },
+            selector: { matchLabels: { app: GATEKEEPER_APP_LABEL } },
             template: {
-                metadata: { labels },
+                metadata: { labels: gatekeeperLabels(opts.prNumber) },
                 spec: {
+                    serviceAccountName: GATEKEEPER_NAME,
                     nodeSelector: { "kubernetes.io/arch": "amd64" },
                     containers: [
                         {
-                            name: NGINX_SERVICE_NAME,
-                            image: nginxImage,
+                            name: GATEKEEPER_NAME,
+                            image: opts.image,
                             imagePullPolicy: "Always",
-                            command: ["/bin/sh", "-c", NGINX_ENTRYPOINT_SCRIPT],
-                            ports: [{ containerPort: NGINX_CONTAINER_PORT }],
+                            ports: [{ containerPort: GATEKEEPER_CONTAINER_PORT }],
+                            env,
                             resources: {
-                                requests: { cpu: "50m", memory: "32Mi" },
+                                requests: { cpu: "25m", memory: "32Mi" },
                                 limits: { memory: "64Mi" },
                             },
                             readinessProbe: {
-                                httpGet: { path: NGINX_HEALTH_PATH, port: NGINX_CONTAINER_PORT },
-                                initialDelaySeconds: 3,
+                                httpGet: { path: GATEKEEPER_HEALTH_PATH, port: GATEKEEPER_CONTAINER_PORT },
+                                initialDelaySeconds: 2,
                                 periodSeconds: 5,
                             },
-                            volumeMounts: [
-                                {
-                                    name: "nginx-config",
-                                    mountPath: "/etc/nginx/nginx.conf",
-                                    subPath: "nginx.conf",
-                                    readOnly: true,
-                                },
-                            ],
-                        },
-                    ],
-                    volumes: [
-                        {
-                            name: "nginx-config",
-                            configMap: { name: NGINX_CONFIGMAP_NAME },
                         },
                     ],
                 },
@@ -360,21 +292,64 @@ export function buildNginxDeployment(namespace: string, prNumber: number, nginxI
     };
 }
 
-export function buildNginxService(namespace: string, prNumber: number): k8s.V1Service {
-    const labels = {
-        ...BASE_LABELS,
-        app: NGINX_SERVICE_NAME,
-        "previewkit.dev/pr-number": String(prNumber),
-    };
+export function buildGatekeeperService(namespace: string, prNumber: number): k8s.V1Service {
     return {
         apiVersion: "v1",
         kind: "Service",
-        metadata: { name: NGINX_SERVICE_NAME, namespace, labels },
+        metadata: { name: GATEKEEPER_SERVICE_NAME, namespace, labels: gatekeeperLabels(prNumber) },
         spec: {
             type: "ClusterIP",
-            selector: { app: NGINX_SERVICE_NAME },
-            ports: [{ port: NGINX_SERVICE_PORT, targetPort: NGINX_CONTAINER_PORT }],
+            selector: { app: GATEKEEPER_APP_LABEL },
+            ports: [{ port: GATEKEEPER_SERVICE_PORT, targetPort: GATEKEEPER_CONTAINER_PORT }],
         },
+    };
+}
+
+export function buildGatekeeperServiceAccount(namespace: string, prNumber: number): k8s.V1ServiceAccount {
+    return {
+        apiVersion: "v1",
+        kind: "ServiceAccount",
+        metadata: { name: GATEKEEPER_NAME, namespace, labels: gatekeeperLabels(prNumber) },
+    };
+}
+
+/**
+ * Least-privilege namespaced Role: Gatekeeper patches replicas + the wake
+ * annotation on managed Deployments/StatefulSets and reads Endpoints to detect
+ * readiness. It runs as its own in-cluster ServiceAccount (not previewkit's
+ * cross-cluster creds).
+ */
+export function buildGatekeeperRole(namespace: string, prNumber: number): k8s.V1Role {
+    return {
+        apiVersion: "rbac.authorization.k8s.io/v1",
+        kind: "Role",
+        metadata: { name: GATEKEEPER_NAME, namespace, labels: gatekeeperLabels(prNumber) },
+        rules: [
+            {
+                apiGroups: ["apps"],
+                resources: ["deployments", "statefulsets"],
+                verbs: ["get", "list", "watch", "patch"],
+            },
+            {
+                apiGroups: [""],
+                resources: ["endpoints", "pods"],
+                verbs: ["get", "list"],
+            },
+        ],
+    };
+}
+
+export function buildGatekeeperRoleBinding(namespace: string, prNumber: number): k8s.V1RoleBinding {
+    return {
+        apiVersion: "rbac.authorization.k8s.io/v1",
+        kind: "RoleBinding",
+        metadata: { name: GATEKEEPER_NAME, namespace, labels: gatekeeperLabels(prNumber) },
+        roleRef: {
+            apiGroup: "rbac.authorization.k8s.io",
+            kind: "Role",
+            name: GATEKEEPER_NAME,
+        },
+        subjects: [{ kind: "ServiceAccount", name: GATEKEEPER_NAME, namespace }],
     };
 }
 

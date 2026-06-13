@@ -5,10 +5,15 @@ import {
     buildAppHostname,
     buildAppIngress,
     buildAppService,
-    buildNginxConfig,
-    buildNginxDeployment,
-    NGINX_SERVICE_NAME,
-    NGINX_SERVICE_PORT,
+    buildGatekeeperConfigMap,
+    buildGatekeeperDeployment,
+    buildGatekeeperRole,
+    buildGatekeeperRoleBinding,
+    buildGatekeeperServiceAccount,
+    GATEKEEPER_APP_LABEL,
+    GATEKEEPER_CONTAINER_PORT,
+    GATEKEEPER_SERVICE_NAME,
+    GATEKEEPER_SERVICE_PORT,
 } from "../../src/deployer/resource-factory";
 
 const baseApp: AppConfig = {
@@ -40,57 +45,86 @@ const baseRouteOpts = {
     ingressClassName: "nginx",
 };
 
-describe("buildNginxConfig", () => {
-    const apps = [
+const gatekeeperOpts = {
+    apps: [
         { name: "web", port: 3000, hostname: "web.preview.autonoma.app" },
         { name: "api", port: 4000, hostname: "api.preview.autonoma.app" },
-    ];
-    const namespace = "preview-my-org-my-repo-pr-42";
+    ],
+    namespace: "preview-my-org-my-repo-pr-42",
+    prNumber: 42,
+    bypassToken: "deadbeefcafe",
+    cookieDomain: "preview.autonoma.app",
+    appUrl: "https://app.autonoma.app",
+    image: "public.ecr.aws/autonoma/gatekeeper:latest",
+    idleTimeout: "30m",
+};
 
-    it("proxies each app via a lazily-resolved variable upstream, not a startup-resolved literal", () => {
-        const conf = buildNginxConfig({ apps, namespace });
-        // Variable upstream + resolver: a Service that does not exist yet (still
-        // deploying / build failed) can no longer crash nginx at startup - it just
-        // returns a normal 502 until the Service appears.
-        expect(conf).toContain(`set $backend "web.${namespace}.svc.cluster.local:3000";`);
-        expect(conf).toContain(`set $backend "api.${namespace}.svc.cluster.local:4000";`);
-        expect(conf).toContain("proxy_pass http://$backend;");
-        expect(conf).toContain("resolver __PREVIEWKIT_RESOLVER__");
-        // Bound DNS resolution so a missing upstream fails fast instead of
-        // hanging on nginx's 30s resolver default.
-        expect(conf).toContain("resolver_timeout 5s;");
-        // The crash-prone literal-host form must be gone.
-        expect(conf).not.toContain(`proxy_pass http://web.${namespace}.svc.cluster.local:3000;`);
-    });
-
-    it("does not emit a custom error page - a missing upstream returns the standard 502", () => {
-        const conf = buildNginxConfig({ apps, namespace });
-        expect(conf).not.toContain("error_page");
-        expect(conf).not.toContain("@starting");
-    });
-
-    it("has no access gate - previews are intentionally public", () => {
-        const conf = buildNginxConfig({ apps, namespace });
-        // None of the auth-gate machinery should be emitted: no bypass-token /
-        // pk_session check, no auth page, no redirect away from the app.
-        expect(conf).not.toContain("$is_auth");
-        expect(conf).not.toContain("pk_session");
-        expect(conf).not.toContain("preview-auth");
-        expect(conf).not.toContain("return 302");
+describe("buildGatekeeperConfigMap", () => {
+    it("builds a host -> {service, port} routing table as routes.json", () => {
+        const cm = buildGatekeeperConfigMap({
+            apps: gatekeeperOpts.apps,
+            namespace: gatekeeperOpts.namespace,
+            prNumber: 42,
+        });
+        const routes = JSON.parse(cm.data!["routes.json"]!);
+        expect(routes["web.preview.autonoma.app"]).toEqual({ service: "web", port: 3000 });
+        expect(routes["api.preview.autonoma.app"]).toEqual({ service: "api", port: 4000 });
     });
 });
 
-describe("buildNginxDeployment", () => {
-    it("resolves the cluster DNS server at startup and runs nginx from the rendered config", () => {
-        const dep = buildNginxDeployment("preview-my-org-my-repo-pr-42", 42, "nginx:alpine");
-        const container = dep.spec!.template.spec!.containers[0]!;
-        expect(container.command?.[0]).toBe("/bin/sh");
-        const script = container.command?.[2] ?? "";
-        // Reads the resolver from resolv.conf, substitutes the placeholder, and
-        // runs nginx from the writable rendered config (the ConfigMap is read-only).
-        expect(script).toContain("/etc/resolv.conf");
-        expect(script).toContain("__PREVIEWKIT_RESOLVER__");
-        expect(script).toContain("nginx -c /tmp/nginx.conf");
+describe("buildGatekeeperDeployment", () => {
+    it("runs as the gatekeeper service account and self-excludes via the app label", () => {
+        const dep = buildGatekeeperDeployment(gatekeeperOpts);
+        expect(dep.spec!.template.spec!.serviceAccountName).toBe("gatekeeper");
+        expect(dep.metadata?.labels?.["app"]).toBe(GATEKEEPER_APP_LABEL);
+        // It carries managed-by like every workload, so the scaler must exclude it by app label.
+        expect(dep.metadata?.labels?.["previewkit.dev/managed-by"]).toBe("previewkit");
+    });
+
+    it("listens on the container port and injects config via env", () => {
+        const dep = buildGatekeeperDeployment(gatekeeperOpts);
+        const c = dep.spec!.template.spec!.containers[0]!;
+        expect(c.image).toBe("public.ecr.aws/autonoma/gatekeeper:latest");
+        expect(c.ports![0]!.containerPort).toBe(GATEKEEPER_CONTAINER_PORT);
+
+        const env = c.env ?? [];
+        const get = (name: string) => env.find((e) => e.name === name);
+        expect(get("BYPASS_TOKEN")?.value).toBe("deadbeefcafe");
+        expect(get("COOKIE_DOMAIN")?.value).toBe("preview.autonoma.app");
+        expect(get("APP_URL")?.value).toBe("https://app.autonoma.app");
+        expect(get("IDLE_TIMEOUT")?.value).toBe("30m");
+        expect(get("NAMESPACE")?.valueFrom?.fieldRef?.fieldPath).toBe("metadata.namespace");
+        expect(get("ROUTES_JSON")?.valueFrom?.configMapKeyRef?.key).toBe("routes.json");
+    });
+});
+
+describe("buildGatekeeperServiceAccount", () => {
+    it("creates the gatekeeper service account in the namespace", () => {
+        const sa = buildGatekeeperServiceAccount("preview-my-org-my-repo-pr-42", 42);
+        expect(sa.metadata?.name).toBe("gatekeeper");
+        expect(sa.metadata?.namespace).toBe("preview-my-org-my-repo-pr-42");
+    });
+});
+
+describe("buildGatekeeperRole", () => {
+    it("grants patch on workloads and read on endpoints to scale + detect readiness", () => {
+        const role = buildGatekeeperRole("preview-my-org-my-repo-pr-42", 42);
+        const appsRule = role.rules!.find((r) => r.apiGroups?.includes("apps"))!;
+        expect(appsRule.resources).toEqual(expect.arrayContaining(["deployments", "statefulsets"]));
+        expect(appsRule.verbs).toEqual(expect.arrayContaining(["get", "list", "watch", "patch"]));
+
+        const coreRule = role.rules!.find((r) => r.resources?.includes("endpoints"))!;
+        expect(coreRule.verbs).toEqual(expect.arrayContaining(["get", "list"]));
+    });
+});
+
+describe("buildGatekeeperRoleBinding", () => {
+    it("binds the gatekeeper Role to the gatekeeper ServiceAccount", () => {
+        const rb = buildGatekeeperRoleBinding("preview-my-org-my-repo-pr-42", 42);
+        expect(rb.roleRef.kind).toBe("Role");
+        expect(rb.roleRef.name).toBe("gatekeeper");
+        expect(rb.subjects![0]!.kind).toBe("ServiceAccount");
+        expect(rb.subjects![0]!.name).toBe("gatekeeper");
     });
 });
 
@@ -212,7 +246,7 @@ describe("buildAppIngress", () => {
         expect(ing.spec?.tls).toBeUndefined();
     });
 
-    it("routes the masked single-label host to the shared nginx Service", () => {
+    it("routes the masked single-label host to the Gatekeeper Service", () => {
         const ing = buildAppIngress(baseRouteOpts);
         const rule = ing.spec!.rules![0]!;
         expect(rule.host).toBe(buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret"));
@@ -220,8 +254,8 @@ describe("buildAppIngress", () => {
         const path = rule.http!.paths[0]!;
         expect(path.path).toBe("/");
         expect(path.pathType).toBe("Prefix");
-        expect(path.backend.service!.name).toBe(NGINX_SERVICE_NAME);
-        expect(path.backend.service!.port!.number).toBe(NGINX_SERVICE_PORT);
+        expect(path.backend.service!.name).toBe(GATEKEEPER_SERVICE_NAME);
+        expect(path.backend.service!.port!.number).toBe(GATEKEEPER_SERVICE_PORT);
     });
 
     it("does not leak the service or repo name into the routed host", () => {

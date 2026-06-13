@@ -229,7 +229,8 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `BUILD_STARTUP_TIMEOUT_MS` | No | `180000` | Startup budget: once scheduled, how long to wait for the pod to become Ready (image pull + buildkitd boot) |
 | `INGRESS_CLASS_NAME` | No | `nginx` | Ingress class for preview Ingresses |
 | `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared ingress controller |
-| `NGINX_IMAGE` | No | `nginx:alpine` | Image for the per-namespace nginx access proxy |
+| `GATEKEEPER_IMAGE` | No | `public.ecr.aws/autonoma/gatekeeper:latest` | Image for the per-namespace Gatekeeper auth + scale-to-zero proxy |
+| `GATEKEEPER_IDLE_TIMEOUT` | No | `30m` | Idle duration before Gatekeeper scales an env's workloads to zero (Go duration string) |
 | `CLUSTER_SECRET_STORE_NAME` | No | `aws-secretsmanager` | ClusterSecretStore (External Secrets Operator) pointing at AWS Secrets Manager |
 | `APP_URL` | No | `https://beta.autonoma.app` | autonoma app base URL (used in PR comments) |
 | `BYPASS_TOKEN_KEY` | No | | AES-256-GCM key (64 hex chars) for encrypting bypass tokens; must match the API's `PREVIEWKIT_BYPASS_TOKEN_KEY` |
@@ -281,7 +282,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 | `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
 
-**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. The same applies to the per-namespace nginx proxy. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
+**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. The same mirroring covers the BuildKit Job image (`moby/buildkit`); the per-namespace Gatekeeper proxy runs from `public.ecr.aws`, so it is pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
 
 ### `docker-image`
 
