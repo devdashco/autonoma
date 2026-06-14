@@ -25,6 +25,14 @@ const BASE_LABELS = {
     "previewkit.dev/managed-by": "previewkit",
 };
 
+// Label selector matching every previewkit-managed workload (exactly what BASE_LABELS
+// stamps on apps + service recipes). Passed to Gatekeeper as TARGET_SELECTOR so it scales
+// precisely those workloads - the published image's default selector
+// (gatekeeper.dev/scale-to-zero=true) matches nothing in a preview namespace.
+const MANAGED_SELECTOR = Object.entries(BASE_LABELS)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(",");
+
 // Gatekeeper is the per-namespace auth + scale-to-zero proxy (replaces the old
 // stock-nginx proxy). One Deployment/Service/ServiceAccount/Role/RoleBinding per
 // namespace, all sharing this name. It listens on 8080 (nonroot cannot bind <1024)
@@ -244,12 +252,18 @@ export function buildGatekeeperConfigMap(opts: {
 }
 
 export function buildGatekeeperDeployment(opts: GatekeeperOptions): k8s.V1Deployment {
+    // These env vars must match the published image's contract
+    // (github.com/autonoma-ai/gatekeeper). Previews are public, so AUTH_TOKEN is
+    // intentionally unset - Gatekeeper runs as a pure scale-to-zero proxy.
+    //   - HEALTH_PATH: serve health where the readiness probe checks. Without it the
+    //     image defaults to /healthz, the probe 404s, and the pod never goes Ready.
+    //   - TARGET_SELECTOR + SELF_NAME: scale the previewkit-managed workloads, never itself.
     const env: k8s.V1EnvVar[] = [
         { name: "NAMESPACE", valueFrom: { fieldRef: { fieldPath: "metadata.namespace" } } },
-        { name: "BYPASS_TOKEN", value: opts.bypassToken },
-        { name: "COOKIE_DOMAIN", value: opts.cookieDomain },
-        { name: "APP_URL", value: opts.appUrl },
         { name: "IDLE_TIMEOUT", value: opts.idleTimeout },
+        { name: "HEALTH_PATH", value: GATEKEEPER_HEALTH_PATH },
+        { name: "TARGET_SELECTOR", value: MANAGED_SELECTOR },
+        { name: "SELF_NAME", value: GATEKEEPER_NAME },
         {
             name: "ROUTES_JSON",
             valueFrom: { configMapKeyRef: { name: GATEKEEPER_CONFIGMAP_NAME, key: "routes.json" } },

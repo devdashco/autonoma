@@ -89,9 +89,9 @@ describe("buildGatekeeperDeployment", () => {
 
         const env = c.env ?? [];
         const get = (name: string) => env.find((e) => e.name === name);
-        expect(get("BYPASS_TOKEN")?.value).toBe("deadbeefcafe");
-        expect(get("COOKIE_DOMAIN")?.value).toBe("preview.autonoma.app");
-        expect(get("APP_URL")?.value).toBe("https://app.autonoma.app");
+        expect(get("TARGET_SELECTOR")?.value).toBe("previewkit.dev/managed-by=previewkit");
+        expect(get("SELF_NAME")?.value).toBe("gatekeeper");
+        expect(get("HEALTH_PATH")?.value).toBe("/gatekeeper-health");
         expect(get("IDLE_TIMEOUT")?.value).toBe("30m");
         expect(get("NAMESPACE")?.valueFrom?.fieldRef?.fieldPath).toBe("metadata.namespace");
         expect(get("ROUTES_JSON")?.valueFrom?.configMapKeyRef?.key).toBe("routes.json");

@@ -152,7 +152,17 @@ function buildInternetEgressPolicy(namespace: string): k8s.V1NetworkPolicy {
             namespace,
         },
         spec: {
-            podSelector: {},
+            // Applies to every pod EXCEPT Gatekeeper. The AWS VPC CNI network-policy agent
+            // enforces each `except` CIDR below as a longest-prefix-match deny, which shadows
+            // Gatekeeper's separate `allow-gatekeeper-apiserver-egress` (a 0.0.0.0/0 allow):
+            // the API server ClusterIP sits in 172.16/12, so the /12 deny beats the /0 allow
+            // and Gatekeeper can't reach the API server (scale calls time out). Excluding
+            // Gatekeeper here leaves it governed only by default-deny + DNS + same-org + its
+            // API-egress policy - no excepted range to shadow the allow. Gatekeeper never needs
+            // arbitrary internet egress (only the API server, DNS, and in-cluster app Services).
+            podSelector: {
+                matchExpressions: [{ key: "app", operator: "NotIn", values: [GATEKEEPER_APP_LABEL] }],
+            },
             policyTypes: ["Egress"],
             egress: [
                 {
