@@ -1,5 +1,90 @@
 # Changelog
 
+## [1.5.0](https://github.com/Autonoma-AI/agent/compare/v1.4.0...v1.5.0) (2026-06-15)
+
+
+### Features
+
+* annotate reviewer before screenshots with resolved click point ([#918](https://github.com/Autonoma-AI/agent/issues/918)) ([43b86df](https://github.com/Autonoma-AI/agent/commit/43b86dff7d0e29c00e8e2696657edb4c4af0f2bf))
+* **api:** trigger previewkit workflows directly behind PREVIEWKIT_USE_TEMPORAL ([#891](https://github.com/Autonoma-AI/agent/issues/891)) ([5aa19dc](https://github.com/Autonoma-AI/agent/commit/5aa19dcfb1198aa912ee07fcfd922a8e31038667))
+* bubblewrap process-isolation wrapper for the bash tool ([#875](https://github.com/Autonoma-AI/agent/issues/875)) ([37a5673](https://github.com/Autonoma-AI/agent/commit/37a5673415bf4e46db0dc6c12fca1c92a740a941))
+* cache GitHub PR metadata to fix Pull Requests N+1 fanout ([#848](https://github.com/Autonoma-AI/agent/issues/848)) ([d862c04](https://github.com/Autonoma-AI/agent/commit/d862c04badc37a625b70b1391b30ab6ea8ab61c6))
+* capture and live-persist all command attempts in generation ([#837](https://github.com/Autonoma-AI/agent/issues/837)) ([bedbcf2](https://github.com/Autonoma-AI/agent/commit/bedbcf26f61ba3ef5c00f32cd8959d73c61bfcb6))
+* collapse diffs codebase tools into the single bash tool ([#873](https://github.com/Autonoma-AI/agent/issues/873)) ([391c04c](https://github.com/Autonoma-AI/agent/commit/391c04ce1e9742f70ae9bca354645f896d29ceef))
+* consolidated bash tool with validator, truncation, and env-scrub ([#869](https://github.com/Autonoma-AI/agent/issues/869)) ([d6925df](https://github.com/Autonoma-AI/agent/commit/d6925df3d86d31da67ac30dbdf0fbaaaaf3213fd))
+* db free scenario provisioner ([#878](https://github.com/Autonoma-AI/agent/issues/878)) ([73a6045](https://github.com/Autonoma-AI/agent/commit/73a604530d85a2244e1984579e52dddd0e631990))
+* drop skill tables from the database schema ([#907](https://github.com/Autonoma-AI/agent/issues/907)) ([45d57a0](https://github.com/Autonoma-AI/agent/commit/45d57a039f36b276e75763db64d956eb0ad0930c))
+* edit web deployment URL from app settings ([#905](https://github.com/Autonoma-AI/agent/issues/905)) ([9dfc1c9](https://github.com/Autonoma-AI/agent/commit/9dfc1c92fc0a671259b7ef3ae7dc6460cc5664b5))
+* **evals:** extract @autonoma/evals package from diffs eval framework ([#876](https://github.com/Autonoma-AI/agent/issues/876)) ([3765172](https://github.com/Autonoma-AI/agent/commit/3765172a1db7dc90af01ffc7f60b4d7198e22405))
+* expose scenario recipe data to the analysis agent ([#840](https://github.com/Autonoma-AI/agent/issues/840)) ([8f8de88](https://github.com/Autonoma-AI/agent/commit/8f8de88b13ccf71ac304cb0d18781c06e9883283))
+* extract buildWebApplicationData shared assembler ([#888](https://github.com/Autonoma-AI/agent/issues/888)) ([e53650e](https://github.com/Autonoma-AI/agent/commit/e53650e6780629233ea68a06b468898da48d5239))
+* generation eval pilot ([#903](https://github.com/Autonoma-AI/agent/issues/903)) ([9563072](https://github.com/Autonoma-AI/agent/commit/95630721d9e847a2bbebf195bb9d7f100dbaef8b))
+* generation reviewer consumes scenario data (plan-vs-data check) ([#877](https://github.com/Autonoma-AI/agent/issues/877)) ([c0ede57](https://github.com/Autonoma-AI/agent/commit/c0ede57f458bac2d802f5c673604250755b81b63))
+* generation reviewer on widened DiffJobContext (change facts + lineage) ([#843](https://github.com/Autonoma-AI/agent/issues/843)) ([88977ff](https://github.com/Autonoma-AI/agent/commit/88977ff24b92d44e90d88a1fcc34740d78fb7a3e))
+* generation reviewer Step Summary from StepAttempt + shared renderer ([#916](https://github.com/Autonoma-AI/agent/issues/916)) ([775e715](https://github.com/Autonoma-AI/agent/commit/775e7155b6c00b2952a520315836bd3740ba1979))
+* **generations-evals:** save video and per-case result.json to results folder ([#940](https://github.com/Autonoma-AI/agent/issues/940)) ([378f9d2](https://github.com/Autonoma-AI/agent/commit/378f9d24927a3069235270f062b539dda7454267))
+* link runs and generations to their PR and snapshot ([#845](https://github.com/Autonoma-AI/agent/issues/845)) ([bfb6180](https://github.com/Autonoma-AI/agent/commit/bfb61803de3e1e3dbaf9cfdf354f201100befe1e))
+* migrate healing agent onto the unified DiffJobContextLoader ([#819](https://github.com/Autonoma-AI/agent/issues/819)) ([#904](https://github.com/Autonoma-AI/agent/issues/904)) ([4be6261](https://github.com/Autonoma-AI/agent/commit/4be6261b972ff58ea5d081188f9f3aefce037b91))
+* migrate resolution agent onto the unified DiffJobContextLoader ([#892](https://github.com/Autonoma-AI/agent/issues/892)) ([7181cfd](https://github.com/Autonoma-AI/agent/commit/7181cfdd6f204c4653040470b9a93ccdb3af92ac))
+* **onboarding:** enrich Setup step with app name and test count ([#847](https://github.com/Autonoma-AI/agent/issues/847)) ([1cc3cc3](https://github.com/Autonoma-AI/agent/commit/1cc3cc34f495505fd97e08be092035424c9a7acc))
+* persist errorName on failed replay steps and adopt shared renderer ([#933](https://github.com/Autonoma-AI/agent/issues/933)) ([4563fc0](https://github.com/Autonoma-AI/agent/commit/4563fc0eb2e8fd0533be52fa2bd77b809812a824))
+* **previewkit:** add Gatekeeper integration ([#885](https://github.com/Autonoma-AI/agent/issues/885)) ([eee1c7d](https://github.com/Autonoma-AI/agent/commit/eee1c7d261cdc95468e4a863577bda677afe79a4))
+* **previewkit:** add Grafana Loki as log backend for build and apps ([#926](https://github.com/Autonoma-AI/agent/issues/926)) ([db8500f](https://github.com/Autonoma-AI/agent/commit/db8500f294b486e30eea4c00ccdbbd7dd40b7171))
+* **previewkit:** add log stream using Redis Stream ([#887](https://github.com/Autonoma-AI/agent/issues/887)) ([b6a7a4b](https://github.com/Autonoma-AI/agent/commit/b6a7a4b8737d8b4582c0c9c156dfc5c964d99167))
+* **previewkit:** admin button to deploy a preview env from an application's main branch ([#902](https://github.com/Autonoma-AI/agent/issues/902)) ([bdf658e](https://github.com/Autonoma-AI/agent/commit/bdf658e47ed5634d5e8a9ea49505ea62ab09c08c))
+* **previewkit:** cancel superseded deploys to release build compute ([#924](https://github.com/Autonoma-AI/agent/issues/924)) ([f5cade7](https://github.com/Autonoma-AI/agent/commit/f5cade7629d19588a5ba3b483c8550d3505b2d67))
+* **previewkit:** retire the HTTP server - standalone Temporal worker ([#894](https://github.com/Autonoma-AI/agent/issues/894)) ([33be2dd](https://github.com/Autonoma-AI/agent/commit/33be2dda5365dffef636f5271dcd5ec237fe819c))
+* **previewkit:** run preview deploys on Temporal (Phase 0 + 1) ([#792](https://github.com/Autonoma-AI/agent/issues/792)) ([c7a1cd2](https://github.com/Autonoma-AI/agent/commit/c7a1cd20aeabafbc4f2e560a2dcf07bd48e1c6cb))
+* **previewkit:** run teardown as a Temporal workflow ([#890](https://github.com/Autonoma-AI/agent/issues/890)) ([cb6084c](https://github.com/Autonoma-AI/agent/commit/cb6084c7d1f96ee37e704828666fbc98e309a7c0))
+* **previewkit:** update main-branch preview environments on push ([#948](https://github.com/Autonoma-AI/agent/issues/948)) ([480f462](https://github.com/Autonoma-AI/agent/commit/480f462880770c5d5e63a7a49e98f70d478e1d0c))
+* **previewkit:** use ECR Pull through cache for recipe images ([#939](https://github.com/Autonoma-AI/agent/issues/939)) ([1a14bc1](https://github.com/Autonoma-AI/agent/commit/1a14bc1d09516d40f586f551323ade696861ed99))
+* recover legacy scenario data from webhook log in eval captures ([#929](https://github.com/Autonoma-AI/agent/issues/929)) ([1888577](https://github.com/Autonoma-AI/agent/commit/188857785827e20eda31d7f6023364be43b4b47d))
+* replay eval ([#944](https://github.com/Autonoma-AI/agent/issues/944)) ([f9c02fd](https://github.com/Autonoma-AI/agent/commit/f9c02fd7522dc1df27e1378e12ca50e164bfa722))
+* send distinct Slack message for cancelled deploys ([#941](https://github.com/Autonoma-AI/agent/issues/941)) ([1783295](https://github.com/Autonoma-AI/agent/commit/1783295f9734648ade52a626ba671c29dba85e65))
+* show full attempt timeline incl. failures in generation detail ([#854](https://github.com/Autonoma-AI/agent/issues/854)) ([b1fa472](https://github.com/Autonoma-AI/agent/commit/b1fa4726603f5efa8901199319f42b75146992ab))
+* structured failure detail for scenario_setup end-to-end ([#917](https://github.com/Autonoma-AI/agent/issues/917)) ([923721b](https://github.com/Autonoma-AI/agent/commit/923721b1cc182a5bda473ef564d32d5c3fcf7bfd))
+* surface rejection reasoning and "checked" tests in PR snapshots ([#879](https://github.com/Autonoma-AI/agent/issues/879)) ([7e56c2a](https://github.com/Autonoma-AI/agent/commit/7e56c2ac20381173fddcc983584625f42061aa32))
+* **ui:** add preview environment entry point to PR header ([#910](https://github.com/Autonoma-AI/agent/issues/910)) ([d5df492](https://github.com/Autonoma-AI/agent/commit/d5df492a738d3b2c6cd4dcb3b2fd23a1ae3e7241))
+* **ui:** default Pull Requests page to open PRs with state tabs ([#900](https://github.com/Autonoma-AI/agent/issues/900)) ([8917ee4](https://github.com/Autonoma-AI/agent/commit/8917ee460e6e3d030e7fc67ba3e17443948e551a))
+* **ui:** redesign home around PRs and bugs, add main-branch view ([#849](https://github.com/Autonoma-AI/agent/issues/849)) ([c0f7290](https://github.com/Autonoma-AI/agent/commit/c0f729051a8088b1921514ceaa039a30bf4d9f91))
+
+
+### Bug Fixes
+
+* **api:** classify non-open PRs so the Open tab shows only open ones ([#909](https://github.com/Autonoma-AI/agent/issues/909)) ([47b5ee7](https://github.com/Autonoma-AI/agent/commit/47b5ee772b6be0f6d6b4a3e9950f5461374d70e9))
+* **api:** gate PR cache revalidation on oldest write so webhooks don't suppress it ([#897](https://github.com/Autonoma-AI/agent/issues/897)) ([21e4bf7](https://github.com/Autonoma-AI/agent/commit/21e4bf76c49e018114a75f264eea74ff07e37124))
+* **api:** only revalidate open PRs in PR metadata cache ([#895](https://github.com/Autonoma-AI/agent/issues/895)) ([41ae365](https://github.com/Autonoma-AI/agent/commit/41ae3659deca6eb972b5d8001c76c518a2c985f8))
+* **branches:** resolve merged vs closed for PRs that leave the open list ([#930](https://github.com/Autonoma-AI/agent/issues/930)) ([960af93](https://github.com/Autonoma-AI/agent/commit/960af9317b5760a1ad522bac422fef1129f867fb))
+* correct metrics in PR comments ([#798](https://github.com/Autonoma-AI/agent/issues/798)) ([4e0d5bb](https://github.com/Autonoma-AI/agent/commit/4e0d5bb376292ad30571f4422fc7f65cc1c02f8a))
+* **deploy:** Karpenter 1.13.0 for k8s 1.36 + keep one previewkit worker warm ([#920](https://github.com/Autonoma-AI/agent/issues/920)) ([cae75f2](https://github.com/Autonoma-AI/agent/commit/cae75f2197ce72e1e43a9babeeff20e1225bb07b))
+* improve TypeTool description to prevent silent focus-click failures ([#942](https://github.com/Autonoma-AI/agent/issues/942)) ([5404bf0](https://github.com/Autonoma-AI/agent/commit/5404bf095c63c50ea153ce3bde0c9ddf9961ae8c))
+* increase volume size for previewkit nodes ([#945](https://github.com/Autonoma-AI/agent/issues/945)) ([5c89a3f](https://github.com/Autonoma-AI/agent/commit/5c89a3f0f7b8c23600c44966807b41cd6cd31917))
+* move images to git LFS ([#931](https://github.com/Autonoma-AI/agent/issues/931)) ([3878abc](https://github.com/Autonoma-AI/agent/commit/3878abce05fcdd93b97252ed151a39abf8196e4e))
+* **previewkit:** add better resource management for apps and services ([#938](https://github.com/Autonoma-AI/agent/issues/938)) ([4966d9c](https://github.com/Autonoma-AI/agent/commit/4966d9ca3cfe32b8d22b8e13e9ff8b5d75dc1f07))
+* **previewkit:** add endpointslices permissions for gatekeeper ([3b685fe](https://github.com/Autonoma-AI/agent/commit/3b685fe5e1fcfed0b8ec8517c2aa970d5d7b2428))
+* **previewkit:** add FK relation from Application to ConfigRevision ([#946](https://github.com/Autonoma-AI/agent/issues/946)) ([e203d8f](https://github.com/Autonoma-AI/agent/commit/e203d8f65292cc39485466311ee2287a464f5294))
+* **previewkit:** add read-next-config.mjs to Rolldown build ([#893](https://github.com/Autonoma-AI/agent/issues/893)) ([4a0042a](https://github.com/Autonoma-AI/agent/commit/4a0042a1b833c1e9a4c3744a89b852cdf95facf4))
+* **previewkit:** avoid Gatekeeper pods in allow-internet-egress NetworkPolicy ([742b7d4](https://github.com/Autonoma-AI/agent/commit/742b7d4f74c96296380a8de590f6d221f8f7553c))
+* **previewkit:** disable docker mirror hub for buildkitd ([ed3a48f](https://github.com/Autonoma-AI/agent/commit/ed3a48fc1ef3743594b072a18aec34240c68b48e))
+* **previewkit:** make nginx proxy resilient to missing upstreams ([#884](https://github.com/Autonoma-AI/agent/issues/884)) ([0b2ea6d](https://github.com/Autonoma-AI/agent/commit/0b2ea6d6f1dff9f0ee87cdc1dc781f6ed8440e34))
+* **previewkit:** split buildkit readiness into provision vs startup budgets ([#881](https://github.com/Autonoma-AI/agent/issues/881)) ([717ee89](https://github.com/Autonoma-AI/agent/commit/717ee89a44a16936db7634f01bb405706fb2b545))
+* **previewkit:** survive build-node scale-up and stream repo tarballs ([#874](https://github.com/Autonoma-AI/agent/issues/874)) ([4e60cb3](https://github.com/Autonoma-AI/agent/commit/4e60cb34ad506620b6735c27e325753c99be4936))
+* **previewkit:** use a subdirectory for pgdata ([#936](https://github.com/Autonoma-AI/agent/issues/936)) ([57e1dcd](https://github.com/Autonoma-AI/agent/commit/57e1dcdf4b8209ea54f0c30121395cc1b0e4126f))
+* show latest replay run for modified tests in snapshot changes ([#925](https://github.com/Autonoma-AI/agent/issues/925)) ([f009bf9](https://github.com/Autonoma-AI/agent/commit/f009bf9f074938b02aa8216af3f4ea2b9caea296))
+* sign test-step screenshot urls in suite and edit views ([#868](https://github.com/Autonoma-AI/agent/issues/868)) ([98ce0fa](https://github.com/Autonoma-AI/agent/commit/98ce0faac0d1b368fa4d21f1dae82cd512f8d724))
+* **ui:** add missing superseded option to STATUS_VARIANT ([b86b33a](https://github.com/Autonoma-AI/agent/commit/b86b33a84b3540d5ccaee3800188f433123f83fd))
+* **ui:** simplify PR test run summary to passed/failed only ([#852](https://github.com/Autonoma-AI/agent/issues/852)) ([c9b8767](https://github.com/Autonoma-AI/agent/commit/c9b87677f5da7d8dfa0719dcb442f92d685ad80e))
+* **ui:** skip the app chooser and land on an onboarded app ([#921](https://github.com/Autonoma-AI/agent/issues/921)) ([4d1e746](https://github.com/Autonoma-AI/agent/commit/4d1e746c66b4277e50a17c473bb36359f03745ea))
+* **ui:** speed up PRs tab and show skeleton on navigation ([#922](https://github.com/Autonoma-AI/agent/issues/922)) ([a932443](https://github.com/Autonoma-AI/agent/commit/a9324433c92adff6e45aed972511a837cb914da2))
+* unresolved variables error message ([#915](https://github.com/Autonoma-AI/agent/issues/915)) ([5be3484](https://github.com/Autonoma-AI/agent/commit/5be3484401a8eb03d76cf118ffd1be87b160d8f1))
+
+
+### Performance Improvements
+
+* **api:** use node-caged base image for lower runtime memory ([#928](https://github.com/Autonoma-AI/agent/issues/928)) ([da7f0a3](https://github.com/Autonoma-AI/agent/commit/da7f0a3ccf1feb27b3ac979c89c1349fdb54111f))
+* **branches:** lean snapshotDetail for PR overview + query-budget tests ([#927](https://github.com/Autonoma-AI/agent/issues/927)) ([6e533d8](https://github.com/Autonoma-AI/agent/commit/6e533d87be843f128d4a43e0e7758c9d1422ad14))
+* **bugs:** lean query + indexes for unresolved-bugs rail ([#923](https://github.com/Autonoma-AI/agent/issues/923)) ([c3d45a8](https://github.com/Autonoma-AI/agent/commit/c3d45a86dd2f372742e99554c351fe9ed77ed9e5))
+
 ## [1.4.0](https://github.com/Autonoma-AI/agent/compare/v1.3.0...v1.4.0) (2026-06-08)
 
 
