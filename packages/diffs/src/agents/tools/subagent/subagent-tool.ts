@@ -1,4 +1,5 @@
-import { AgentTool, type LanguageModel } from "@autonoma/ai";
+import { AgentTool, type LanguageModel, MaxStepsReached, NoAgentResultError } from "@autonoma/ai";
+import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { CodebaseLoop } from "../codebase/codebase-loop";
 import { Subagent, type SubagentResult } from "./subagent";
@@ -22,7 +23,7 @@ type SubagentToolInput = z.infer<typeof subagentInputSchema>;
 export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, CodebaseLoop> {
     private readonly subagent: Subagent;
 
-    constructor(model: LanguageModel) {
+    constructor(model: LanguageModel, maxSteps?: number) {
         super({
             name: "subagent",
             description:
@@ -32,11 +33,56 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
                 "Give each subagent a focused, specific instruction.",
             inputSchema: subagentInputSchema,
         });
-        this.subagent = new Subagent({ model });
+        this.subagent = new Subagent({ model, maxSteps });
     }
 
     protected async execute(input: SubagentToolInput, loop: CodebaseLoop): Promise<SubagentResult> {
-        const { result } = await this.subagent.run({ instruction: input.instruction, codebase: loop.codebase });
-        return result;
+        try {
+            const { result } = await this.subagent.run({ instruction: input.instruction, codebase: loop.codebase });
+            return result;
+        } catch (error) {
+            if (error instanceof MaxStepsReached || error instanceof NoAgentResultError) {
+                return this.degradedResult(input.instruction, error);
+            }
+            throw error;
+        }
     }
+
+    /**
+     * A research subagent that runs out of steps (or otherwise terminates without calling its
+     * report tool) must not abort the parent agent: the parent should continue with whatever was
+     * learned elsewhere. We convert the (fatal) loop error into a normal {@link SubagentResult}
+     * whose findings flag the truncation, salvaging any free-text the subagent had emitted so far.
+     *
+     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable - this
+     * failure mode was previously invisible because it killed the whole job.
+     */
+    private degradedResult(instruction: string, error: MaxStepsReached | NoAgentResultError): SubagentResult {
+        this.logger.warn("Subagent research truncated before producing findings; continuing with partial results", {
+            extra: { instruction, reason: error.message },
+        });
+
+        const partialNotes = extractAssistantText(error.conversation);
+        const preamble =
+            `Research did NOT complete: ${error.message}. This area was not fully investigated - ` +
+            "treat the findings below as partial and proceed using information from other sources.";
+        const findings = partialNotes != null ? `${preamble}\n\nPartial notes so far:\n${partialNotes}` : preamble;
+
+        return { findings };
+    }
+}
+
+/** Concatenate the assistant's free-text from a loop conversation, used to salvage partial findings. */
+function extractAssistantText(conversation: ModelMessage[]): string | undefined {
+    const texts = conversation
+        .filter((message) => message.role === "assistant")
+        .flatMap((message) => {
+            if (typeof message.content === "string") return [message.content];
+            return message.content.filter((part) => part.type === "text").map((part) => part.text);
+        })
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0);
+
+    if (texts.length === 0) return undefined;
+    return texts.join("\n");
 }

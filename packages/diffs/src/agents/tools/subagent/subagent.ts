@@ -44,7 +44,7 @@ export class Subagent extends Agent<SubagentInput, SubagentResult, SubagentLoop>
     constructor({ model, maxSteps }: SubagentConfig) {
         super();
         this.model = model;
-        this.maxSteps = maxSteps ?? 15;
+        this.maxSteps = maxSteps ?? 50;
     }
 
     protected async buildUserPrompt(input: SubagentInput): Promise<ModelMessage[]> {
