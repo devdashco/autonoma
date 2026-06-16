@@ -1,20 +1,6 @@
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { env } from "../../env";
-import { publicProcedure, router } from "../../trpc";
-
-const adminProcedure = publicProcedure.use(async ({ ctx, next }) => {
-    if (ctx.user == null || ctx.session == null) {
-        throw new TRPCError({ code: "UNAUTHORIZED" });
-    }
-    if (ctx.user.role !== "admin") {
-        throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Admin access required",
-        });
-    }
-    return next({ ctx: { ...ctx, user: ctx.user, session: ctx.session } });
-});
+import { internalProcedure, router } from "../../trpc";
 
 export const adminRouter = router({
     /**
@@ -22,7 +8,7 @@ export const adminRouter = router({
      * tools (Sentry logs explorer, etc.). Admin-only because the namespace value
      * is internal deployment metadata; not meant for end-user UI.
      */
-    deploymentConfig: adminProcedure.query(() => ({
+    deploymentConfig: internalProcedure.query(() => ({
         environment: env.SENTRY_ENV,
     })),
     /**
@@ -30,7 +16,7 @@ export const adminRouter = router({
      * Admin-gated operational view. Delegates to the deployments service, which
      * owns Previewkit environment queries.
      */
-    listPreviewkitEnvironments: adminProcedure.query(({ ctx: { services } }) =>
+    listPreviewkitEnvironments: internalProcedure.query(({ ctx: { services } }) =>
         services.deployments.listActiveEnvironments(),
     ),
     /**
@@ -38,7 +24,7 @@ export const adminRouter = router({
      * the PR's current head SHA). Admin-gated; delegates to the deployments
      * service, which calls Previewkit's redeploy endpoint.
      */
-    redeployPreviewkitEnvironment: adminProcedure
+    redeployPreviewkitEnvironment: internalProcedure
         .input(z.object({ environmentId: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.deployments.redeployEnvironment(input.environmentId)),
     /**
@@ -46,7 +32,7 @@ export const adminRouter = router({
      * repository, owned by an org with an active installation). Admin-gated;
      * the picker source for the deploy action below.
      */
-    listPreviewkitDeployableApplications: adminProcedure.query(({ ctx: { services } }) =>
+    listPreviewkitDeployableApplications: internalProcedure.query(({ ctx: { services } }) =>
         services.deployments.listDeployableApplications(),
     ),
     /**
@@ -54,26 +40,26 @@ export const adminRouter = router({
      * delegates to the deployments service, which starts the deploy workflow (or
      * forwards to Previewkit's main-branch endpoint on the legacy path).
      */
-    deployPreviewkitMainBranch: adminProcedure
+    deployPreviewkitMainBranch: internalProcedure
         .input(z.object({ applicationId: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.deployments.deployMainBranch(input.applicationId)),
-    listOrganizations: adminProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
-    listPendingOrgs: adminProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
-    approveOrg: adminProcedure
+    listOrganizations: internalProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
+    listPendingOrgs: internalProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
+    approveOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))
         .mutation(({ ctx: { services }, input }) => services.admin.approveOrg(input.orgId)),
-    rejectOrg: adminProcedure
+    rejectOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))
         .mutation(({ ctx: { services }, input }) => services.admin.rejectOrg(input.orgId)),
-    createOrg: adminProcedure
+    createOrg: internalProcedure
         .input(z.object({ name: z.string().min(1), slug: z.string().min(1), domain: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.admin.createOrg(input.name, input.slug, input.domain)),
-    switchToOrg: adminProcedure
+    switchToOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))
         .mutation(({ ctx, input }) => ctx.services.admin.switchToOrg(ctx.user.id, ctx.session.token, input.orgId)),
     github: router({
-        listRepositories: adminProcedure.query(({ ctx: { services } }) => services.admin.listGitHubRepositories()),
-        getRepositoryArchiveUrl: adminProcedure
+        listRepositories: internalProcedure.query(({ ctx: { services } }) => services.admin.listGitHubRepositories()),
+        getRepositoryArchiveUrl: internalProcedure
             .input(
                 z.object({
                     installationId: z.number().int().positive(),
@@ -84,7 +70,7 @@ export const adminRouter = router({
             .mutation(({ ctx: { services }, input }) => services.admin.getGitHubRepositoryArchiveUrl(input)),
     }),
     billing: router({
-        listPromoCodes: adminProcedure
+        listPromoCodes: internalProcedure
             .input(
                 z
                     .object({
@@ -96,7 +82,7 @@ export const adminRouter = router({
                     .optional(),
             )
             .query(({ ctx: { services }, input }) => services.billing.listPromoCodes(input)),
-        createPromoCode: adminProcedure
+        createPromoCode: internalProcedure
             .input(
                 z.object({
                     code: z.string().min(1).max(64),
@@ -107,7 +93,7 @@ export const adminRouter = router({
                 }),
             )
             .mutation(({ ctx: { services }, input }) => services.billing.createPromoCode(input)),
-        setPromoCodeActive: adminProcedure
+        setPromoCodeActive: internalProcedure
             .input(
                 z.object({
                     promoCodeId: z.string().min(1),

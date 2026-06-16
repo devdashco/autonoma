@@ -85,6 +85,10 @@ export const protectedProcedure = t.procedure
             ctx: {
                 ...ctx,
                 user: ctx.user,
+                // Re-forward the narrowed, non-null session so downstream
+                // procedures get a guaranteed `session` (e.g. session.token)
+                // without re-checking for null.
+                session: ctx.session,
                 organizationId: ctx.session.activeOrganizationId,
             },
         });
