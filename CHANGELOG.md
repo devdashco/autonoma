@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.0](https://github.com/Autonoma-AI/agent/compare/v1.6.0...v1.7.0) (2026-06-16)
+
+
+### Features
+
+* apply add_test in the healing apply activity ([#980](https://github.com/Autonoma-AI/agent/issues/980)) ([5c6bc90](https://github.com/Autonoma-AI/agent/commit/5c6bc90cb0d97ebef9c3c0f321869071f663b866))
+* keep diffs subagent step-exhaustion from killing the job ([#983](https://github.com/Autonoma-AI/agent/issues/983)) ([e61ca96](https://github.com/Autonoma-AI/agent/commit/e61ca96a0a71f85dcc6a6c4e05d39111f277332e))
+* **ui:** preview environment detail page ([#975](https://github.com/Autonoma-AI/agent/issues/975)) ([e098f45](https://github.com/Autonoma-AI/agent/commit/e098f4518729567a352adb1914f01d0a376c0ef6))
+* unwrap Temporal failure cause for diffs job failure_reason ([#982](https://github.com/Autonoma-AI/agent/issues/982)) ([522604f](https://github.com/Autonoma-AI/agent/commit/522604f12dd15c24fc4a8b85cf844c35b43c33f2))
+
 ## [1.6.0](https://github.com/Autonoma-AI/agent/compare/v1.5.0...v1.6.0) (2026-06-16)
 
 
