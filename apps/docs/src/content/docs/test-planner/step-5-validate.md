@@ -17,7 +17,7 @@ This step **must pass** before Step 6 (test generation) runs. A PostToolUse vali
 
 ## What this produces
 
-- `autonoma/scenario-recipes.json` — the validated create tree for every scenario, keyed by scenario name, with a `variables` block listing every `{{token}}` placeholder
+- `autonoma/scenario-recipes.json` — the validated create payload for every scenario, keyed by scenario name, with a `variables` block listing every `{{token}}` placeholder
 - `autonoma/.scenario-validation.json` — terminal artifact recording validation status, preflight result, and any edits the agent made to `scenarios.md`
 - `autonoma/.endpoint-validated` — sentinel that unlocks Step 6
 - Uploaded scenario recipes on the Autonoma dashboard, attached to this generation
@@ -29,7 +29,7 @@ This step **must pass** before Step 6 (test generation) runs. A PostToolUse vali
 For each scenario in `scenarios.md`, the agent runs an HMAC-signed `discover` → `up` → `down` loop against the live endpoint.
 
 - **`discover`** — fetches the schema. Every model in the entity audit must appear under `schema.models`. Every model marked `independently_created: true` must have a factory registered on the handler.
-- **`up`** — sends the scenario's create tree. The agent verifies that the response includes a non-empty `auth` block, that every expected record exists in the database (read-only SELECT queries), and that `refsToken` is returned.
+- **`up`** — sends the scenario's create payload. The agent verifies that the response includes a non-empty `auth` block, that every expected record exists in the database (read-only SELECT queries), and that `refsToken` is returned.
 - **`down`** — tears down using the signed refs token. The agent verifies that every record created by `up` is gone and that nothing outside the refs was touched.
 
 If a scenario fails, the agent decides whether the **handler** is wrong or the **scenario** is wrong:
@@ -43,7 +43,7 @@ The loop runs up to **5 iterations**. If it still hasn't converged, the agent st
 
 ### Scenario recipes
 
-Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact nested tree** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The file is validated against `ScenarioRecipesFileSchema` (in `@autonoma/types`) by both the local preflight and the dashboard upload endpoint. Full field-by-field contract (including the `variables` tagged union and all rejection reasons) lives in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/). The shape is:
+Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe is the **exact create payload** that was proven to work in `up`, plus a `variables` block mapping every `{{token}}` to the concrete value used during validation. The file is validated against `ScenarioRecipesFileSchema` (in `@autonoma/types`) by both the local preflight and the dashboard upload endpoint. Full field-by-field contract (including the `variables` tagged union and all rejection reasons) lives in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/). The shape is:
 
 ```json
 {
@@ -58,7 +58,8 @@ Once every scenario passes, the agent emits `scenario-recipes.json`. Each recipe
       "name": "standard",
       "description": "Realistic dataset for core flows",
       "create": {
-        "Organization": [ { "_alias": "org1", "name": "Acme", "projects": [ { "title": "{{project_title}}" } ] } ]
+        "Organization": [ { "_alias": "org1", "name": "Acme" } ],
+        "Project": [ { "title": "{{project_title}}", "organizationId": { "_ref": "org1" } } ]
       },
       "variables": {
         "project_title": { "strategy": "literal", "value": "Launch Campaign" }
@@ -82,8 +83,8 @@ Required invariants (the upload endpoint rejects otherwise):
 Before uploading, the agent runs `preflight_scenario_recipes.py` against the file. Preflight is a deterministic Python check that enforces structural invariants:
 
 - every scenario listed in `scenarios.md` frontmatter appears as a recipe
-- every `{{token}}` referenced in a tree is declared in `variables`
-- the create tree roots at the scope entity from `discover`
+- every `{{token}}` referenced in the payload is declared in `variables`
+- every record roots back to the scope entity from `discover` (via `_ref`)
 - `variables` values are concrete, not placeholder
 
 If preflight fails, the agent stops — the dashboard never sees a malformed recipe.
@@ -172,7 +173,7 @@ Repeat until all three actions succeed for every scenario OR you exhaust 5 itera
       - **Unfeasible scenario** → REMOVE it from `scenarios.md` with justification. Restart.
    4. On 200, parse `auth`, `refs`, `refsToken`.
       - **Auth check**: `auth` MUST be non-null and contain at least one of `{ cookies, headers, token, user }`.
-      - **Refs check**: every top-level model in the `create` tree MUST appear in `refs`.
+      - **Refs check**: every top-level model in the `create` payload MUST appear in `refs`.
    5. Verify DB state with a read-only `SELECT` for at least one refs id.
    6. POST `{action:"down", refsToken}`. Expect `{ok:true}`.
    7. Verify the refs rows are gone.
@@ -212,7 +213,7 @@ Repeat until all three actions succeed for every scenario OR you exhaust 5 itera
    - `validationMode` must be `sdk-check` or `endpoint-lifecycle`
    - `recipes` MUST include `standard`, `empty`, and `large`
    - Every recipe MUST contain `name`, `description`, `create`, and `validation`
-   - `create` MUST use a nested tree rooted at the scope entity. Do NOT use flat top-level model keys connected only by `_ref`.
+   - `create` MUST be a flat map keyed by model name (`{ "Organization": [...], "Project": [...] }`). Express every cross-model FK — including the scope field — as a `{ "_ref": "alias" }`. Do NOT nest one model's records inside another model's fields: a nested array is treated as opaque field data and is never created.
    - If `create` contains `{{token}}` placeholders, include a `variables` object. Every `{{token}}` in `create` must match a key in `variables`; every key in `variables` must be used in `create`.
 
 6. Run preflight on the emitted recipes:
@@ -257,8 +258,8 @@ STOP and write a clear failure report. Do NOT write `.endpoint-validated`. Inclu
 Preserve the frontmatter shape (the validator hook checks it). Allowed:
 - Drop a scenario entirely (decrement `scenario_count`, update the `scenarios` summary).
 - Remove/rename fields on a model to match what `discover` reports.
-- Adjust FK aliases so they reference models that actually exist.
-- Flatten cross-branch references that the handler cannot resolve.
+- Adjust FK aliases so they reference records that actually exist in the same payload.
+- Add a missing required field (or its `_ref`) that the factory's schema demands.
 
 Disallowed: silently changing a scenario's intent (e.g. renaming "admin with one project" to "user with one project" without reflecting that in the description).
 

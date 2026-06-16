@@ -56,7 +56,7 @@ POST /v1/setup/setups/:setupId/scenario-recipe-versions
 |------------------------|------------------------------------------|----------|-------|
 | `name`                 | string                                   | yes      | Stable identifier. Must match the scenario name used in the LLM-facing docs. |
 | `description`          | string                                   | yes      | Human-readable summary of the scenario state. |
-| `create`               | object                                   | yes      | The model graph passed to the SDK's `createScenario` / `up` flow. Keys are model names; values are arrays or objects of seeded rows. Extra keys are preserved. |
+| `create`               | object                                   | yes      | The model graph passed to the SDK's `createScenario` / `up` flow. A flat map: keys are model names, values are arrays of seeded rows. Rows link with `_alias` / `_ref` (no nesting). Extra keys are preserved. |
 | `variables`            | object (map of name → definition)        | no       | Per-recipe dynamic values. See **Variable definitions** below. |
 | `validation`           | object                                   | yes      | Proof that the recipe was validated. All fields must be present. |
 | `validation.status`    | literal string `"validated"`             | yes      | |
@@ -134,18 +134,17 @@ Generates a fresh random value per run using Faker.
       "name": "adminWithTwoProjects",
       "description": "Organization with an admin user and two projects.",
       "create": {
-        "Organization": [{ "id": "org-1", "name": "Acme" }],
+        "Organization": [{ "_alias": "org-1", "name": "Acme" }],
         "User": [
           {
-            "id": "user-1",
             "email": "{adminEmail}",
             "role": "admin",
-            "organizationId": "org-1"
+            "organizationId": { "_ref": "org-1" }
           }
         ],
         "Project": [
-          { "id": "proj-1", "name": "Alpha", "organizationId": "org-1" },
-          { "id": "proj-2", "name": "Beta",  "organizationId": "org-1" }
+          { "name": "Alpha", "organizationId": { "_ref": "org-1" } },
+          { "name": "Beta",  "organizationId": { "_ref": "org-1" } }
         ]
       },
       "variables": {

@@ -5,7 +5,7 @@ description: "Design the standard, empty, and large test data environments from 
 
 The scenario generator takes your knowledge base and entity audit and produces `scenarios.md` — a description of the test data environments the rest of the pipeline will depend on.
 
-Each scenario is a nested tree of records rooted at your **scope entity** (e.g., `Organization`, `Tenant`, `Workspace`). The tree mirrors the foreign-key structure of your schema and becomes the `create` payload the SDK sends to your Environment Factory in Step 5.
+Each scenario is a set of records rooted at your **scope entity** (e.g., `Organization`, `Tenant`, `Workspace`). It is organized by the foreign-key relationships of your schema and serializes into the **flat, model-keyed `create` payload** the SDK sends to your Environment Factory in Step 5 — every cross-model link expressed with `_alias` / `_ref`, never by nesting one model inside another.
 
 > The JSON file this eventually produces is uploaded to Autonoma's `/v1/setup/setups/:id/scenario-recipe-versions` endpoint. The exact upload contract - `version`, `source.discoverPath`, `validationMode`, `recipes[]`, and the `variables` tagged union - is documented in the [Scenario Recipe Schema reference](/reference/scenario-recipe-schema/). Read that before writing a recipe generator or debugging an upload rejection.
 
@@ -24,7 +24,7 @@ Each scenario is a nested tree of records rooted at your **scope entity** (e.g.,
 - `variable_fields` — values that must vary across runs, with `{{token}}` placeholders
 - `planning_sections` — the agent's schema summary, relationship map, and variable-data strategy
 
-Each scenario is a fully specified nested tree:
+Each scenario is a fully specified dataset:
 
 - **`standard`** — realistic day-to-day coverage; the workhorse scenario
 - **`empty`** — zero-state and onboarding flows
@@ -42,11 +42,11 @@ Tests reference variable fields symbolically: `click the project titled ({{proje
 
 ## What to review
 
-- **Root scope entity** — every scenario tree roots at the same scope model. If your app is multi-tenant on `Organization`, the tree should start at `Organization` and every descendant must be reachable via FK nesting.
+- **Root scope entity** — every scenario roots at the same scope model. If your app is multi-tenant on `Organization`, the dataset should include one `Organization` and every other record must link back to it (directly or transitively) via a `_ref` on its scope/FK fields.
 - **Entity coverage** — the important entities from the knowledge base are represented. Missing entities mean core flows won't have data to run against.
 - **Fixed vs variable** — fixed values are realistic (no "asdf" test data). Variable fields are limited to values that genuinely must vary.
 - **Scenario differentiation** — `empty` and `large` are meaningfully different from `standard`. Don't let `large` just be "standard with more rows" — it should exercise pagination, filtering, and overflow.
-- **Feasibility** — the tree you see here will be passed to the SDK verbatim in Step 5. If a required FK or unique constraint is missing, Step 5 will fail. Catching it here is cheaper.
+- **Feasibility** — the dataset you see here will be passed to the SDK verbatim in Step 5. If a required field, FK, or unique constraint is missing, Step 5 will fail. Catching it here is cheaper.
 
 Step 4 installs the SDK and Step 5 validates the scenarios against the real database. If scenarios are wrong, Step 5 will either fail or edit this file to match reality — review those edits carefully.
 
@@ -99,15 +99,15 @@ You generate test data scenarios from a knowledge base. Your input is `autonoma/
    - a reason explaining why it truly must vary
    - a plain-language test reference such as `({{project_title}} variable)`
 
-8. **Nested tree constraint.** Design scenario entity tables so they can be expressed as a nested tree rooted at the scope entity. Step 4 and Step 5 convert scenarios into nested `create` payloads — flat cross-model structures connected only by `_ref` break when JSON key order is not preserved. Children must nest under their parent using the relation field names from the audit. Use `_ref` only for cross-branch references.
+8. **Flat, model-keyed payload.** Design scenario entity tables so they serialize into a **flat map keyed by model name** — `{ "Organization": [...], "Project": [...], ... }` — NOT a nested tree. The SDK creates a model only when it appears as a top-level key; a record array nested inside another record's field is treated as opaque field data and is never created. Express EVERY cross-model link — including the scope/tenant FK — as a `{ "_ref": "alias" }` pointing at the parent record's `_alias`. The SDK topologically sorts records from this `_alias` / `_ref` graph, so key order does not matter and there is no "nesting" or "cross-branch" distinction: all links use `_ref`.
 
 9. **Standalone vs via-owner.** For every model, consult the Step 2 audit:
 
-    - Models with `independently_created: true` may appear as top-level tree nodes when the scenario wants them in isolation.
-    - Models whose `created_by` list contains an owner already in the tree must NOT appear as separate nodes — they're minted inline by the owner's factory. Quote the `why` from the audit in the scenario prose so the reader knows where they came from.
+    - Models with `independently_created: true` may appear as their own top-level model key when the scenario wants them in isolation.
+    - Models whose `created_by` list contains an owner already in the payload must NOT appear as their own records — they're minted inline by the owner's factory. Quote the `why` from the audit in the scenario prose so the reader knows where they came from.
     - **Dual models** (both `independently_created: true` AND in some owner's `created_by`) pick per scenario: narratives that create a standalone child use the standalone factory; narratives that spin up a fresh root let the child come in via the owner.
 
-    Never double-create a dependent. If an owner mints a dependent row inline and your scenario already includes that owner, don't also add the dependent as a sibling node — the factory already creates it, and duplicating it either fails uniqueness checks or produces confusing state.
+    Never double-create a dependent. If an owner mints a dependent row inline and your scenario already includes that owner, don't also add the dependent under its own model key — the factory already creates it, and duplicating it either fails uniqueness checks or produces confusing state.
 
 10. Write `autonoma/scenarios.md`.
 
@@ -161,6 +161,6 @@ The body of the file must include:
 - Every value must be concrete — not "some applications" but "3 applications: Marketing Website, Android App, iOS App."
 - Every enum value must be covered in `standard`.
 - Only use `{{testRunId}}` as a template token in scenario bodies. Custom tokens like `{{user_email_alice}}` are only valid in `variable_fields` declarations.
-- Design scenarios so each entity table can be serialised as a nested tree rooted at the scope entity.
+- Design scenarios so each entity table serialises into a flat, model-keyed `create` payload — every cross-model FK (including the scope field) expressed as a `_ref` to another record's `_alias`, never by nesting.
 
 </details>

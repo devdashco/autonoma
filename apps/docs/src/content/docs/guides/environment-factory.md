@@ -78,25 +78,20 @@ Autonoma says: "Create this data for a test run."
   "action": "up",
   "testRunId": "run-abc123",
   "create": {
-    "Organization": [{
-      "name": "Acme Corp",
-      "slug": "acme-corp",
-      "members": [{
-        "role": "owner",
-        "user": [{ "name": "Alice", "email": "alice-run-abc123@test.com" }]
-      }]
-    }]
+    "Organization": [{ "_alias": "org", "name": "Acme Corp", "slug": "acme-corp" }],
+    "User": [{ "_alias": "alice", "name": "Alice", "email": "alice-run-abc123@test.com", "organizationId": { "_ref": "org" } }],
+    "Member": [{ "role": "owner", "organizationId": { "_ref": "org" }, "userId": { "_ref": "alice" } }]
   }
 }
 ```
 
-The `create` field is a flat or nested JSON tree of entities. The SDK:
-- Walks the payload to collect every `_alias` declaration and every `_ref` usage.
-- Topologically sorts the entities so dependency targets are created before dependents.
-- Validates each entity through its factory's `inputSchema` / `input_model` before invoking `create`.
-- Replaces every `{"_ref": "alias"}` placeholder with the real id once the aliased entity exists.
+The `create` field is a **flat map keyed by model name**: each key is a model with a registered factory, and each value is the array of records to create for it. Records link to one another with `_alias` / `_ref` (see [The Create Payload Format](#the-create-payload-format)). The SDK:
+- Walks every record to collect each `_alias` declaration and every `_ref` usage.
+- Topologically sorts records so a referenced record is created before the records that reference it.
+- Validates each record through its factory's `inputSchema` / `input_model` before invoking `create`.
+- Replaces every `{"_ref": "alias"}` placeholder with the real id once the aliased record exists.
 
-The dashboard now sends a flat map keyed by model name with `_alias` / `_ref` describing the dependency graph; nested children are still supported but no longer required.
+Every cross-model foreign key — **including the scope/tenant field** — is set explicitly on the record, normally as a `{"_ref": "alias"}`. The SDK does not introspect ORM relations and does not inject any field for you: a model is created **only** if it appears as a top-level key, so do not nest one model's records inside another's fields (a nested array is passed to the factory as opaque field data, not created as separate records).
 
 **Response:**
 
@@ -607,92 +602,66 @@ interface FactoryContext {
 }
 ```
 
-## The Create Tree Format
+## The Create Payload Format
 
-The `create` field in `up` requests is a nested JSON tree. Top-level keys are model names. Children are nested inside their parents using the relation field name from your ORM schema.
+The `create` field in `up` requests is a **flat map keyed by model name**. Each key is a model that has a registered factory; each value is the array of records to create for that model. There is **no nesting** — a model is created only when it appears as a top-level key. (A record array placed inside another record's field is handed to the factory as opaque field data; it is not created as separate records.)
 
-### How nesting works
+Records link to one another with two reserved keys:
+- `_alias` — a unique string name you give a record so other records can point to it.
+- `_ref` — `{ "_ref": "alias" }` resolves to the real `id` of the aliased record once it has been created.
 
-The SDK reads your ORM schema's relations to know what each nested key means. The nested key must match the exact relation field name from the parent model.
+### Linking records (`_alias` / `_ref`)
+
+Set every foreign key explicitly on the record that owns it, using `_ref` to point at the parent's `_alias`:
 
 ```json
 {
   "create": {
-    "Organization": [{
-      "name": "Acme Corp",
-      "members": [{
-        "role": "owner",
-        "user": [{ "name": "Alice", "email": "alice@test.com" }]
-      }]
+    "Organization": [{ "_alias": "acme", "name": "Acme Corp", "slug": "acme-corp" }],
+    "Application": [{
+      "_alias": "webApp",
+      "name": "Marketing Website",
+      "architecture": "WEB",
+      "organizationId": { "_ref": "acme" }
+    }],
+    "TestGeneration": [{
+      "_alias": "gen1",
+      "conversation": "[]",
+      "status": "success",
+      "applicationId": { "_ref": "webApp" }
+    }],
+    "Test": [{
+      "name": "Homepage Test",
+      "applicationId": { "_ref": "webApp" },
+      "testGenerationId": { "_ref": "gen1" }
     }]
   }
 }
 ```
 
-This creates:
-1. One Organization
-2. One User (created first because Member holds the FK to it)
-3. One Member with `organizationId` set to the Organization's ID and `userId` set to the User's ID
+The SDK topologically sorts records from this `_alias` / `_ref` graph, so a referenced record is always created before the records that reference it — regardless of the order the keys appear in. FK direction is decided by which record holds the column: whichever record carries the FK declares the `_ref`.
 
-The SDK handles both FK directions automatically:
-- **FK on child** (most common): `Application.organizationId` → Organization is created first, then Application with `organizationId` set
-- **FK on parent** (reverse): `Member.userId` → User is created first, then Member gets `userId` set
+- **FK on the child** (most common): `Application.organizationId` → the Application record carries `"organizationId": { "_ref": "acme" }`.
+- **FK on the parent** (reverse): `Member.userId` → the Member record carries `"userId": { "_ref": "alice" }`.
+
+Rules:
+- `_alias` is a string name you choose. It must be unique across the entire payload.
+- `_ref` resolves to the `id` of the aliased record after it is created.
+- Every alias a `_ref` points at must be declared by some record **in the same payload**. The SDK resolves refs within the request body — it never looks the alias up in the database. A `_ref` to an alias no record declares fails with `INVALID_BODY`.
+- `_ref` may appear anywhere in a record (top-level FK, a nested JSON blob, an array element) — the SDK finds it wherever it sits.
 
 ### What to include in fields
 
-- **Required fields** without defaults that are not auto-generated
+- **Required fields** without defaults that are not auto-generated — including every foreign key, set via `_ref`.
+- **The scope/tenant field** (e.g. `organizationId`) on every model that has it — the SDK does **not** inject it; set it explicitly, normally as a `_ref` to the scope record.
 - **Unique fields** with values unique per test run (use `testRunId` in emails, slugs, etc.)
 
 ### What to omit
 
-- **id** — auto-generated by the database
-- **Fields with defaults** — the database or ORM handles them
-- **Auto-updated timestamps** — `updatedAt` is handled by the ORM
-- **FK fields handled by nesting** — if you nest Application under Organization, don't set `organizationId` manually
-- **The scope field** — the SDK injects it automatically
-
-### Cross-branch references (`_alias` / `_ref`)
-
-When a record needs a FK to something in a different branch of the tree, use `_alias` to name a node and `_ref` to reference it:
-
-```json
-{
-  "create": {
-    "Organization": [{
-      "name": "Acme Corp",
-      "applications": [{
-        "_alias": "webApp",
-        "name": "Marketing Website",
-        "architecture": "WEB",
-
-        "testPlans": [{
-          "name": "Smoke Plan",
-          "plan": "content",
-          "testGenerations": [{
-            "_alias": "gen1",
-            "conversation": "[]",
-            "status": "success",
-            "applicationId": { "_ref": "webApp" }
-          }]
-        }],
-
-        "tests": [{
-          "name": "Homepage Test",
-          "testGenerationId": { "_ref": "gen1" },
-          "steps": [
-            { "order": 1, "interaction": "click", "params": {} }
-          ]
-        }]
-      }]
-    }]
-  }
-}
-```
-
-Rules:
-- `_alias` is a string name you choose. It must be unique across the entire scenario.
-- `_ref` resolves to the `id` of the aliased node after it's created.
-- The aliased node must appear before the `_ref` in depth-first traversal order.
+- **id** — auto-generated by the database / returned by your factory.
+- **Fields with defaults** — the database or ORM handles them.
+- **Auto-updated timestamps** — `updatedAt` is handled by the ORM.
+- **Rows your factory mints transitively** — if a parent's `create` already inserts a child row, don't add that child to the payload (see [Dependents, cascades, and teardown](#dependents-cascades-and-teardown)).
 
 ## Validating the Lifecycle
 
@@ -711,7 +680,7 @@ curl -s -X POST "$URL" \
   -d "$BODY" | jq .
 ```
 
-**Expected**: A JSON response with your full schema — models, fields, edges, relations.
+**Expected**: A JSON response with your schema — every registered model and its fields, plus `scopeField`. `edges` and `relations` come back as empty arrays (dependencies are carried by the create payload's `_alias` / `_ref` graph, not a static FK schema).
 
 ### Integration test with checkScenario
 
@@ -791,6 +760,8 @@ Deploy your endpoint and paste `AUTONOMA_SHARED_SECRET` into the Autonoma dashbo
 | `PRODUCTION_BLOCKED` (404) | Running in production mode | Set `allowProduction: true` or ensure `NODE_ENV` is not `production` |
 | `INVALID_REFS_TOKEN` (403) | Signing secret changed between `up` and `down` | Ensure the same `AUTONOMA_SIGNING_SECRET` is used for both |
 | `FACTORY_MISSING_PK` | Factory `create` didn't return the primary key | Ensure your factory returns at least `{ id: "..." }` |
-| FK violation on `up` | Missing required FK in scenario data | Check that all required relationships are nested correctly in the create tree |
+| FK violation on `up` | Missing required FK in scenario data | Set every required FK (including the scope field) explicitly on the record as a `{ "_ref": "alias" }` — the SDK never injects FKs for you |
+| `Invalid input for "<Model>"` (500) | A record is missing a required field, or records were grouped under the wrong model key | Match each record to its own model's top-level key and supply every required field from the discover schema |
+| `references unknown alias(es)` (400) | A `_ref` points at an alias no record in the same payload declares | Declare that alias with `_alias` on a record in the same `up` payload, or fix the typo |
 | FK violation on `down` | Circular FK between tables | The SDK handles cycles with deferred updates — if this still fails, check for untracked FKs |
 | Parallel tests collide | Same email/name across runs | Use `testRunId` in all unique fields |

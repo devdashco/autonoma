@@ -114,7 +114,7 @@ Do not proceed without it.
 Fetch the Autonoma documentation to understand the current SDK setup:
 
 1. Fetch `https://docs.autonoma.app/llms.txt` to get the documentation index
-2. Read the **Environment Factory Guide** — understand the SDK packages, factory registration with `inputSchema` / `input_model`, the `scopeField` on `HandlerConfig`, auth callback patterns, and the create tree format
+2. Read the **Environment Factory Guide** — understand the SDK packages, factory registration with `inputSchema` / `input_model`, the `scopeField` on `HandlerConfig`, auth callback patterns, and the flat model-keyed create payload format (`_alias` / `_ref`)
 3. Read the **framework example** that matches this project's stack if one exists
 
 **Always read the live docs.** The SDK may have been updated since this prompt was written.
@@ -123,9 +123,9 @@ Fetch the Autonoma documentation to understand the current SDK setup:
 
 Read `scenarios.md` fully. Identify:
 
-- The scenario names and their create trees
-- Every model referenced in the create trees
-- Cross-branch references (`_alias` / `_ref`)
+- The scenario names and their create payloads
+- Every model referenced in the create payloads
+- Record links (`_alias` / `_ref`), including the scope/tenant FK
 - Fields that use `testRunId` for uniqueness
 
 ---
