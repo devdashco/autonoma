@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { db } from "@autonoma/db";
 import { bucketIterationOutcomes } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { createGithubApp } from "../../src/create-services";
@@ -45,7 +46,7 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     // iteration's plan outcomes into success / failed-at-generation /
     // failed-at-replay. These reads only touch immutable rows (TestGeneration,
     // Run, their reviews) so they reproduce exactly what the live iteration saw.
-    const outcomes = await bucketIterationOutcomes(iterationId, logger);
+    const outcomes = await bucketIterationOutcomes(db, iterationId, logger);
 
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(outcomes.snapshotId, githubApp);

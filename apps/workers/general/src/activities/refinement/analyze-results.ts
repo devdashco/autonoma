@@ -1,3 +1,4 @@
+import { db } from "@autonoma/db";
 import { bucketIterationOutcomes } from "@autonoma/diffs";
 import { extendObservabilityContext, logger as rootLogger } from "@autonoma/logger";
 import type { AnalyzeResultsInput, AnalyzeResultsOutput } from "@autonoma/workflow/activities";
@@ -13,7 +14,7 @@ export async function analyzeResults(input: AnalyzeResultsInput): Promise<Analyz
     const logger = rootLogger.child({ name: "analyzeResults" });
     logger.info("Analyzing iteration results");
 
-    const outcomes = await bucketIterationOutcomes(input.iterationId, logger);
+    const outcomes = await bucketIterationOutcomes(db, input.iterationId, logger);
 
     extendObservabilityContext({
         snapshot: { snapshotId: outcomes.snapshotId },
