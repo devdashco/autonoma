@@ -1,19 +1,22 @@
 import { type PrismaClient, type RefinementTrigger } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/workflow/activities";
+import type { GenerationOutcomeFailure, RunOutcomeFailure, SystemBlockedOutcome } from "@autonoma/workflow/activities";
 
 /**
  * The shared bucketing logic for one refinement iteration's plan outcomes.
  *
  * For each plan that fed into the iteration, this resolves the latest
  * generation and run in the iteration's snapshot, joins their reviews, and
- * splits them into three buckets:
+ * splits them into four buckets:
  *
  *  - `validatedTestCaseIds` - the run succeeded.
- *  - `failuresAtGeneration` - generation (or its review) failed.
- *  - `failuresAtReplay`     - a run (or its review) failed: either after a
- *    passing generation, or replay-only (a pre-existing test replayed with no
- *    generation).
+ *  - `failuresAtGeneration` - generation (or its review) failed (healable).
+ *  - `failuresAtReplay`     - a run (or its review) failed (healable): either
+ *    after a passing generation, or replay-only (a pre-existing test replayed
+ *    with no generation).
+ *  - `systemBlocked`        - generation/run failed with an un-healable infra
+ *    failure (`scenario_setup`). Routed out of the healable buckets so the loop
+ *    ignores them for convergence and never feeds them to the healing agent.
  *
  * The bucketing invariants are load-bearing for both callers, so this helper is
  * the single source of truth:
@@ -33,6 +36,7 @@ export interface BucketedIterationOutcomes {
     validatedTestCaseIds: string[];
     failuresAtGeneration: GenerationOutcomeFailure[];
     failuresAtReplay: RunOutcomeFailure[];
+    systemBlocked: SystemBlockedOutcome[];
     snapshotId: string;
     loopId: string;
     triggeredBy: RefinementTrigger;
@@ -67,7 +71,7 @@ export async function bucketIterationOutcomes(
 
     if (planIds.length === 0) {
         log.info("Iteration has no input plans; nothing to bucket");
-        return { validatedTestCaseIds: [], failuresAtGeneration: [], failuresAtReplay: [], ...meta };
+        return { validatedTestCaseIds: [], failuresAtGeneration: [], failuresAtReplay: [], systemBlocked: [], ...meta };
     }
 
     const generations = await db.testGeneration.findMany({
@@ -76,6 +80,8 @@ export async function bucketIterationOutcomes(
         select: {
             id: true,
             status: true,
+            // `scenario_setup` failures route out of the healable buckets.
+            failure: true,
             testPlan: {
                 select: {
                     id: true,
@@ -104,6 +110,8 @@ export async function bucketIterationOutcomes(
             id: true,
             status: true,
             planId: true,
+            // `scenario_setup` failures route out of the healable buckets.
+            failure: true,
             // plan prompt + test case let a replay-only outcome (no generation)
             // carry the same plan/test-case context the generation path sources
             // from its generation's plan.
@@ -121,6 +129,7 @@ export async function bucketIterationOutcomes(
     const validatedTestCaseIds: string[] = [];
     const failuresAtGeneration: GenerationOutcomeFailure[] = [];
     const failuresAtReplay: RunOutcomeFailure[] = [];
+    const systemBlocked: SystemBlockedOutcome[] = [];
 
     for (const planId of planIds) {
         const generation = latestGenByPlan.get(planId);
@@ -151,7 +160,7 @@ export async function bucketIterationOutcomes(
             }
 
             const runReview = run.runReview;
-            failuresAtReplay.push({
+            const failure: RunOutcomeFailure = {
                 bucket: "failed_at_replay",
                 failureKey: run.id,
                 testCaseId: run.assignment.testCaseId,
@@ -164,7 +173,9 @@ export async function bucketIterationOutcomes(
                 verdictKind: runReview?.verdict ?? undefined,
                 reviewReasoning: runReview?.reasoning ?? undefined,
                 runReviewId: runReview?.id ?? undefined,
-            });
+            };
+            if (run.failure?.kind === "scenario_setup") systemBlocked.push(failure);
+            else failuresAtReplay.push(failure);
             continue;
         }
 
@@ -173,7 +184,7 @@ export async function bucketIterationOutcomes(
             generation.status === "success" && review?.status === "completed" && review.verdict === "success";
 
         if (!isGenSuccess) {
-            failuresAtGeneration.push({
+            const failure: GenerationOutcomeFailure = {
                 bucket: "failed_at_generation",
                 failureKey: generation.id,
                 testCaseId: generation.testPlan.testCase.id,
@@ -186,7 +197,9 @@ export async function bucketIterationOutcomes(
                 verdictKind: (review?.verdict ?? undefined) as GenerationOutcomeFailure["verdictKind"],
                 reviewReasoning: review?.reasoning ?? undefined,
                 generationReviewId: review?.id ?? undefined,
-            });
+            };
+            if (generation.failure?.kind === "scenario_setup") systemBlocked.push(failure);
+            else failuresAtGeneration.push(failure);
             continue;
         }
 
@@ -208,7 +221,7 @@ export async function bucketIterationOutcomes(
         }
 
         const runReview = run.runReview;
-        failuresAtReplay.push({
+        const failure: RunOutcomeFailure = {
             bucket: "failed_at_replay",
             failureKey: run.id,
             testCaseId: run.assignment.testCaseId,
@@ -221,7 +234,9 @@ export async function bucketIterationOutcomes(
             verdictKind: (runReview?.verdict ?? undefined) as RunOutcomeFailure["verdictKind"],
             reviewReasoning: runReview?.reasoning ?? undefined,
             runReviewId: runReview?.id ?? undefined,
-        });
+        };
+        if (run.failure?.kind === "scenario_setup") systemBlocked.push(failure);
+        else failuresAtReplay.push(failure);
     }
 
     log.info("Bucketed iteration outcomes", {
@@ -229,8 +244,9 @@ export async function bucketIterationOutcomes(
             validated: validatedTestCaseIds.length,
             failuresAtGeneration: failuresAtGeneration.length,
             failuresAtReplay: failuresAtReplay.length,
+            systemBlocked: systemBlocked.length,
         },
     });
 
-    return { validatedTestCaseIds, failuresAtGeneration, failuresAtReplay, ...meta };
+    return { validatedTestCaseIds, failuresAtGeneration, failuresAtReplay, systemBlocked, ...meta };
 }

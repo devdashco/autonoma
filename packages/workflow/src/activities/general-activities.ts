@@ -222,6 +222,17 @@ export interface RunOutcomeSuccess {
 export type RunOutcome = RunOutcomeFailure | RunOutcomeSuccess;
 
 /**
+ * A failure routed out of the healable buckets because healing cannot fix it -
+ * currently only `scenario_setup` infra failures. The loop records these for
+ * observability but never feeds them to the healing agent, so an iteration
+ * whose only failures are system-blocked converges without churning.
+ *
+ * Reuses the existing failure records; their `bucket` discriminator still
+ * identifies generation- vs replay-origin.
+ */
+export type SystemBlockedOutcome = GenerationOutcomeFailure | RunOutcomeFailure;
+
+/**
  * Persisted refinement action with its row id. The healing-actions activity
  * walks a batch of these and applies each one, marking the row applied on success.
  */
@@ -322,6 +333,12 @@ export interface AnalyzeResultsOutput {
     failuresAtGeneration: GenerationOutcomeFailure[];
     /** Plans whose generation succeeded but whose run (or its review) failed. */
     failuresAtReplay: RunOutcomeFailure[];
+    /**
+     * Plans whose generation/run failed with an un-healable infra failure
+     * (`scenario_setup`). Routed out of the healable buckets so the loop ignores
+     * them for convergence.
+     */
+    systemBlocked: SystemBlockedOutcome[];
 }
 
 /**

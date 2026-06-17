@@ -133,6 +133,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
                     validatedTestCaseCount: results.validatedTestCaseIds.length,
                     generationFailureCount: results.failuresAtGeneration.length,
                     replayFailureCount: results.failuresAtReplay.length,
+                    systemBlockedCount: results.systemBlocked.length,
                 },
             });
 

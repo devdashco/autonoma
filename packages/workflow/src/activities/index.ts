@@ -37,6 +37,7 @@ export type {
     RunOutcomeFailure,
     RunOutcomeSuccess,
     RunOutcome,
+    SystemBlockedOutcome,
     PersistedHealingAction,
     RejectedCandidateDecision,
     RunHealingAgentForRefinementInput,

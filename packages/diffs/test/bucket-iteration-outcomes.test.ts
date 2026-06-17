@@ -1,4 +1,5 @@
 import {
+    type GenerationStatus,
     type PrismaClient,
     type ReviewStatus,
     type RunReviewVerdict,
@@ -116,6 +117,7 @@ class BucketerHarness implements IntegrationHarness {
         planId: string;
         organizationId: string;
         status: RunStatus;
+        failure?: PrismaJson.RunFailure;
         reviewStatus?: ReviewStatus;
         reviewVerdict?: RunReviewVerdict;
         reviewReasoning?: string;
@@ -126,6 +128,7 @@ class BucketerHarness implements IntegrationHarness {
                 planId: args.planId,
                 organizationId: args.organizationId,
                 status: args.status,
+                failure: args.failure,
             },
         });
         if (args.reviewStatus == null) return { runId: run.id };
@@ -140,6 +143,26 @@ class BucketerHarness implements IntegrationHarness {
             },
         });
         return { runId: run.id, runReviewId: review.id };
+    }
+
+    /** Create a TestGeneration for a plan, with an optional structured failure. */
+    async createGeneration(args: {
+        planId: string;
+        snapshotId: string;
+        organizationId: string;
+        status: GenerationStatus;
+        failure?: PrismaJson.GenerationFailure;
+    }): Promise<{ generationId: string }> {
+        const generation = await this.db.testGeneration.create({
+            data: {
+                testPlanId: args.planId,
+                snapshotId: args.snapshotId,
+                organizationId: args.organizationId,
+                status: args.status,
+                failure: args.failure,
+            },
+        });
+        return { generationId: generation.id };
     }
 
     /** Create a refinement loop + its first iteration, scoped to the given input plans. */
@@ -239,6 +262,191 @@ bucketerSuite((test) => {
                 verdictKind: "engine_error",
                 reviewReasoning: "the recorded steps no longer match the UI",
                 runReviewId,
+            },
+        ]);
+    });
+
+    test("routes a scenario_setup replay failure to systemBlocked, not failuresAtReplay", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshot(organizationId, applicationId);
+
+        const blocked = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+            prompt: "replay that hits a down scenario environment",
+        });
+        const { runId } = await harness.createRun({
+            assignmentId: blocked.assignmentId,
+            planId: blocked.planId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
+        });
+
+        const iterationId = await harness.createIteration({
+            organizationId,
+            snapshotId,
+            planIds: [blocked.planId],
+        });
+
+        const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
+
+        // scenario_setup is an un-healable infra failure: it must leave the
+        // healable buckets empty so the loop converges without invoking healing.
+        expect(outcomes.validatedTestCaseIds).toEqual([]);
+        expect(outcomes.failuresAtGeneration).toEqual([]);
+        expect(outcomes.failuresAtReplay).toEqual([]);
+        expect(outcomes.systemBlocked).toEqual([
+            {
+                bucket: "failed_at_replay",
+                failureKey: runId,
+                testCaseId: blocked.testCaseId,
+                testCaseSlug: blocked.testCaseSlug,
+                testCaseName: blocked.testCaseName,
+                planId: blocked.planId,
+                planPrompt: blocked.planPrompt,
+                sourceId: runId,
+                sourceStatus: "failed",
+                verdictKind: undefined,
+                reviewReasoning: undefined,
+                runReviewId: undefined,
+            },
+        ]);
+    });
+
+    test("routes a scenario_setup generation failure to systemBlocked, not failuresAtGeneration", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshot(organizationId, applicationId);
+
+        const blocked = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+            prompt: "generate against a down scenario environment",
+        });
+        const { generationId } = await harness.createGeneration({
+            planId: blocked.planId,
+            snapshotId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
+        });
+
+        const iterationId = await harness.createIteration({
+            organizationId,
+            snapshotId,
+            planIds: [blocked.planId],
+        });
+
+        const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
+
+        expect(outcomes.validatedTestCaseIds).toEqual([]);
+        expect(outcomes.failuresAtReplay).toEqual([]);
+        expect(outcomes.failuresAtGeneration).toEqual([]);
+        expect(outcomes.systemBlocked).toEqual([
+            {
+                bucket: "failed_at_generation",
+                failureKey: generationId,
+                testCaseId: blocked.testCaseId,
+                testCaseSlug: blocked.testCaseSlug,
+                testCaseName: blocked.testCaseName,
+                planId: blocked.planId,
+                planPrompt: blocked.planPrompt,
+                sourceId: generationId,
+                sourceStatus: "failed",
+                verdictKind: undefined,
+                reviewReasoning: undefined,
+                generationReviewId: undefined,
+            },
+        ]);
+    });
+
+    test("a mixed iteration heals the engine_error replay and blocks the scenario_setup one", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshot(organizationId, applicationId);
+
+        const healable = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+            prompt: "replay that genuinely regressed",
+        });
+        const { runId: healableRunId, runReviewId } = await harness.createRun({
+            assignmentId: healable.assignmentId,
+            planId: healable.planId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "engine_error", message: "the engine threw mid-run" },
+            reviewStatus: "completed",
+            reviewVerdict: "engine_error",
+            reviewReasoning: "the recorded steps no longer match the UI",
+        });
+
+        const blocked = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId,
+            prompt: "replay that hit a down scenario environment",
+        });
+        const { runId: blockedRunId } = await harness.createRun({
+            assignmentId: blocked.assignmentId,
+            planId: blocked.planId,
+            organizationId,
+            status: "failed",
+            failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
+        });
+
+        const iterationId = await harness.createIteration({
+            organizationId,
+            snapshotId,
+            planIds: [healable.planId, blocked.planId],
+        });
+
+        const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
+
+        // The engine_error failure stays healable; only the scenario_setup one is
+        // routed out, so the loop still heals the genuine regression.
+        expect(outcomes.failuresAtReplay).toEqual([
+            {
+                bucket: "failed_at_replay",
+                failureKey: healableRunId,
+                testCaseId: healable.testCaseId,
+                testCaseSlug: healable.testCaseSlug,
+                testCaseName: healable.testCaseName,
+                planId: healable.planId,
+                planPrompt: healable.planPrompt,
+                sourceId: healableRunId,
+                sourceStatus: "failed",
+                verdictKind: "engine_error",
+                reviewReasoning: "the recorded steps no longer match the UI",
+                runReviewId,
+            },
+        ]);
+        expect(outcomes.systemBlocked).toEqual([
+            {
+                bucket: "failed_at_replay",
+                failureKey: blockedRunId,
+                testCaseId: blocked.testCaseId,
+                testCaseSlug: blocked.testCaseSlug,
+                testCaseName: blocked.testCaseName,
+                planId: blocked.planId,
+                planPrompt: blocked.planPrompt,
+                sourceId: blockedRunId,
+                sourceStatus: "failed",
+                verdictKind: undefined,
+                reviewReasoning: undefined,
+                runReviewId: undefined,
             },
         ]);
     });
