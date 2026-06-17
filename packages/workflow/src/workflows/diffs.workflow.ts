@@ -12,13 +12,6 @@ const longRunning = proxyActivities<DiffsActivities>({
     taskQueue: TaskQueue.DIFFS,
 });
 
-const standard = proxyActivities<DiffsActivities>({
-    startToCloseTimeout: "15m",
-    heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.DIFFS,
-});
-
 const shortLived = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "10m",
     heartbeatTimeout: "2m",
@@ -58,15 +51,18 @@ export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<
         await Promise.allSettled(step1.replays.map((run) => dispatchReplay(run)));
     }
 
-    await standard.resolveDiffs({ snapshotId });
-    log.info("Diffs resolution step finished", ids);
-
+    // Resolution is now iteration 1 of the refinement loop: the loop's first turn
+    // runs the Healing agent over the affected-test replay failures plus the Step 1
+    // candidates. Diffs gets a 4-iteration budget (the folded resolution turn + 3
+    // refinement turns); onboarding stays at the default of 3. Marking + the loop
+    // share the catch so any failure finalizes the job rather than leaving it stuck.
     try {
-        log.info("Starting refinement loop child workflow", ids);
+        await shortLived.markDiffsGenerating({ snapshotId });
+        log.info("Diffs job marked generating; starting refinement loop child workflow", ids);
         await executeChild(WORKFLOW_TYPE.REFINEMENT_LOOP, {
             workflowId: `refinement-loop-${snapshotId}`,
             taskQueue: TaskQueue.GENERAL,
-            args: [{ snapshotId, triggeredBy: "diffs" as const }],
+            args: [{ snapshotId, triggeredBy: "diffs" as const, maxIterations: 4 }],
         });
     } catch (error) {
         const failureReason = rootFailureMessage(error);

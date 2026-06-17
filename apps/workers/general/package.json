@@ -6,7 +6,7 @@
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit",
-        "lint": "oxlint --fix src/",
+        "lint": "oxlint --fix src/ test/",
         "fmt": "oxfmt --write src/",
         "start": "tsx --import ./src/preload.ts src/index.ts",
         "test": "vitest run --passWithNoTests"
@@ -31,6 +31,8 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
         "tsx": "catalog:",

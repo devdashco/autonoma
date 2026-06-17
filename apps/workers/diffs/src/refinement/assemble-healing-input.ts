@@ -7,6 +7,7 @@ import {
     type HealingFailureSubject,
     type HealingInput,
     type HealingSubjectContext,
+    type HealingTestCandidate,
     type PlanAuthoringInput,
     ScenarioIndex,
     healingActionSchema,
@@ -87,13 +88,14 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
     // the snapshot's change facts + application/org) comes from the shared loader.
     // Prior actions and the suite (for the suite-browsing tools + add_test folder
     // validation) are independent of it, so gather them concurrently.
-    const [diffJobContext, priorActions, suiteInfo] = await Promise.all([
+    const [diffJobContext, priorActions, suiteInfo, candidates] = await Promise.all([
         new DiffJobContextLoader(db).loadHealingContext({
             snapshotId,
             subjects: baseFailures.map(toHealingSubject),
         }),
         loadPriorActions(iterationId),
         fetchTestSuiteInfo(db, snapshotId),
+        loadFirstTurnCandidates(iterationNumber, snapshotId),
     ]);
 
     const { applicationId, organizationId } = diffJobContext;
@@ -110,10 +112,11 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         iteration: iterationNumber,
         priorActions,
         failures,
-        // No candidates on the refinement-only path; the diffs analysis fold
-        // (a later slice) seeds the first turn's candidates. With none, add_test
-        // is dormant and the result tool's candidate clause is vacuous.
-        candidates: [],
+        // Candidates ride only on the first turn (the folded resolution turn,
+        // diffs only); later turns and onboarding get an empty list, leaving
+        // add_test in its spontaneous-only mode and the result tool's candidate
+        // clause vacuous.
+        candidates,
         flowIndex: new FlowIndex(flows),
         existingTests,
         planAuthoring,
@@ -160,6 +163,34 @@ function mergeDiffJobContext(failures: FailureRecord[], subjectContexts: Healing
             scenario: context.scenario ?? failure.scenario,
         };
     });
+}
+
+/**
+ * Load the first turn's new-test candidates (the Step 1 diff-analysis proposals)
+ * as {@link HealingTestCandidate}. Only the first iteration carries candidates;
+ * later turns get an empty list. Onboarding has no candidates either, so this
+ * returns empty there even on turn 1.
+ *
+ * Read regardless of status (pending/accepted/rejected): at production turn-1
+ * time they are all still pending (reconciliation runs in the apply tail,
+ * afterwards), and the candidate id/name/instruction/reasoning fields are
+ * immutable - so reading all statuses lets eval-capture recover the exact set
+ * the live turn saw after the pipeline has decided them.
+ */
+async function loadFirstTurnCandidates(iterationNumber: number, snapshotId: string): Promise<HealingTestCandidate[]> {
+    if (iterationNumber !== 1) return [];
+
+    const candidates = await db.testCandidate.findMany({
+        where: { snapshotId },
+        select: { id: true, name: true, instruction: true, reasoning: true },
+    });
+
+    return candidates.map((c) => ({
+        candidateId: c.id,
+        name: c.name,
+        instruction: c.instruction,
+        reasoning: c.reasoning,
+    }));
 }
 
 /**

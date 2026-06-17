@@ -7,8 +7,8 @@ AI agents that drive the diff-analysis, resolution, healing, and review pipeline
 | Agent | Trigger | Decides |
 |---|---|---|
 | `DiffsAgent` | PR diffs | Which existing tests might be affected; what new tests are missing |
-| `ResolutionAgent` | After replay | How to handle each failed test (modify, remove, report bug) + which candidates to graduate |
-| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test), plus which new-test candidates to graduate via add_test |
+| `ResolutionAgent` | (none - superseded) | Folded into `HealingAgent` iteration 1; no longer wired into the diffs workflow. Code retained pending removal |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test), plus which new-test candidates to graduate via add_test. For diffs, iteration 1 is the folded resolution turn (replay failures + Step 1 candidates) |
 | `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug) |
 | `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug) |
 

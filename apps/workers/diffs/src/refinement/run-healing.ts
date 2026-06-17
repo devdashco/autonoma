@@ -82,9 +82,15 @@ export async function runRefinementHealing(
 
     logger.info("Refinement healing cost", { extra: summarizeSessionCost(session.costCollector) });
 
-    logger.info("Refinement healing run finished", { extra: { actionCount: persisted.length } });
+    logger.info("Refinement healing run finished", {
+        extra: { actionCount: persisted.length, rejectedCandidates: result.rejectedCandidates.length },
+    });
 
-    return { persistedActions: persisted, reasoning: result.reasoning };
+    return {
+        persistedActions: persisted,
+        reasoning: result.reasoning,
+        rejectedCandidates: result.rejectedCandidates,
+    };
 }
 
 /**
@@ -131,6 +137,9 @@ async function persistActions(
             instruction: newTest.instruction,
             scenarioId: newTest.scenarioId,
             reasoning: newTest.reasoning,
+            // Carried so the first-turn apply tail can mark the graduated candidate
+            // accepted against the minted test case; undefined for a spontaneous add.
+            acceptingCandidateId: newTest.acceptingCandidateId,
         };
         const { kind: _kind, ...payload } = action;
 

@@ -38,6 +38,7 @@ export type {
     RunOutcomeSuccess,
     RunOutcome,
     PersistedHealingAction,
+    RejectedCandidateDecision,
     RunHealingAgentForRefinementInput,
     RunHealingAgentForRefinementOutput,
     FinalizePendingSnapshotInput,
@@ -49,6 +50,7 @@ export type {
     AnalyzeDiffsOutput,
     PreparedRunInfo,
     ResolveDiffsInput,
+    MarkDiffsGeneratingInput,
     FinalizeDiffsInput,
 } from "./diffs-activities";
 

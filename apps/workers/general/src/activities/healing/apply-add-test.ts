@@ -7,11 +7,11 @@ import type { ApplyAddTestInput } from "./types";
 /**
  * Mints a brand-new test for the snapshot: creates a TestCase, its TestPlan, and
  * a TestCaseAssignment, then queues the plan's first generation. Returns the new
- * plan id so the caller can fold it into iteration N+1's analysis scope, exactly
- * like applyUpdatePlan surfaces the plan it minted - the new test then enters the
- * next iteration's generate/run/review cycle.
+ * plan id (folded into iteration N+1's analysis scope, like applyUpdatePlan) plus
+ * the new test case id (the first-turn apply tail links an accepted candidate to
+ * it). The new test then enters the next iteration's generate/run/review cycle.
  */
-export async function applyAddTest(input: ApplyAddTestInput): Promise<{ planId: string }> {
+export async function applyAddTest(input: ApplyAddTestInput): Promise<{ planId: string; testCaseId: string }> {
     const logger = rootLogger.child({
         name: "applyAddTest",
         snapshotId: input.snapshotId,
@@ -25,7 +25,7 @@ export async function applyAddTest(input: ApplyAddTestInput): Promise<{ planId: 
         organizationId: input.organizationId,
     });
 
-    const { planId } = await updater.apply(
+    const { planId, testCaseId } = await updater.apply(
         new AddTest({
             name: input.name,
             plan: input.instruction,
@@ -33,9 +33,9 @@ export async function applyAddTest(input: ApplyAddTestInput): Promise<{ planId: 
             scenarioId: input.scenarioId,
         }),
     );
-    logger.info("Test added and generation queued", { planId });
+    logger.info("Test added and generation queued", { planId, testCaseId });
 
     await markActionApplied(input.refinementActionId);
 
-    return { planId };
+    return { planId, testCaseId };
 }

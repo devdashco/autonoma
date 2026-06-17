@@ -27,6 +27,10 @@ export interface ResolveDiffsInput {
     snapshotId: string;
 }
 
+export interface MarkDiffsGeneratingInput {
+    snapshotId: string;
+}
+
 export interface FinalizeDiffsInput {
     snapshotId: string;
     /** When provided, the DiffsJob is marked failed with this reason instead of completed. */
@@ -41,6 +45,7 @@ export interface FinalizeDiffsInput {
 export interface DiffsActivities {
     analyzeDiffs(input: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput>;
     resolveDiffs(input: ResolveDiffsInput): Promise<void>;
+    markDiffsGenerating(input: MarkDiffsGeneratingInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
     reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput>;
     reviewReplay(input: ReviewReplayInput): Promise<ReviewReplayOutput>;
