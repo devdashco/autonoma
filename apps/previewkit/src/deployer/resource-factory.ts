@@ -351,6 +351,14 @@ export function buildGatekeeperRole(namespace: string, prNumber: number): k8s.V1
                 resources: ["endpointslices"],
                 verbs: ["get", "list"],
             },
+            {
+                // services: read a Service's pod selector; pods: fail a wake fast when a
+                // backing pod is wedged (bad image, crash loop) instead of waiting out
+                // the wake timeout.
+                apiGroups: [""],
+                resources: ["services", "pods"],
+                verbs: ["get", "list"],
+            },
         ],
     };
 }

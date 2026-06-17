@@ -25,7 +25,7 @@ jobs:
           private-key: ${{ secrets.ACTIONS_APP_PRIVATE_KEY }}
       - name: Run release-please
         id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           release-type: node
           token: ${{ steps.app-token.outputs.token }}
