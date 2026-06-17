@@ -1,3 +1,8 @@
+import {
+    PreviewkitEnvFactoryDownInputSchema,
+    PreviewkitEnvFactoryOptionsInputSchema,
+    PreviewkitEnvFactoryUpInputSchema,
+} from "@autonoma/types";
 import { z } from "zod";
 import { env } from "../../env";
 import { internalProcedure, router } from "../../trpc";
@@ -43,6 +48,30 @@ export const adminRouter = router({
     deployPreviewkitMainBranch: internalProcedure
         .input(z.object({ applicationId: z.string().min(1) }))
         .mutation(({ ctx: { services }, input }) => services.deployments.deployMainBranch(input.applicationId)),
+    /**
+     * Resolves the manual Environment Factory options for a preview environment:
+     * the linked application's scenarios, the preview's app URLs, and a suggested
+     * SDK URL. Returns a `disabledReason` when a manual up cannot be run. Admin-only.
+     */
+    previewkitEnvFactoryOptions: internalProcedure
+        .input(PreviewkitEnvFactoryOptionsInputSchema)
+        .query(({ ctx: { services }, input }) => services.previewkitEnvFactory.getOptions(input.environmentId)),
+    /**
+     * Runs an Environment Factory "up" against a specific preview environment and
+     * returns the seeded credentials / cookies. In-memory only - nothing is
+     * persisted. Admin-only; used to reproduce a failed test by hand.
+     */
+    previewkitEnvFactoryUp: internalProcedure
+        .input(PreviewkitEnvFactoryUpInputSchema)
+        .mutation(({ ctx: { services }, input }) => services.previewkitEnvFactory.up(input)),
+    /**
+     * Tears down an instance previously provisioned via `previewkitEnvFactoryUp`.
+     * The caller passes back the `instanceId` / `refs` / `refsToken` from the up
+     * response. Admin-only.
+     */
+    previewkitEnvFactoryDown: internalProcedure
+        .input(PreviewkitEnvFactoryDownInputSchema)
+        .mutation(({ ctx: { services }, input }) => services.previewkitEnvFactory.down(input)),
     listOrganizations: internalProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
     listPendingOrgs: internalProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: internalProcedure

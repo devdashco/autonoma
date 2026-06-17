@@ -49,6 +49,31 @@ export function useDeployPreviewkitMainBranch() {
     });
 }
 
+// Manual Environment Factory (admin) against a specific preview environment.
+// The options query is lazy - it only runs while the popover is open, so it is
+// a plain useQuery (not the page-level useSuspenseQuery) gated by `enabled`.
+export function usePreviewkitEnvFactoryOptions(environmentId: string, enabled: boolean) {
+    return useQuery({
+        ...trpc.admin.previewkitEnvFactoryOptions.queryOptions({ environmentId }),
+        enabled,
+    });
+}
+
+export function usePreviewkitEnvFactoryUp() {
+    return useAPIMutation({
+        ...trpc.admin.previewkitEnvFactoryUp.mutationOptions(),
+        errorToast: { title: "Failed to run up" },
+    });
+}
+
+export function usePreviewkitEnvFactoryDown() {
+    return useAPIMutation({
+        ...trpc.admin.previewkitEnvFactoryDown.mutationOptions(),
+        successToast: { title: "Environment torn down" },
+        errorToast: { title: "Failed to run down" },
+    });
+}
+
 export function useAdminPendingOrgs() {
     return useSuspenseQuery(trpc.admin.listPendingOrgs.queryOptions());
 }

@@ -27,6 +27,7 @@ import { AuthService } from "./auth/auth.service";
 import { BranchesService } from "./branches/branches.service";
 import { BugsService } from "./bugs/bugs.service";
 import { DeploymentsService } from "./deployments/deployments.service";
+import { PreviewkitEnvFactoryService } from "./deployments/previewkit-env-factory.service";
 import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
@@ -46,6 +47,7 @@ export interface Services {
     branches: BranchesService;
     bugs: BugsService;
     deployments: DeploymentsService;
+    previewkitEnvFactory: PreviewkitEnvFactoryService;
     runs: RunsService;
     testGenerations: TestGenerationsService;
     tests: TestsService;
@@ -132,6 +134,7 @@ export function buildServices({
         branches: new BranchesService(conn, githubService, storageProvider, prCacheService),
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
+        previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
         runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),

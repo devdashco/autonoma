@@ -109,6 +109,16 @@ The admin "active environments" page reads the DB directly:
   `admin.redeployPreviewkitEnvironment`).
 - UI: `apps/ui/src/routes/_blacklight/_app-shell/admin/previewkit/index.tsx`.
 
+The same admin page can run a manual Environment Factory up/down against a single preview (the "Up"
+button per row) to seed a scenario and pull back its credentials/cookies for hands-on failure
+reproduction. It is in-memory only (no `ScenarioInstance`/`WebhookCall` rows), implemented in
+`apps/api/src/routes/deployments/previewkit-env-factory.service.ts` via the DB-free
+`provisionScenarioInstance`/`teardownScenarioInstance` helpers, wired through
+`admin.previewkitEnvFactory{Options,Up,Down}`. It resolves the owning Application from the env's
+`githubRepositoryId` + org (signing secret + scenarios), targets `<preview origin>` + the path of the
+Application's main webhook, and sends the `x-previewkit-bypass` header (decrypted via
+`PREVIEWKIT_BYPASS_TOKEN_KEY`) to clear Gatekeeper.
+
 ## Build strategies (precedence)
 
 `buildkit-builder.ts` `dispatchBuild` picks per app, in order:

@@ -215,3 +215,24 @@ export const UpdateRecipeInputSchema = z.object({
     scenarioId: z.string(),
     fixtureJson: z.string(),
 });
+
+// ─── Previewkit Environment Factory (admin manual up/down) ────────
+
+export const PreviewkitEnvFactoryOptionsInputSchema = z.object({
+    environmentId: z.string().min(1),
+});
+
+export const PreviewkitEnvFactoryUpInputSchema = z.object({
+    environmentId: z.string().min(1),
+    scenarioId: z.string().min(1),
+    sdkUrl: z.url(),
+});
+
+export const PreviewkitEnvFactoryDownInputSchema = z.object({
+    environmentId: z.string().min(1),
+    scenarioId: z.string().min(1),
+    sdkUrl: z.url(),
+    instanceId: z.string().min(1),
+    refs: RefsSchema.optional(),
+    refsToken: z.string().optional(),
+});

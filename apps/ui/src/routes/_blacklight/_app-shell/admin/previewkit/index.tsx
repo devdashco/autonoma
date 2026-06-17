@@ -1,7 +1,10 @@
-import { Badge, BrailleSpinner, Button, Skeleton } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Button, Input, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { ArrowLineDownIcon } from "@phosphor-icons/react/ArrowLineDown";
+import { ArrowLineUpIcon } from "@phosphor-icons/react/ArrowLineUp";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { CubeTransparentIcon } from "@phosphor-icons/react/CubeTransparent";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
@@ -13,10 +16,15 @@ import {
   useAdminPreviewkitEnvironments,
   useDeployPreviewkitMainBranch,
   usePreviewkitDeployableApplications,
+  usePreviewkitEnvFactoryDown,
+  usePreviewkitEnvFactoryOptions,
+  usePreviewkitEnvFactoryUp,
   useRedeployPreviewkitEnvironment,
 } from "lib/query/admin.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
+
+type EnvFactoryUpResult = RouterOutputs["admin"]["previewkitEnvFactoryUp"];
 
 export const Route = createFileRoute("/_blacklight/_app-shell/admin/previewkit/")({
   component: AdminPreviewkitPage,
@@ -223,6 +231,7 @@ function RedeployButton({ environmentId }: { environmentId: string }) {
 
 function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
   const [showLogs, setShowLogs] = useState(false);
+  const [showEnvFactory, setShowEnvFactory] = useState(false);
   // The log-stream route is addressed by (owner, repo, pr).
   const [owner = "", repo = ""] = environment.repoFullName.split("/");
 
@@ -239,6 +248,15 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
           <Badge variant={STATUS_VARIANT[environment.status]} className="text-3xs">
             {environment.phase ?? environment.status}
           </Badge>
+          <Button
+            variant={showEnvFactory ? "secondary" : "outline"}
+            size="xs"
+            onClick={() => setShowEnvFactory((open) => !open)}
+            aria-label="Toggle environment factory up/down"
+          >
+            <ArrowLineUpIcon size={12} />
+            Up
+          </Button>
           <Button
             variant={showLogs ? "secondary" : "outline"}
             size="xs"
@@ -274,6 +292,9 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
         </div>
       )}
 
+      {/* Manual Environment Factory up/down against this specific preview. */}
+      {showEnvFactory && <EnvFactoryPanel environmentId={environment.id} />}
+
       {/* Lazy-mounted so the SSE streams only open while the panel is visible. */}
       {showLogs && (
         <PreviewLogsTabs
@@ -283,6 +304,206 @@ function EnvironmentCard({ environment }: { environment: PreviewEnvironment }) {
           className="border-t border-border-dim p-3"
         />
       )}
+    </div>
+  );
+}
+
+// In-memory state for an active provisioned instance, held only while the panel
+// is mounted. The down call needs these values back from the up response.
+type ActiveInstance = {
+  instanceId: string;
+  refs: EnvFactoryUpResult["refs"];
+  refsToken: string | undefined;
+  scenarioId: string;
+  sdkUrl: string;
+  auth: EnvFactoryUpResult["auth"];
+  resolvedVariables: EnvFactoryUpResult["resolvedVariables"];
+};
+
+// Runs an Environment Factory "up" against the preview's SDK endpoint, shows the
+// returned credentials / cookies, then lets us "down" the same instance. Nothing
+// is persisted server-side; all state lives in this component.
+function EnvFactoryPanel({ environmentId }: { environmentId: string }) {
+  const { data: options, isLoading } = usePreviewkitEnvFactoryOptions(environmentId, true);
+  const up = usePreviewkitEnvFactoryUp();
+  const down = usePreviewkitEnvFactoryDown();
+
+  // Selection overrides; default to the first scenario / the suggested SDK URL
+  // until the operator changes them (no effects needed).
+  const [scenarioOverride, setScenarioOverride] = useState("");
+  const [sdkUrlOverride, setSdkUrlOverride] = useState<string | undefined>(undefined);
+  const [active, setActive] = useState<ActiveInstance | undefined>(undefined);
+  const sdkUrlId = `env-factory-sdk-url-${environmentId}`;
+
+  if (isLoading || options == null) {
+    return (
+      <div className="flex flex-col gap-2 border-t border-border-dim p-3">
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+      </div>
+    );
+  }
+
+  if (options.disabledReason != null) {
+    return (
+      <div className="border-t border-border-dim p-3">
+        <p className="text-2xs text-status-warn">{options.disabledReason}</p>
+      </div>
+    );
+  }
+
+  const scenarioId = scenarioOverride !== "" ? scenarioOverride : (options.scenarios[0]?.id ?? "");
+  const sdkUrl = sdkUrlOverride ?? options.suggestedSdkUrl ?? "";
+  const canRunUp = scenarioId !== "" && sdkUrl !== "" && !up.isPending;
+
+  const handleUp = () => {
+    if (!canRunUp) return;
+    up.mutate(
+      { environmentId, scenarioId, sdkUrl },
+      {
+        onSuccess: (data) => {
+          setActive({
+            instanceId: data.instanceId,
+            refs: data.refs,
+            refsToken: data.refsToken,
+            scenarioId,
+            sdkUrl,
+            auth: data.auth,
+            resolvedVariables: data.resolvedVariables,
+          });
+        },
+      },
+    );
+  };
+
+  const handleDown = () => {
+    if (active == null) return;
+    down.mutate(
+      {
+        environmentId,
+        scenarioId: active.scenarioId,
+        sdkUrl: active.sdkUrl,
+        instanceId: active.instanceId,
+        refs: active.refs,
+        refsToken: active.refsToken,
+      },
+      { onSuccess: () => setActive(undefined) },
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base p-3">
+      {active == null ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-2xs text-text-secondary">
+            Seed a scenario into this preview and pull back its credentials so you can sign in and reproduce a failure
+            by hand. In-memory only - nothing is persisted.
+          </p>
+          <label className="flex flex-col gap-1">
+            <span className="text-3xs uppercase tracking-widest text-text-secondary">Scenario</span>
+            <select
+              value={scenarioId}
+              onChange={(e) => setScenarioOverride(e.target.value)}
+              aria-label="Select a scenario"
+              className="h-9 rounded-md border border-border-dim bg-surface-base px-3 text-sm text-text-primary"
+            >
+              {options.scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={sdkUrlId} className="text-3xs uppercase tracking-widest text-text-secondary">
+              SDK URL
+            </label>
+            <Input
+              id={sdkUrlId}
+              value={sdkUrl}
+              onChange={(e) => setSdkUrlOverride(e.target.value)}
+              placeholder="https://preview.../sdk"
+              aria-label="SDK URL"
+              className="font-mono text-2xs"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button variant="accent" size="sm" disabled={!canRunUp} onClick={handleUp}>
+              {up.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <ArrowLineUpIcon size={14} />}
+              Run up
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-mono text-2xs text-text-secondary">instance {active.instanceId}</span>
+            <Button variant="destructive" size="sm" disabled={down.isPending} onClick={handleDown}>
+              {down.isPending ? <BrailleSpinner animation="braille" size="sm" /> : <ArrowLineDownIcon size={14} />}
+              Down
+            </Button>
+          </div>
+          <EnvFactoryResult auth={active.auth} resolvedVariables={active.resolvedVariables} refs={active.refs} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      aria-label={`Copy ${label}`}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-3xs text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+    >
+      <CopyIcon size={11} />
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function JsonBlock({ label, value }: { label: string; value: unknown }) {
+  const json = JSON.stringify(value, null, 2);
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border-dim bg-surface-void p-2">
+      <div className="flex items-center justify-between">
+        <span className="text-3xs uppercase tracking-widest text-text-secondary">{label}</span>
+        <CopyButton value={json} label={label} />
+      </div>
+      <pre className="overflow-auto whitespace-pre-wrap break-all font-mono text-3xs text-text-primary">{json}</pre>
+    </div>
+  );
+}
+
+// Renders the credentials returned by an "up": cookies, headers, credentials,
+// plus refs / resolved variables for debugging.
+function EnvFactoryResult({
+  auth,
+  resolvedVariables,
+  refs,
+}: {
+  auth: EnvFactoryUpResult["auth"];
+  resolvedVariables: EnvFactoryUpResult["resolvedVariables"];
+  refs: EnvFactoryUpResult["refs"];
+}) {
+  const hasAuth = auth != null && ((auth.cookies?.length ?? 0) > 0 || auth.headers != null || auth.credentials != null);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {!hasAuth && <p className="text-2xs text-text-secondary">The up call returned no auth payload.</p>}
+      {auth?.cookies != null && auth.cookies.length > 0 && <JsonBlock label="Cookies" value={auth.cookies} />}
+      {auth?.headers != null && <JsonBlock label="Headers" value={auth.headers} />}
+      {auth?.credentials != null && <JsonBlock label="Credentials" value={auth.credentials} />}
+      {refs != null && <JsonBlock label="Refs" value={refs} />}
+      {Object.keys(resolvedVariables).length > 0 && <JsonBlock label="Resolved variables" value={resolvedVariables} />}
     </div>
   );
 }
