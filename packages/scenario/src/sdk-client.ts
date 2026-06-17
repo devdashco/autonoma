@@ -9,6 +9,14 @@ export interface SdkCallOptions {
     timeoutMs?: number;
 }
 
+/**
+ * Cap on how much of a non-JSON response body we preserve. Customer endpoints
+ * that error out often return a full HTML page (framework error page, proxy/CDN
+ * 500, auth wall); we keep enough to identify the source without bloating the
+ * `WebhookCall` row.
+ */
+const MAX_RAW_BODY_CHARS = 4_000;
+
 export interface SdkClientOptions {
     applicationId: string;
     sdkUrl: string;
@@ -157,15 +165,32 @@ export class SdkClient {
             signal: AbortSignal.timeout(timeoutMs),
         });
 
-        const responseBody = await response.json().catch((error: unknown) => ({
-            error: `Error parsing response: ${error instanceof Error ? error.message : String(error)}`,
-        }));
-        return { status: response.status, responseBody };
+        const rawText = await response.text();
+        return { status: response.status, responseBody: parseResponseBody(rawText, response.headers) };
     }
 }
 
 function sign(body: string, signingSecret: string): string {
     return createHmac("sha256", signingSecret).update(body).digest("hex");
+}
+
+/**
+ * Parse a response body as JSON, preserving the raw payload when it is not valid
+ * JSON. A non-JSON body (e.g. an HTML error page) is the single most useful
+ * artifact for debugging a failed customer endpoint, so on parse failure we keep
+ * the raw text (truncated) and the declared content type instead of discarding
+ * them - both land in the recorded `WebhookCall.responseBody`.
+ */
+function parseResponseBody(rawText: string, headers: Headers): unknown {
+    try {
+        return JSON.parse(rawText);
+    } catch (error) {
+        return {
+            error: `Error parsing response: ${error instanceof Error ? error.message : String(error)}`,
+            contentType: headers.get("content-type") ?? undefined,
+            rawBody: rawText.slice(0, MAX_RAW_BODY_CHARS),
+        };
+    }
 }
 
 function extractResponseDetail(responseBody: unknown): string | undefined {

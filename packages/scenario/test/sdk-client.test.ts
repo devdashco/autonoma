@@ -20,9 +20,16 @@ class InMemoryRecorder implements SdkCallRecorder {
     }
 }
 
+/**
+ * A handler may return a structured `body` (JSON-encoded by the server) or a
+ * `raw` string written verbatim with an explicit `contentType` - the latter
+ * lets tests reproduce non-JSON responses such as an HTML error page.
+ */
+type HandlerResult = { status: number; body: unknown } | { status: number; raw: string; contentType: string };
+
 class TestServer {
     private readonly server: Server;
-    private handler: (req: IncomingMessage, body: unknown) => { status: number; body: unknown } = () => ({
+    private handler: (req: IncomingMessage, body: unknown) => HandlerResult = () => ({
         status: 200,
         body: {},
     });
@@ -39,6 +46,11 @@ class TestServer {
                     headers: req.headers as Record<string, string | undefined>,
                 });
                 const result = this.handler(req, body);
+                if ("raw" in result) {
+                    res.writeHead(result.status, { "Content-Type": result.contentType });
+                    res.end(result.raw);
+                    return;
+                }
                 res.writeHead(result.status, { "Content-Type": "application/json" });
                 res.end(JSON.stringify(result.body));
             });
@@ -61,7 +73,7 @@ class TestServer {
         return `http://localhost:${this.port}/sdk`;
     }
 
-    onRequest(handler: (req: IncomingMessage, body: unknown) => { status: number; body: unknown }): void {
+    onRequest(handler: (req: IncomingMessage, body: unknown) => HandlerResult): void {
         this.handler = handler;
     }
 
@@ -204,6 +216,21 @@ describe("SdkClient (DB-free)", () => {
         await expect(client.discover({ timeoutMs: 5_000 })).rejects.toThrow("SDK returned HTTP 500");
         expect(recorder.events).toHaveLength(1);
         expect(recorder.events[0]?.statusCode).toBe(500);
+    });
+
+    it("preserves the raw body and content type when the response is not JSON", async () => {
+        const htmlErrorPage = "<!DOCTYPE html><html><body><h1>500 Internal Server Error</h1></body></html>";
+        server.onRequest(() => ({ status: 500, raw: htmlErrorPage, contentType: "text/html; charset=utf-8" }));
+
+        await expect(client.discover({ timeoutMs: 5_000 })).rejects.toThrow("SDK returned HTTP 500");
+
+        expect(recorder.events).toHaveLength(1);
+        const recorded = recorder.events[0]?.responseBody;
+        expect(recorded).toMatchObject({
+            error: expect.stringContaining("Error parsing response"),
+            contentType: "text/html; charset=utf-8",
+            rawBody: htmlErrorPage,
+        });
     });
 
     it("does not defend against a recorder that rejects (recorder owns its own error handling)", async () => {
