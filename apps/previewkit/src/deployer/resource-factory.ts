@@ -290,8 +290,8 @@ export function buildGatekeeperDeployment(opts: GatekeeperOptions): k8s.V1Deploy
                             ports: [{ containerPort: GATEKEEPER_CONTAINER_PORT }],
                             env,
                             resources: {
-                                requests: { cpu: "25m", memory: "32Mi" },
-                                limits: { memory: "64Mi" },
+                                requests: { cpu: "256m", memory: "128Mi" },
+                                limits: { memory: "256Mi" },
                             },
                             readinessProbe: {
                                 httpGet: { path: GATEKEEPER_HEALTH_PATH, port: GATEKEEPER_CONTAINER_PORT },
@@ -329,9 +329,9 @@ export function buildGatekeeperServiceAccount(namespace: string, prNumber: numbe
 
 /**
  * Least-privilege namespaced Role: Gatekeeper patches replicas + the wake
- * annotation on managed Deployments/StatefulSets and reads EndpointSlices to detect
- * readiness. It runs as its own in-cluster ServiceAccount (not previewkit's
- * cross-cluster creds).
+ * annotation on managed Deployments/StatefulSets, reads their status to know when
+ * the namespace is ready, and lists pods to fail a wake fast when one is wedged.
+ * It runs as its own in-cluster ServiceAccount (not previewkit's cross-cluster creds).
  */
 export function buildGatekeeperRole(namespace: string, prNumber: number): k8s.V1Role {
     return {
@@ -340,24 +340,19 @@ export function buildGatekeeperRole(namespace: string, prNumber: number): k8s.V1
         metadata: { name: GATEKEEPER_NAME, namespace, labels: gatekeeperLabels(prNumber) },
         rules: [
             {
+                // Gatekeeper polls workload status (readyReplicas) to know when the
+                // whole namespace is awake before proxying, and patches spec.replicas
+                // to sleep/wake.
                 apiGroups: ["apps"],
                 resources: ["deployments", "statefulsets"],
                 verbs: ["get", "list", "watch", "patch"],
             },
             {
-                // Gatekeeper polls EndpointSlices (discovery.k8s.io/v1) for readiness on
-                // wake - the core Endpoints API it replaced is deprecated in k8s 1.33+.
-                apiGroups: ["discovery.k8s.io"],
-                resources: ["endpointslices"],
-                verbs: ["get", "list"],
-            },
-            {
-                // services: read a Service's pod selector; pods: fail a wake fast when a
-                // backing pod is wedged (bad image, crash loop) instead of waiting out
-                // the wake timeout.
+                // pods: on wake, fail fast when a managed pod is wedged (bad image,
+                // crash loop) instead of waiting out the wake timeout.
                 apiGroups: [""],
-                resources: ["services", "pods"],
-                verbs: ["get", "list"],
+                resources: ["pods"],
+                verbs: ["list"],
             },
         ],
     };
