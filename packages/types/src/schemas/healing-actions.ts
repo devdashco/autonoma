@@ -56,7 +56,16 @@ const reportEngineLimitationActionSchema = z.object({
 const removeTestActionSchema = z.object({
     kind: z.literal("remove_test"),
     testCaseId: z.string().describe("ID of the test case to delete from the suite"),
-    reason: z.string().describe("Why this test should be removed (e.g., feature was deleted from the app)"),
+    reason: z
+        .string()
+        .describe(
+            "Why this test should be removed: either it is invalid (not a viable flow, never useful without becoming a different test) or its feature was deleted from the app",
+        ),
+    evidence: z
+        .array(evidenceItemSchema)
+        .optional()
+        .describe("Optional screenshots, videos, step outputs supporting the removal"),
+    reviewLink: healingReviewLinkSchema,
 });
 
 export const healingActionSchema = z.discriminatedUnion("kind", [
@@ -79,4 +88,6 @@ export const reportEngineLimitationInputSchema = reportEngineLimitationActionSch
     kind: true,
     reviewLink: true,
 });
-export const removeTestInputSchema = removeTestActionSchema.omit({ kind: true });
+// reviewLink is attached by the runner from the failure that surfaced the problem, not authored
+// by the model, so removal is always failure-driven and citable.
+export const removeTestInputSchema = removeTestActionSchema.omit({ kind: true, reviewLink: true });

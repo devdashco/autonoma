@@ -280,7 +280,13 @@ export interface PersistedHealingAction {
               reasoning: string;
               reviewLink: HealingReviewLink;
           }
-        | { kind: "remove_test"; testCaseId: string; reason: string };
+        | {
+              kind: "remove_test";
+              testCaseId: string;
+              reason: string;
+              evidence?: HealingEvidenceItem[];
+              reviewLink: HealingReviewLink;
+          };
 }
 
 /** A candidate the agent decided not to graduate into a test, with its reasoning. */

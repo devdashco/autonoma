@@ -13,10 +13,10 @@ class DuplicateActionError extends FixableToolError {
     }
 }
 
-class UnreportableActionError extends FixableToolError {
+class UncitableActionError extends FixableToolError {
     constructor(public readonly testCaseId: string) {
         super(
-            `testCase ${testCaseId} cannot be the target of report_bug or report_engine_limitation. Either it is not one of this iteration's failing test cases, or its failure has no source review to link evidence to. Pick a different action (update_plan, remove_test) or a different testCaseId from the failure list.`,
+            `testCase ${testCaseId} cannot be the target of report_bug, report_engine_limitation, or remove_test. Either it is not one of this iteration's failing test cases, or its failure has no source review to cite. Only update_plan does not require a source review - pick that, or a different testCaseId from the failure list.`,
         );
     }
 }
@@ -30,14 +30,16 @@ class UnknownTestCaseError extends FixableToolError {
 }
 
 /**
- * Resolve the source review a report action must link evidence to. A test case
- * is reportable iff its failure carries a review link, so this doubles as the
- * reportability guard: it throws a fixable error when the model targets a test
- * case that has none.
+ * Resolve the source review a citing action must link to. A test case is
+ * citable iff its failure carries a review link, so this doubles as the
+ * citation guard for report_bug / report_engine_limitation / remove_test: it
+ * throws a fixable error when the model targets a test case that has none. This
+ * is what makes "a generation/run must surface the problem before a test can be
+ * removed" a boundary constraint rather than a prompt hope.
  */
 export function resolveReviewLink(loop: HealingAgentLoop, testCaseId: string): HealingReviewLink {
     const reviewLink = loop.reviewLinksByTestCaseId.get(testCaseId);
-    if (reviewLink == null) throw new UnreportableActionError(testCaseId);
+    if (reviewLink == null) throw new UncitableActionError(testCaseId);
     return reviewLink;
 }
 

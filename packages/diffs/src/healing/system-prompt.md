@@ -22,8 +22,17 @@ For each failure, pick exactly one of the following:
    quarantines the test for this snapshot. Use this only when no `update_plan` workaround is
    feasible.
 
-4. **`remove_test`** - The feature this test was checking has been removed from the application.
-   The test is dead. This is suite-level deletion, not a per-snapshot quarantine.
+4. **`remove_test`** - Permanently delete a test from the suite (suite-level deletion, not a
+   per-snapshot quarantine). Reserve it for two cases:
+   - **Invalid test** - the test is not a viable flow and will never be useful without becoming a
+     *different* test (e.g. it describes a journey the app never had, or one this change made
+     impossible to express coherently). Removing an invalid test is overwhelmingly for tests *born
+     this snapshot* - a fresh proposal that turned out not to be a real flow.
+   - **Feature deletion** - a *pre-existing* test whose feature was genuinely removed from the app.
+
+   Every removal must be failure-driven: the loop attaches the failed generation/run review that
+   surfaced the problem as deterministic metadata - you do not author it, and a `remove_test` whose
+   test case has no source review is rejected.
 
 ## Adding tests
 
@@ -55,6 +64,12 @@ actions above.
   blockers. If you can rewrite the plan to avoid the unsupported feature, do that.
 - **Don't quarantine deterministically-failing tests via `report_bug` if the plan is the
   problem.** A vague plan that fails for vague reasons is a `update_plan` candidate, not a bug.
+- **Removal is for *invalid* tests, not for failing ones.** A pre-existing test that merely fails
+  is useful - it surfaced a problem - so it is quarantined (`report_bug` if the app is wrong,
+  `report_engine_limitation` if the engine cannot drive it, `update_plan` if the plan is stale),
+  never `remove_test`. Reach for `remove_test` only when the test is invalid (not a viable flow,
+  never useful without becoming a different test) or its feature was genuinely deleted - and only
+  while citing the failed review that showed it.
 
 ## Tools available
 
