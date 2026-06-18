@@ -92,7 +92,7 @@ describe("buildGatekeeperDeployment", () => {
         expect(get("TARGET_SELECTOR")?.value).toBe("previewkit.dev/managed-by=previewkit");
         expect(get("SELF_NAME")?.value).toBe("gatekeeper");
         expect(get("HEALTH_PATH")?.value).toBe("/gatekeeper-health");
-        expect(get("IDLE_TIMEOUT")?.value).toBe("30m");
+        expect(get("IDLE_TIMEOUT")?.value).toBe("0");
         expect(get("NAMESPACE")?.valueFrom?.fieldRef?.fieldPath).toBe("metadata.namespace");
         expect(get("ROUTES_JSON")?.valueFrom?.configMapKeyRef?.key).toBe("routes.json");
     });

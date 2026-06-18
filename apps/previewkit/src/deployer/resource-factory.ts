@@ -276,7 +276,7 @@ export function buildGatekeeperDeployment(opts: GatekeeperOptions): k8s.V1Deploy
     //   - TARGET_SELECTOR + SELF_NAME: scale the previewkit-managed workloads, never itself.
     const env: k8s.V1EnvVar[] = [
         { name: "NAMESPACE", valueFrom: { fieldRef: { fieldPath: "metadata.namespace" } } },
-        { name: "IDLE_TIMEOUT", value: opts.idleTimeout },
+        { name: "IDLE_TIMEOUT", value: "0" },
         { name: "HEALTH_PATH", value: GATEKEEPER_HEALTH_PATH },
         { name: "TARGET_SELECTOR", value: MANAGED_SELECTOR },
         { name: "SELF_NAME", value: GATEKEEPER_NAME },
