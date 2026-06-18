@@ -5,6 +5,8 @@
 
 export interface RunWebGenerationInput {
     testGenerationId: string;
+    urlOverride?: string;
+    sdkUrlOverride?: string;
 }
 
 export interface RunWebReplayInput {

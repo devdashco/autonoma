@@ -30,6 +30,8 @@ export async function batchGenerationWorkflow(input: BatchGenerationInput): Prom
                         testGenerationId: plan.testGenerationId,
                         scenarioId: plan.scenarioId,
                         architecture,
+                        urlOverride: plan.urlOverride,
+                        sdkUrlOverride: plan.sdkUrlOverride,
                     },
                 ],
             }),

@@ -23,7 +23,7 @@ export async function scenarioUp(input: ScenarioUpInput): Promise<ScenarioUpOutp
     const encryption = new EncryptionHelper(getScenarioEncryptionKey());
     const manager = new ScenarioManager(db, encryption);
 
-    await doScenarioUp({ type, entityId: input.entityId }, { db, manager });
+    await doScenarioUp({ type, entityId: input.entityId, sdkUrlOverride: input.sdkUrlOverride }, { db, manager });
 
     logger.info("Scenario up completed, reading instance ID", { entityId: input.entityId });
 

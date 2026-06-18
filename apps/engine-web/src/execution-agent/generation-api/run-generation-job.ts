@@ -14,7 +14,7 @@ import { WebGenerationAPIRunner } from "./web-generation-api-runner";
 
 const VIDEO_EXTENSION = "webm";
 
-export async function runWebGenerationJob(testGenerationId: string) {
+export async function runWebGenerationJob(testGenerationId: string, urlOverride?: string, sdkUrlOverride?: string) {
     const logger = rootLogger.child({ name: "run-generation-job", testGenerationId });
 
     setScreenshotConfig({
@@ -50,6 +50,8 @@ export async function runWebGenerationJob(testGenerationId: string) {
             videoExtension: VIDEO_EXTENSION,
             generationPersister,
             costCollector,
+            urlOverride,
+            sdkUrlOverride,
         });
 
         await runner.runGeneration();

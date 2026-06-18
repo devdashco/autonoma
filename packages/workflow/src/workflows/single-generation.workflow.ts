@@ -22,10 +22,12 @@ export interface SingleGenerationInput {
     testGenerationId: string;
     scenarioId?: string;
     architecture: WorkflowArchitecture;
+    urlOverride?: string;
+    sdkUrlOverride?: string;
 }
 
 export async function singleGenerationWorkflow(input: SingleGenerationInput): Promise<void> {
-    const { testGenerationId, scenarioId, architecture } = input;
+    const { testGenerationId, scenarioId, architecture, urlOverride, sdkUrlOverride } = input;
 
     let scenarioInstanceId: string | undefined;
 
@@ -36,6 +38,7 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
                 scenarioJobType: "generation",
                 entityId: testGenerationId,
                 scenarioId,
+                sdkUrlOverride,
             });
             scenarioInstanceId = scenarioUpResult.scenarioInstanceId;
             log.info("Scenario setup complete", { testGenerationId, scenarioInstanceId });
@@ -55,7 +58,7 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     }
 
     try {
-        await runExecution(architecture, testGenerationId);
+        await runExecution(architecture, testGenerationId, urlOverride, sdkUrlOverride);
     } catch (error) {
         const message = rootFailureMessage(error);
         log.error("Generation execution failed, marking as failed", { testGenerationId, message });
@@ -81,7 +84,12 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
     }
 }
 
-async function runExecution(architecture: WorkflowArchitecture, testGenerationId: string): Promise<void> {
+async function runExecution(
+    architecture: WorkflowArchitecture,
+    testGenerationId: string,
+    urlOverride?: string,
+    sdkUrlOverride?: string,
+): Promise<void> {
     if (architecture === "WEB") {
         const { runWebGeneration } = proxyActivities<WebActivities>({
             startToCloseTimeout: "90m",
@@ -89,7 +97,7 @@ async function runExecution(architecture: WorkflowArchitecture, testGenerationId
             heartbeatTimeout: "2m",
             retry: { maximumAttempts: 1 },
         });
-        await runWebGeneration({ testGenerationId });
+        await runWebGeneration({ testGenerationId, urlOverride, sdkUrlOverride });
     } else {
         const { runMobileGeneration } = proxyActivities<MobileActivities>({
             startToCloseTimeout: "90m",

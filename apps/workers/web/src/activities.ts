@@ -13,7 +13,7 @@ export async function runWebGeneration(input: RunWebGenerationInput): Promise<vo
     const heartbeat = setInterval(() => Context.current().heartbeat(), 30_000);
 
     try {
-        await runWebGenerationJob(input.testGenerationId);
+        await runWebGenerationJob(input.testGenerationId, input.urlOverride, input.sdkUrlOverride);
         logger.info("Web generation execution completed");
     } finally {
         clearInterval(heartbeat);

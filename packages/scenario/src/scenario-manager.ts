@@ -53,11 +53,11 @@ export class ScenarioManager {
     async up(
         subject: ScenarioSubject,
         scenarioId: string,
-        opts?: { snapshotId?: string; sdkOptions?: SdkCallOptions },
+        opts?: { snapshotId?: string; sdkOptions?: SdkCallOptions; sdkUrlOverride?: string },
     ): Promise<ScenarioInstance> {
-        const { snapshotId, sdkOptions } = opts ?? {};
+        const { snapshotId, sdkOptions, sdkUrlOverride } = opts ?? {};
         const { applicationId, deploymentId } = await subject.resolveDeployment();
-        const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId);
+        const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId, sdkUrlOverride);
         const { organizationId } = applicationData;
         const sdkClient = this.createSdkClient(applicationData);
 
@@ -233,12 +233,14 @@ export class ScenarioManager {
     private async getApplicationDataForDeployment(
         applicationId: string,
         deploymentId: string,
+        sdkUrlOverride?: string,
     ): Promise<ScenarioApplicationData> {
         const sdkConfig = await resolveSdkConfig({
             applicationId,
             deploymentId,
             db: this.db,
             encryption: this.encryption,
+            sdkUrlOverride,
         });
 
         const application = await this.db.application.findUniqueOrThrow({

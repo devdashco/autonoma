@@ -27,6 +27,7 @@ export interface ScenarioUpInput {
     scenarioJobType: string;
     entityId: string;
     scenarioId: string;
+    sdkUrlOverride?: string;
 }
 
 export interface ScenarioUpOutput {

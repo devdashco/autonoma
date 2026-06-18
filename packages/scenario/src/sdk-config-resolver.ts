@@ -23,8 +23,9 @@ export async function resolveSdkConfig(params: {
     deploymentId: string;
     db: PrismaClient;
     encryption: EncryptionHelper;
+    sdkUrlOverride?: string;
 }): Promise<SdkConfig> {
-    const { applicationId, deploymentId, db, encryption } = params;
+    const { applicationId, deploymentId, db, encryption, sdkUrlOverride } = params;
 
     const application = await db.application.findUnique({
         where: { id: applicationId },
@@ -49,17 +50,19 @@ export async function resolveSdkConfig(params: {
     if (deployment == null) {
         throw new Error(`Deployment ${deploymentId} not found`);
     }
-    if (deployment.webhookUrl == null) {
-        throw new Error(`Deployment ${deploymentId} does not have an SDK URL configured`);
-    }
 
     const signingSecret = encryption.decrypt(application.signingSecretEnc);
     const customHeaders =
         deployment.webhookHeaders != null ? (deployment.webhookHeaders as Record<string, string>) : undefined;
 
+    const sdkUrl = sdkUrlOverride ?? deployment.webhookUrl;
+    if (sdkUrl == null) {
+        throw new Error(`Deployment ${deploymentId} does not have an SDK URL configured`);
+    }
+
     return {
         applicationId: application.id,
-        sdkUrl: deployment.webhookUrl,
+        sdkUrl,
         signingSecret,
         customHeaders,
     };

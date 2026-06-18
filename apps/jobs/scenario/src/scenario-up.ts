@@ -8,6 +8,7 @@ const INSTANCE_ID_OUTPUT_PATH = "/tmp/scenario-instance-id";
 export interface ScenarioUpParams {
     type: "run" | "generation";
     entityId: string;
+    sdkUrlOverride?: string;
 }
 
 export interface ScenarioUpDeps {
@@ -25,7 +26,7 @@ export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps)
     const { scenarioId, snapshotId } = await resolveScenarioContext(type, db, entityId, logger);
     logger.info("Scenario context resolved", { scenarioId, snapshotId });
 
-    const instance = await manager.up(subject, scenarioId, { snapshotId });
+    const instance = await manager.up(subject, scenarioId, { snapshotId, sdkUrlOverride: params.sdkUrlOverride });
 
     if (instance.status === "UP_FAILED") {
         logger.error("Scenario up failed", { instanceId: instance.id, lastError: instance.lastError });

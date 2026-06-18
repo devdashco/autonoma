@@ -30,7 +30,8 @@
         "oxlint": "1.57.0",
         "tsx": "catalog:",
         "turbo": "^2.9.18",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "zod": "catalog:"
     },
     "lint-staged": {
         "*.{ts,tsx,js,jsx}": [

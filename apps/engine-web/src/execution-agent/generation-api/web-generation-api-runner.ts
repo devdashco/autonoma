@@ -15,15 +15,21 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
     private readonly uploadLogger = rootLogger.child({ name: "web-generation-upload" });
     private readonly parseLogger = rootLogger.child({ name: "WebGenerationAPIRunner" });
     private readonly storageProvider: StorageProvider;
+    private readonly urlOverride?: string;
+    private readonly sdkUrlOverride?: string;
 
     constructor(
         config: ConstructorParameters<typeof GenerationAPIRunner<WebCommandSpec, WebContext, WebApplicationData>>[0] & {
             storageProvider: StorageProvider;
+            urlOverride?: string;
+            sdkUrlOverride?: string;
         },
     ) {
-        const { storageProvider, ...runnerConfig } = config;
+        const { storageProvider, urlOverride, sdkUrlOverride, ...runnerConfig } = config;
         super(runnerConfig);
         this.storageProvider = storageProvider;
+        this.urlOverride = urlOverride;
+        this.sdkUrlOverride = sdkUrlOverride;
     }
 
     public async parsePlanData(planData: PlanData): Promise<TestCase & WebApplicationData> {
@@ -68,13 +74,15 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
             hasCredentials: auth?.credentials != null,
         });
 
-        const webAppData = await buildWebApplicationData({ url: webDeployment.url, file, auth });
+        const appUrl = this.urlOverride ?? webDeployment.url;
+        const webAppData = await buildWebApplicationData({ url: appUrl, file, auth });
 
         this.parseLogger.info("Final WebApplicationData auth summary", {
             hasCookies: webAppData.cookies != null,
             cookieCount: webAppData.cookies?.length ?? 0,
             hasHeaders: webAppData.headers != null && Object.keys(webAppData.headers).length > 0,
             hasCredentials: auth?.credentials != null,
+            urlOverrideActive: this.urlOverride != null,
         });
 
         const recipeVariables = GenerationAPIRunner.parseResolvedVariables(scenarioInstance?.resolvedVariables);
@@ -86,7 +94,7 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
                 application.customInstructions,
                 auth?.credentials,
                 recipeVariables,
-                webDeployment.url,
+                appUrl,
             ),
             ...webAppData,
             credentials: auth?.credentials,
