@@ -29,4 +29,4 @@ jobs:
         with:
           release-type: node
           token: ${{ steps.app-token.outputs.token }}
-          versioning-strategy: always-bump-minor
+          versioning-strategy: always-bump-patch
