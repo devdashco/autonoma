@@ -3,11 +3,47 @@ import { z } from "zod";
 import type { ServiceConfig } from "../config/schema";
 import { BaseRecipe, passthroughOptionsSchema, type RecipeConnectionInfo, type RecipeResources } from "./recipe";
 
-// Allowlist of accepted image prefixes for options.image.
+// Allowlist of accepted image prefixes for an explicit options.image. The
+// default image (DEFAULT_POSTGRES_IMAGE) is internal, not user-supplied, so it
+// bypasses this list.
 const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:", "pgvector/pgvector:", "google/alloydbomni"];
 
+// The default Postgres image, used whenever a preview doesn't pin its own
+// options.image/version. It is the source of truth for which extensions are
+// available: it bundles a broad set (PostGIS, pgvector, timescaledb, pg_cron,
+// pg_graphql, ...) on top of the contrib modules, so any extension a preview
+// requests via options.extensions just works. There is no code-side allowlist -
+// to make a new extension available, bake it into the image. Built from
+// apps/previewkit/postgres.Dockerfile.
+const DEFAULT_POSTGRES_IMAGE = "public.ecr.aws/autonoma/postgres:16";
+
+// A few baked extensions only load via shared_preload_libraries - CREATE
+// EXTENSION fails outright otherwise. When the default image is in use and one
+// is requested, we add its library to the postgres args so it is loaded before
+// the init script runs (the entrypoint passes these args to the temporary server
+// it uses for /docker-entrypoint-initdb.d). Order is significant: timescaledb
+// must be preloaded first. Only applied to the default image, since a custom or
+// stock image may not ship these libraries (preloading a missing one would crash
+// the server on startup instead of failing a single CREATE EXTENSION).
+const PRELOAD_REQUIRED_EXTENSIONS: ReadonlyArray<{ extension: string; library: string }> = [
+    { extension: "timescaledb", library: "timescaledb" },
+    { extension: "pg_cron", library: "pg_cron" },
+    { extension: "pgaudit", library: "pgaudit" },
+];
+
+// Postgres extension names are identifiers; this only guards the generated init
+// script against malformed input, not membership (the image decides membership).
+const extensionName = z
+    .string()
+    .regex(/^[A-Za-z0-9_-]+$/, "Invalid extension name: use a Postgres extension identifier (letters, digits, _ or -)");
+
+// Database names are interpolated into the generated init script too; guard them
+// the same way as extension names (identifier shape, not membership).
+const databaseName = z.string().regex(/^[A-Za-z0-9_-]+$/, "Invalid database name: use letters, digits, _ or -");
+
 const optionsSchema = z.object({
-    databases: z.array(z.string()).default([]),
+    databases: z.array(databaseName).default([]),
+    extensions: z.array(extensionName).default([]),
     image: z
         .string()
         .refine((img) => ALLOWED_IMAGE_PREFIXES.some((prefix) => img.startsWith(prefix)), {
@@ -31,7 +67,6 @@ export type PostgresRestoreOptions = {
     region?: string;
 };
 
-const DEFAULT_VERSION = "16-alpine";
 const PORT = 5432;
 const DATA_MOUNT_PATH = "/var/lib/postgresql/data";
 
@@ -53,13 +88,21 @@ export class PostgresRecipe extends BaseRecipe {
 
     typedGenerate(config: ServiceConfig, namespace: string): RecipeResources {
         const options = optionsSchema.parse(config.options);
-        const version = config.version ?? DEFAULT_VERSION;
-        const image = options.image ?? `postgres:${version}`;
+        // Precedence: an explicit image wins; an explicit version opts out to the
+        // matching stock image (which carries only the contrib extensions);
+        // otherwise the default image, which bundles every baked extension.
+        const image = options.image ?? (config.version != null ? `postgres:${config.version}` : DEFAULT_POSTGRES_IMAGE);
+        const isDefaultImage = image === DEFAULT_POSTGRES_IMAGE;
+        const preloadLibraries = isDefaultImage ? resolvePreloadLibraries(options.extensions) : [];
+        const postgresArgs = ["-c", "max_connections=300"];
+        if (preloadLibraries.length > 0) {
+            postgresArgs.push("-c", `shared_preload_libraries=${preloadLibraries.join(",")}`);
+        }
         const labels = {
             "previewkit.dev/managed-by": "previewkit",
             "previewkit.dev/service": config.name,
         };
-        const hasExtraDatabases = options.databases.length > 0;
+        const needsInitScripts = options.databases.length > 0 || options.extensions.length > 0;
         const initConfigMapName = `${config.name}-initdb`;
 
         const pvc: k8s.V1PersistentVolumeClaim = {
@@ -98,7 +141,7 @@ export class PostgresRecipe extends BaseRecipe {
                                 name: config.name,
                                 image,
                                 ports: [{ containerPort: PORT }],
-                                args: ["-c", "max_connections=300"],
+                                args: postgresArgs,
                                 env: [
                                     { name: "POSTGRES_USER", value: "preview" },
                                     { name: "POSTGRES_PASSWORD", value: "preview" },
@@ -126,7 +169,7 @@ export class PostgresRecipe extends BaseRecipe {
                                         // why this single layout is used for every allowed image.
                                         mountPath: DATA_MOUNT_PATH,
                                     },
-                                    ...(hasExtraDatabases
+                                    ...(needsInitScripts
                                         ? [
                                               {
                                                   name: "initdb",
@@ -153,7 +196,7 @@ export class PostgresRecipe extends BaseRecipe {
                                 name: "data",
                                 persistentVolumeClaim: { claimName: `${config.name}-data` },
                             },
-                            ...(hasExtraDatabases
+                            ...(needsInitScripts
                                 ? [
                                       {
                                           name: "initdb",
@@ -185,12 +228,12 @@ export class PostgresRecipe extends BaseRecipe {
         };
 
         const configMaps: k8s.V1ConfigMap[] = [];
-        if (hasExtraDatabases) {
+        if (needsInitScripts) {
             configMaps.push({
                 apiVersion: "v1",
                 kind: "ConfigMap",
                 metadata: { name: initConfigMapName, namespace, labels },
-                data: { "01-create-databases.sh": buildInitScript(options.databases) },
+                data: { "01-init.sh": buildInitScript(options.databases, options.extensions) },
             });
         }
 
@@ -204,11 +247,34 @@ export class PostgresRecipe extends BaseRecipe {
     }
 }
 
-function buildInitScript(databases: string[]): string {
+// Map the requested extensions to the shared_preload_libraries they need,
+// preserving PRELOAD_REQUIRED_EXTENSIONS order (timescaledb first).
+function resolvePreloadLibraries(extensions: string[]): string[] {
+    const requested = new Set(extensions);
+    return PRELOAD_REQUIRED_EXTENSIONS.filter((entry) => requested.has(entry.extension)).map((entry) => entry.library);
+}
+
+function buildInitScript(databases: string[], extensions: string[]): string {
     const lines = ["#!/bin/bash", "set -e", ""];
+
     for (const db of databases) {
         lines.push(`createdb --username "$POSTGRES_USER" "${db}" || true`);
     }
+
+    if (extensions.length > 0) {
+        if (databases.length > 0) lines.push("");
+        // Enable each extension in the default database and every extra database.
+        // CASCADE pulls in any dependency extensions (e.g. earthdistance -> cube).
+        const targets = ['"$POSTGRES_DB"', ...databases.map((db) => `"${db}"`)].join(" ");
+        lines.push(`for database in ${targets}; do`);
+        for (const ext of extensions) {
+            lines.push(
+                `  psql --username "$POSTGRES_USER" --dbname "$database" -c 'CREATE EXTENSION IF NOT EXISTS "${ext}" CASCADE;'`,
+            );
+        }
+        lines.push("done");
+    }
+
     lines.push("");
     return lines.join("\n");
 }

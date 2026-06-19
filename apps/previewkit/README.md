@@ -282,7 +282,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 
 | Recipe | Image | Port | Notes |
 |--------|-------|------|-------|
-| `postgres` | `postgres:{version}-alpine` | 5432 | StatefulSet with PVC. Default version `16-alpine`; user/password/db all `preview`. Override with `options.image` (allowed prefixes: `postgres:`, `postgis/postgis:`, `pgvector/pgvector:`, `google/alloydbomni`) |
+| `postgres` | Previewkit's bundled image (broad extension set) | 5432 | StatefulSet with PVC. user/password/db all `preview`. Set `version` for stock `postgres:{version}`, or pin `options.image` (allowed prefixes: `postgres:`, `postgis/postgis:`, `pgvector/pgvector:`, `google/alloydbomni`). Extra databases + extensions via `options` (see below) |
 | `redis` | `redis:{version}-alpine` | 6379 | Deployment, no persistence. Default version `7-alpine` |
 | `valkey` | `valkey/valkey:{version}` | 6379 | Deployment, no persistence. Default version `8-alpine` |
 | `mongodb` | `mongo:{version}` | 27017 | StatefulSet with PVC. Single-node replica set (Change Streams); connect with `directConnection=true`. Default version `7` |
@@ -322,6 +322,52 @@ services:
 | `inject_headers` | No | Map of header -> value added to **every** proxied request via `proxy_set_header`. Since `proxy_set_header` overrides any client-supplied value, this is also how you stamp a trusted gateway-identity header (e.g. `x-gateway-source: api-gateway-proxy`) that upstreams can rely on - clients cannot spoof a header the gateway always overwrites. Header names must be valid HTTP tokens; values cannot contain double quotes or newlines |
 
 Routes are matched most-specific-first (longest `path` wins). The gateway also serves `GET /_health` (200) for its own readiness probe.
+
+### `postgres`
+
+By default the `postgres` recipe runs **Previewkit's own image**, built from
+[`postgres.Dockerfile`](postgres.Dockerfile), which bundles a broad set of extensions on top of the
+standard contrib modules. That image is the source of truth for which extensions are available -
+there is no code-side allowlist, so anything baked into it can be requested via `options.extensions`.
+
+The bundled set mirrors what [Neon](https://github.com/neondatabase/neon) ships, minus the
+heavyweight builds (plv8, rdkit, pg_duckdb, pg_mooncake, pgrag). Highlights:
+
+- **Search / types:** `vector` (pgvector), `postgis` (+ `postgis_raster`, `postgis_topology`),
+  `pgrouting`, `h3` / `h3_postgis`, `hll`, `rum`, `ip4r`, `prefix`, `unit`, `semver`,
+  `roaringbitmap`, `pg_uuidv7`, `pgx_ulid`, `pg_hashids`.
+- **App / API:** `pg_graphql`, `pg_jsonschema`, `pg_tiktoken`, `pgjwt`, plus contrib (`uuid-ossp`,
+  `pgcrypto`, `citext`, `hstore`, `pg_trgm`, `ltree`, ...).
+- **Ops / time-series:** `timescaledb`, `pg_cron`, `pg_partman`, `pg_repack`, `pg_ivm`, `hypopg`,
+  `pg_hint_plan`, `plpgsql_check`, `pgaudit`, `pgauditlogtofile`, `wal2json`, `pgtap`.
+
+Beyond the defaults, `postgres` accepts these `options`:
+
+```yaml
+services:
+  - name: db
+    recipe: postgres
+    options:
+      databases: [analytics, jobs]      # extra databases created alongside the default `preview`
+      extensions: [uuid-ossp, pgcrypto, vector, postgis, timescaledb]
+      storage: 5Gi                      # PVC size (default 1Gi)
+      image: postgres:17                # optional: pin a specific image (see precedence below)
+```
+
+`databases` and `extensions` are applied once, at first init, via a mounted init script. Each
+extension is created (`CREATE EXTENSION IF NOT EXISTS ... CASCADE`) in the default `preview` database
+and in every extra database. To make a new extension available, install it in
+[`postgres.Dockerfile`](postgres.Dockerfile).
+
+A few extensions (`timescaledb`, `pg_cron`, `pgaudit`) only load via `shared_preload_libraries`. When
+you request one of them on the default image, the recipe sets `shared_preload_libraries` for you - no
+extra config needed. This applies to the default image only; a pinned `options.image`/`version` is left
+untouched, since preloading a library it doesn't ship would crash startup.
+
+**Image precedence:** `options.image` (if set) wins; otherwise an explicit `version` selects the
+matching stock `postgres:{version}` (which carries only the contrib extensions, not the baked ones);
+otherwise the default image. An extension requested against an image that doesn't bundle it fails at
+init time, so only override `options.image`/`version` when you don't need the baked extensions.
 
 ### `docker-image`
 
