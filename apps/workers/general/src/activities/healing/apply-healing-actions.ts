@@ -3,16 +3,14 @@ import { BugMatcher, openModelSession } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
-import { applyAddTest } from "./apply-add-test";
 import { applyRemoveTest } from "./apply-remove-test";
 import { applyReportBug } from "./apply-report-bug";
 import { applyReportEngineLimitation } from "./apply-report-engine-limitation";
 import { applyUpdatePlan } from "./apply-update-plan";
-import { type AcceptedCandidateLink, reconcileFirstTurnOutcomes } from "./reconcile-first-turn";
 
 /**
  * Applies a batch of healing actions sequentially against the snapshot, then
- * - if any action created or changed a plan - opens iteration N+1 with the new
+ * - if any action changed a plan - opens iteration N+1 with the new
  * plan ids as its analysis scope.
  *
  * Sequencing matters: every action mutates the same snapshot, so applying them
@@ -39,8 +37,6 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
     const matcher = await buildBugMatcher(input);
 
     const nextIterationPlanIds: string[] = [];
-    // Collected for the first-turn apply tail (iteration 1 only).
-    const acceptedCandidateLinks: AcceptedCandidateLink[] = [];
 
     for (const { action, refinementActionId } of input.actions) {
         switch (action.kind) {
@@ -53,22 +49,6 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                     newPrompt: action.newPrompt,
                 });
                 nextIterationPlanIds.push(planId);
-                break;
-            }
-            case "add_test": {
-                const { planId, testCaseId } = await applyAddTest({
-                    refinementActionId,
-                    snapshotId: input.snapshotId,
-                    organizationId: input.organizationId,
-                    folderId: action.folderId,
-                    name: action.name,
-                    instruction: action.instruction,
-                    scenarioId: action.scenarioId,
-                });
-                nextIterationPlanIds.push(planId);
-                if (action.acceptingCandidateId != null) {
-                    acceptedCandidateLinks.push({ candidateId: action.acceptingCandidateId, testCaseId });
-                }
                 break;
             }
             case "report_bug": {
@@ -112,19 +92,6 @@ export async function applyHealingActions(input: ApplyHealingActionsInput): Prom
                 });
                 break;
         }
-    }
-
-    // First-turn apply tail: decide every candidate (accept/reject). Runs on
-    // iteration 1 regardless of whether any plan changed - a candidates-only first
-    // turn still needs its candidates decided. The affected-test -> regeneration
-    // link is no longer done here; applyUpdatePlan links it at queue time.
-    if (input.currentIterationNumber === 1) {
-        await reconcileFirstTurnOutcomes({
-            snapshotId: input.snapshotId,
-            acceptedCandidateLinks,
-            rejectedCandidates: input.rejectedCandidates,
-            logger,
-        });
     }
 
     if (nextIterationPlanIds.length === 0) {

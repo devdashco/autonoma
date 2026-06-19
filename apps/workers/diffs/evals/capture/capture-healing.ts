@@ -81,7 +81,7 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
     await writeFile(path.join(caseDir, "input.json"), `${JSON.stringify(frozenInput, null, 2)}\n`, "utf-8");
     await writeFile(
         path.join(caseDir, "expected.md"),
-        buildHealingExpected(`iteration ${iterationId}`, frozenInput.failures, frozenInput.candidates),
+        buildHealingExpected(`iteration ${iterationId}`, frozenInput.failures),
         "utf-8",
     );
 
@@ -89,7 +89,6 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
         extra: {
             caseDir,
             failures: frozenInput.failures.length,
-            candidates: frozenInput.candidates.length,
             priorActions: frozenInput.priorActions.length,
             scenarios: frozenInput.planAuthoring.scenarios.length,
             flows: frozenInput.planAuthoring.flows.length,

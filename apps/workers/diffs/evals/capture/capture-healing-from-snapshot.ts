@@ -10,7 +10,6 @@ import { createGithubApp } from "../../src/create-services";
 import {
     type HealingInputWithoutCodebase,
     collectFailureRecords,
-    loadFirstTurnCandidates,
     loadPlanAuthoringInput,
     mergeDiffJobContext,
     toHealingSubject,
@@ -38,11 +37,10 @@ export interface CaptureHealingFromSnapshotParams {
  * "resolution" ran outside the refinement loop so no iteration exists for
  * {@link captureHealing} to bucket. Everything the first turn saw is still in the
  * DB, just keyed by snapshot: the failures come from the affected-test replays
- * (the same plans `seedDiffsReplayPlanIds` seeds iteration 1 from), the
- * candidates from the snapshot's Step 1 proposals, and the change / analysis
+ * (the same plans diffs iteration 1 is seeded from) and the change / analysis
  * reasoning / per-failure lineage from the shared {@link DiffJobContextLoader}.
  * The result is the same frozen `HealingInput` the iteration-based capture
- * produces, so it replays through the merged Healing agent identically.
+ * produces, so it replays through the Healing agent identically.
  *
  * The suite (`existingTests` + flows) is read from the **previous** snapshot:
  * pre-#986 resolution mutated this snapshot's own assignments (modify/remove),
@@ -70,11 +68,10 @@ export async function captureHealingFromSnapshot(params: CaptureHealingFromSnaps
 
     const agentInput = await assembleFirstTurnInput(snapshotId, logger);
 
-    const noWork = agentInput.failures.length === 0 && agentInput.candidates.length === 0;
-    if (noWork) {
+    if (agentInput.failures.length === 0) {
         throw new Error(
-            `Snapshot ${snapshotId} has no failed affected-test replays and no candidates - nothing to capture. ` +
-                "Is this a diffs snapshot whose analysis step ran (the folded-resolution first turn)?",
+            `Snapshot ${snapshotId} has no failed affected-test replays - nothing to capture. ` +
+                "Is this a diffs snapshot whose analysis step ran (the first refinement turn)?",
         );
     }
 
@@ -84,7 +81,7 @@ export async function captureHealingFromSnapshot(params: CaptureHealingFromSnaps
     await writeFile(path.join(caseDir, "input.json"), `${JSON.stringify(frozenInput, null, 2)}\n`, "utf-8");
     await writeFile(
         path.join(caseDir, "expected.md"),
-        buildHealingExpected(`snapshot ${snapshotId}`, frozenInput.failures, frozenInput.candidates),
+        buildHealingExpected(`snapshot ${snapshotId}`, frozenInput.failures),
         "utf-8",
     );
 
@@ -92,7 +89,6 @@ export async function captureHealingFromSnapshot(params: CaptureHealingFromSnaps
         extra: {
             caseDir,
             failures: frozenInput.failures.length,
-            candidates: frozenInput.candidates.length,
             scenarios: frozenInput.planAuthoring.scenarios.length,
             flows: frozenInput.planAuthoring.flows.length,
         },
@@ -115,13 +111,11 @@ async function assembleFirstTurnInput(snapshotId: string, logger: Logger): Promi
     const buckets = await bucketPlanOutcomes(db, snapshotId, planIds, logger);
     const baseFailures = collectFailureRecords(buckets.failuresAtGeneration, buckets.failuresAtReplay);
 
-    const [diffJobContext, candidates, suiteInfo] = await Promise.all([
+    const [diffJobContext, suiteInfo] = await Promise.all([
         new DiffJobContextLoader(db).loadHealingContext({
             snapshotId,
             subjects: baseFailures.map(toHealingSubject),
         }),
-        // Iteration 1 is the folded-resolution first turn - the only turn that carries candidates.
-        loadFirstTurnCandidates(1, snapshotId),
         fetchTestSuiteInfo(db, baselineSnapshotId),
     ]);
 
@@ -142,7 +136,6 @@ async function assembleFirstTurnInput(snapshotId: string, logger: Logger): Promi
         maxIterations: maxIterationsForTrigger("diffs"),
         priorActions: [],
         failures,
-        candidates,
         flowIndex: new FlowIndex(flows),
         existingTests,
         planAuthoring,

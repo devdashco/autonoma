@@ -21,18 +21,18 @@ import type {
  *     {@link seedFirstIterationPlanIds}).
  *
  * `runFirstIterationPipeline` lets the workflow skip the iter-1 generation
- * pipeline child when iter 1 has nothing to generate; `firstIterationCandidateCount`
- * lets it run the Healing agent on a candidates-only first turn rather than
- * converging immediately.
+ * pipeline child when iter 1 has nothing to generate. It is true iff the
+ * snapshot has pending generations when the loop starts - one rule for both
+ * flows (onboarding's planner-queued gens, or the diffs agent's authored tests).
  *
  * Invariant this depends on: at trigger time, the seed set is exactly the plans
  * that need refinement. Maintained by the upstream flows that trigger the loop:
  *
  *   - Diffs: the diffs analysis step replays every affected test against the
  *     diff, so the affected tests' committed plans (the ones whose replays ran)
- *     are exactly iter 1's scope; iter 1 is a replay-only turn that buckets
- *     those runs directly. The Step 1 new-test candidates ride alongside as the
- *     first turn's `add_test` proposals.
+ *     are part of iter 1's scope; alongside them, the new tests the diffs agent
+ *     authored have pending generations that iter 1's pipeline generates + runs.
+ *     The seed set is the union of both.
  *   - Onboarding: `AddTest` changes during snapshot setup queue pending gens
  *     for every test the loop should validate; `addJob`'s per-test-case dedup
  *     prevents stale pending rows from accumulating.
@@ -57,15 +57,12 @@ export async function initRefinementLoop(input: InitRefinementLoopInput): Promis
     });
 
     return await db.$transaction(async (tx) => {
-        const planIds = await seedFirstIterationPlanIds(tx, input.snapshotId, input.triggeredBy, logger);
-
-        // Candidates only exist for the diffs trigger (Step 1 proposals); onboarding
-        // has none. They are still pending at init time - reconciliation runs in the
-        // first-turn apply tail, after the Healing agent decides them.
-        const firstIterationCandidateCount =
-            input.triggeredBy === "diffs"
-                ? await tx.testCandidate.count({ where: { snapshotId: input.snapshotId, status: "pending" } })
-                : 0;
+        const { planIds, runFirstIterationPipeline } = await seedFirstIterationPlanIds(
+            tx,
+            input.snapshotId,
+            input.triggeredBy,
+            logger,
+        );
 
         const loop = await tx.refinementLoop.create({
             data: {
@@ -88,15 +85,11 @@ export async function initRefinementLoop(input: InitRefinementLoopInput): Promis
             });
         }
 
-        // Diffs iter 1 analyzes replays that already ran upstream, so it never
-        // fires the generation pipeline. Onboarding fires it for its pending gens.
-        const runFirstIterationPipeline = input.triggeredBy === "onboarding" && planIds.length > 0;
-
         logger.info("Refinement loop initialized", {
             loopId: loop.id,
             iterationId: iteration.id,
             organizationId: updater.organizationId,
-            extra: { inputCount: planIds.length, runFirstIterationPipeline, firstIterationCandidateCount },
+            extra: { inputCount: planIds.length, runFirstIterationPipeline },
         });
 
         return {
@@ -104,51 +97,72 @@ export async function initRefinementLoop(input: InitRefinementLoopInput): Promis
             organizationId: updater.organizationId,
             firstIterationId: iteration.id,
             runFirstIterationPipeline,
-            firstIterationCandidateCount,
         };
     });
+}
+
+interface SeededFirstIteration {
+    /** The plan ids that make up iteration 1's analysis scope. */
+    planIds: string[];
+    /**
+     * Whether iteration 1 has pending generations the iter-1 pipeline must
+     * generate + run. True iff the snapshot has any pending generation.
+     */
+    runFirstIterationPipeline: boolean;
 }
 
 /**
  * Seed iteration 1's input plan ids by trigger.
  *
- *   - Diffs: the affected tests' committed plans, taken from the replays the
- *     diffs analysis step already ran. Only affected tests with a plan-linked
- *     run are seeded; one without a run has neither a generation nor a run and
- *     would trip the bucketer's "neither" invariant.
+ *   - Diffs: the union of (a) the affected tests' committed plans, taken from
+ *     the replays the diffs analysis step already ran, and (b) the new tests the
+ *     diffs agent authored during analysis, which have pending generations. Only
+ *     affected tests with a plan-linked run are seeded; one without a run has
+ *     neither a generation nor a run and would trip the bucketer's "neither"
+ *     invariant. The new tests are generated + run by the iter-1 pipeline.
  *   - Onboarding: the snapshot's pending generations (the work the loop must
  *     finish before activating the snapshot).
+ *
+ * `runFirstIterationPipeline` is true iff the snapshot has any pending
+ * generation - the new tests (diffs) or the planner's gens (onboarding).
  */
 async function seedFirstIterationPlanIds(
     tx: Prisma.TransactionClient,
     snapshotId: string,
     triggeredBy: RefinementTrigger,
     logger: Logger,
-): Promise<string[]> {
-    if (triggeredBy === "diffs") return await seedDiffsReplayPlanIds(tx, snapshotId, logger);
-    return await seedOnboardingPendingPlanIds(tx, snapshotId);
+): Promise<SeededFirstIteration> {
+    const pendingGenPlanIds = await pendingGenerationPlanIds(tx, snapshotId);
+    const runFirstIterationPipeline = pendingGenPlanIds.length > 0;
+
+    if (triggeredBy === "onboarding") {
+        return { planIds: pendingGenPlanIds, runFirstIterationPipeline };
+    }
+
+    const replayPlanIds = await diffsReplayPlanIds(tx, snapshotId);
+    const planIds = [...new Set([...replayPlanIds, ...pendingGenPlanIds])];
+    logger.info("Seeded diffs iteration 1", {
+        extra: {
+            replayPlanIds: replayPlanIds.length,
+            newTestPlanIds: pendingGenPlanIds.length,
+            planIds: planIds.length,
+        },
+    });
+    return { planIds, runFirstIterationPipeline };
 }
 
-/** Diffs: the plans the affected-test replays ran against (deduped). */
-async function seedDiffsReplayPlanIds(
-    tx: Prisma.TransactionClient,
-    snapshotId: string,
-    logger: Logger,
-): Promise<string[]> {
+/** The plans the affected-test replays ran against (deduped). */
+async function diffsReplayPlanIds(tx: Prisma.TransactionClient, snapshotId: string): Promise<string[]> {
     const affected = await tx.affectedTest.findMany({
         where: { snapshotId, runId: { not: null } },
         select: { run: { select: { planId: true } } },
     });
 
-    const planIds = [...new Set(affected.map((a) => a.run?.planId).filter((id): id is string => id != null))];
-    logger.info("Seeded iteration 1 from affected-test replays", {
-        extra: { affectedWithRuns: affected.length, planIds: planIds.length },
-    });
-    return planIds;
+    return [...new Set(affected.map((a) => a.run?.planId).filter((id): id is string => id != null))];
 }
 
-/** Onboarding: the snapshot's pending generations, one input per plan. */
-async function seedOnboardingPendingPlanIds(tx: Prisma.TransactionClient, snapshotId: string): Promise<string[]> {
+/** The snapshot's pending generations, one plan id per generation (deduped + invariant-checked). */
+async function pendingGenerationPlanIds(tx: Prisma.TransactionClient, snapshotId: string): Promise<string[]> {
     const pending = await tx.testGeneration.findMany({
         where: { snapshotId, status: "pending" },
         select: { testPlanId: true },

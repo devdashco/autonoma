@@ -26,13 +26,10 @@ export {
     GenerationReviewer,
     type GenerationReviewerConfig,
     type GenerationReviewInput,
-    HealingAddTestTool,
     HealingAgent,
     HealingAgentLoop,
     type HealingAgentConfig,
     type HealingInput,
-    healingNewTestSchema,
-    type HealingNewTest,
     type HealingResult,
     ListFlowsTool,
     ListScenariosTool,
@@ -57,11 +54,11 @@ export {
     type SubagentConfig,
     type SubagentInput,
     type SubagentResult,
-    type TestCandidate,
+    type CreatedTest,
     type TestLookupLoop,
     ViewFinalScreenshotTool,
     ViewStepScreenshotTool,
-    testCandidateSchema,
+    createTestSchema,
     validateCommand,
 } from "./agents";
 
@@ -91,13 +88,7 @@ export { buildVerdicts, type RunReviewVerdict } from "./loaders/build-verdicts";
 
 export { Codebase } from "./codebase";
 
-export type {
-    FailureRecord,
-    HealingRejectedCandidate,
-    HealingTestCandidate,
-    SnapshotInfo,
-    PlanAuthoringInput,
-} from "./healing/types";
+export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export {
     bucketIterationOutcomes,
     bucketPlanOutcomes,

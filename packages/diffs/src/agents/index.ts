@@ -10,7 +10,6 @@ export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
 
 export { HealingAgent, type HealingAgentConfig, type HealingInput, type HealingResult } from "./healing/healing-agent";
 export { HealingAgentLoop } from "./healing/healing-agent-loop";
-export { HealingAddTestTool, healingNewTestSchema, type HealingNewTest } from "./healing/tools/add-test-tool";
 
 export { ReviewerLoop } from "./reviewers/reviewer-loop";
 export {
@@ -26,7 +25,7 @@ export {
     type AffectedReason,
     type AffectedTest,
 } from "./diffs/affected-test";
-export { testCandidateSchema, type TestCandidate } from "./diffs/tools/suggest-test-tool";
+export { createTestSchema, type CreatedTest } from "./diffs/tools/create-test-tool";
 
 export {
     BashTool,

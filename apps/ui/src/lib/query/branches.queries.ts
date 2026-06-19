@@ -80,11 +80,8 @@ export function useSnapshotDetail(snapshotId: string, options?: SnapshotDetailOp
         refetchInterval: (query) => {
             const data = query.state.data;
             if (data == null) return false;
-            const allGens = [
-                ...data.diffsJob.affectedTests.map((t) => t.generation),
-                ...data.diffsJob.testCandidates.map((c) => c.generation),
-            ];
-            const hasIncompleteGenerations = allGens.some(
+            const affectedGens = data.diffsJob.affectedTests.map((t) => t.generation);
+            const hasIncompleteGenerations = affectedGens.some(
                 (g) => g != null && INCOMPLETE_GENERATION_STATUSES.has(g.status),
             );
             const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(data.diffsJob.status);

@@ -3,7 +3,6 @@ import { AffectedTestRow } from "./affected-test-row";
 import type { AffectedTest, DiffsJob } from "./diffs-timeline-types";
 import { ReasoningBlock } from "./reasoning-block";
 import { StageEmpty } from "./stage-empty";
-import { TestCandidateRow } from "./test-candidate-row";
 
 type GenerationStatus = NonNullable<AffectedTest["generation"]>["status"];
 
@@ -24,7 +23,6 @@ interface StageResolutionProps {
 
 export function StageResolution({ job }: StageResolutionProps) {
   const queuedForRegeneration = job.affectedTests.filter((t) => t.generation != null);
-  const decidedCandidates = job.testCandidates.filter((c) => c.status !== "pending");
 
   return (
     <div className="flex flex-col gap-4">
@@ -48,19 +46,6 @@ export function StageResolution({ job }: StageResolutionProps) {
           </div>
         ) : (
           <StageEmpty message="No tests queued for regeneration" />
-        )}
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <SectionHeader title="Candidate decisions" count={decidedCandidates.length} />
-        {decidedCandidates.length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            {decidedCandidates.map((candidate) => (
-              <TestCandidateRow key={candidate.id} candidate={candidate} />
-            ))}
-          </div>
-        ) : (
-          <StageEmpty message="No candidate decisions yet" />
         )}
       </div>
     </div>

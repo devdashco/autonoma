@@ -64,25 +64,6 @@ export interface FailureRecord {
     reviewLink?: HealingReviewLink;
 }
 
-/**
- * A new-test candidate carried into a refinement turn (today, the first turn,
- * seeded from the diff-analysis step). The agent decides per candidate whether
- * to graduate it into a real test via `add_test` (referencing its id) or to
- * reject it; the result tool enforces that every candidate is decided.
- */
-export interface HealingTestCandidate {
-    candidateId: string;
-    name: string;
-    instruction: string;
-    reasoning: string;
-}
-
-/** A candidate the agent decided not to graduate into a test, with its reasoning. */
-export interface HealingRejectedCandidate {
-    candidateId: string;
-    reasoning: string;
-}
-
 export interface SnapshotInfo {
     snapshotId: string;
     applicationId: string;

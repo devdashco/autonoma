@@ -4,7 +4,6 @@ import {
     type FlowInfo,
     FlowIndex,
     type FlowSummary,
-    type HealingTestCandidate,
     type HealingInput as LiveHealingInput,
     ScenarioIndex,
     type ScenarioInfo,
@@ -83,13 +82,6 @@ const flowInfoSchema = z.object({
     testSlugs: z.array(z.string()),
 });
 
-const testCandidateSchema = z.object({
-    candidateId: z.string(),
-    name: z.string(),
-    instruction: z.string(),
-    reasoning: z.string(),
-});
-
 const scenarioRecipeSchema = z.object({
     fingerprint: z.string(),
     fixtureJson: z.unknown(),
@@ -128,23 +120,22 @@ const planAuthoringSchema = z.object({
  * snapshot-level diff-job context, both required - healing runs against a
  * checked-out head SHA, downstream of a successful analysis. `analysisReasoning`
  * is defaulted so a fixture frozen before it was captured still rehydrates.
- * `candidates`, `existingTests`, and `flowIndex` are defaulted for the same
- * reason (fixtures frozen before the resolution capabilities folded in).
+ * `existingTests` and `flowIndex` are defaulted for the same reason (fixtures
+ * frozen before those capabilities folded in).
  */
 export const healingCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
     iteration: z.number().int().positive(),
-    // The loop's trigger-specific iteration cap; the agent withholds its retry
-    // tools when `iteration === maxIterations`. Defaulted to the diffs cap (4,
-    // the corpus is diffs-only) so a fixture frozen before this field was
-    // captured still rehydrates with production-faithful final-turn behavior.
-    maxIterations: z.number().int().positive().default(4),
+    // The loop's iteration cap; the agent withholds its retry tool when
+    // `iteration === maxIterations`. Defaulted to the cap both flows now use (3)
+    // so a fixture frozen before this field was captured still rehydrates with
+    // production-faithful final-turn behavior.
+    maxIterations: z.number().int().positive().default(3),
     snapshotId: z.string(),
     applicationId: z.string(),
     organizationId: z.string(),
     priorActions: z.array(healingActionSchema),
     failures: z.array(failureRecordSchema),
-    candidates: z.array(testCandidateSchema).default([]),
     existingTests: z.array(existingTestInfoSchema).default([]),
     flowIndex: z.array(flowInfoSchema).default([]),
     planAuthoring: planAuthoringSchema,
@@ -173,7 +164,6 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
     const flowSummaries: FlowSummary[] = parsed.planAuthoring.flows;
     const flows: FlowInfo[] = parsed.flowIndex;
     const existingTests: ExistingTestInfo[] = parsed.existingTests;
-    const candidates: HealingTestCandidate[] = parsed.candidates;
 
     const agentInput: HealingInputWithoutCodebase = {
         iteration: parsed.iteration,
@@ -183,7 +173,6 @@ export function rehydrateHealingInput(parsed: HealingCaseInput): RehydratedHeali
         organizationId: parsed.organizationId,
         priorActions: parsed.priorActions,
         failures: parsed.failures,
-        candidates,
         flowIndex: new FlowIndex(flows),
         existingTests,
         planAuthoring: {
@@ -218,7 +207,6 @@ export function serializeHealingInput(
         organizationId: agentInput.organizationId,
         priorActions: agentInput.priorActions,
         failures: agentInput.failures,
-        candidates: agentInput.candidates,
         existingTests: agentInput.existingTests,
         flowIndex: agentInput.flowIndex.toArray(),
         planAuthoring: {

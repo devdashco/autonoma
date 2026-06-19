@@ -30,7 +30,7 @@ export class ReadScenarioTool extends AgentTool<ReadScenarioInput, ReadScenarioO
                 "Read the full details of a specific scenario by id. Returns the scenario's name, description, " +
                 "the recipe that defines exactly what data gets seeded (models + fields), and sample metadata from " +
                 "a past instance (e.g., the test user's email or role) when available. Use this to verify that a " +
-                "scenario seeds the preconditions a new test needs before picking it in `add_test`.",
+                "scenario seeds the preconditions a new test needs before binding it to that test.",
             inputSchema: readScenarioInputSchema,
         });
     }

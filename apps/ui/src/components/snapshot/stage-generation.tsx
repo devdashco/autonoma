@@ -21,14 +21,6 @@ export function StageGeneration({ job, refinementLoop, snapshotId }: StageGenera
     if (t.generation == null) continue;
     items.push({ id: t.generation.id, status: t.generation.status, testCaseName: t.testCase.name });
   }
-  for (const c of job.testCandidates) {
-    if (c.generation == null) continue;
-    items.push({
-      id: c.generation.id,
-      status: c.generation.status,
-      testCaseName: c.acceptedTestCase?.name ?? c.name,
-    });
-  }
 
   if (items.length === 0) {
     return <StageEmpty message="No generations spawned" />;

@@ -1,19 +1,6 @@
-import type {
-    AffectedTest,
-    ExecutedTest,
-    QuarantinedTest,
-    SnapshotChange,
-    TestCandidate,
-} from "./diffs-timeline-types";
+import type { AffectedTest, ExecutedTest, QuarantinedTest, SnapshotChange } from "./diffs-timeline-types";
 
-export type EntryCategory =
-    | "added"
-    | "modified"
-    | "checked"
-    | "removed"
-    | "newly-quarantined"
-    | "proposed-pending"
-    | "proposed-rejected";
+export type EntryCategory = "added" | "modified" | "checked" | "removed" | "newly-quarantined";
 
 export interface TestEntry {
     urlId: string;
@@ -21,7 +8,6 @@ export interface TestEntry {
     testName: string;
     testSlug?: string;
     reasoning?: string;
-    rejectionReasoning?: string;
     plan?: string;
     previousPlan?: string;
     generation?: { id: string; status: string; reviewReasoning?: string };
@@ -48,29 +34,21 @@ export const CATEGORY: Record<
     checked: { label: "checked", variant: "neutral" },
     removed: { label: "removed", variant: "critical" },
     "newly-quarantined": { label: "newly quarantined", variant: "high" },
-    "proposed-pending": { label: "proposed", variant: "neutral" },
-    "proposed-rejected": { label: "rejected", variant: "neutral" },
 };
 
 export function buildSections({
     changes,
     affectedTests,
-    testCandidates,
     quarantinedTests,
     executedTests,
 }: {
     changes: SnapshotChange[];
     affectedTests: AffectedTest[];
-    testCandidates: TestCandidate[];
     quarantinedTests: QuarantinedTest[];
     executedTests: ExecutedTest[];
 }): Section[] {
     const affectedByTestCaseId = new Map(affectedTests.map((t) => [t.testCase.id, t]));
     const executedByTestCaseId = new Map(executedTests.map((e) => [e.testCase.id, e]));
-    const candidateByAcceptedTestCaseId = new Map<string, TestCandidate>();
-    for (const c of testCandidates) {
-        if (c.acceptedTestCase != null) candidateByAcceptedTestCaseId.set(c.acceptedTestCase.id, c);
-    }
     const quarantineByTestCaseId = new Map(quarantinedTests.map((q) => [q.testCase.id, q]));
 
     const added: TestEntry[] = [];
@@ -78,22 +56,20 @@ export function buildSections({
     const checked: TestEntry[] = [];
     const removed: TestEntry[] = [];
     const newlyQuarantined: TestEntry[] = [];
-    const proposed: TestEntry[] = [];
 
     const surfaced = new Set<string>();
 
     for (const change of changes) {
         if (change.type === "added") {
-            const candidate = candidateByAcceptedTestCaseId.get(change.testCaseId);
+            // Added tests are authored by the diffs agent (or onboarding) and run through
+            // the refinement loop; surface their latest executed run.
             added.push({
                 urlId: change.testCaseId,
                 category: "added",
                 testName: change.testCaseName,
                 testSlug: change.testCaseSlug,
-                reasoning: candidate?.reasoning,
                 plan: change.plan,
-                generation: candidateGeneration(candidate),
-                run: candidateRun(candidate),
+                run: executedRun(executedByTestCaseId.get(change.testCaseId)),
                 quarantine: quarantineByTestCaseId.get(change.testCaseId),
             });
             surfaced.add(change.testCaseId);
@@ -155,21 +131,6 @@ export function buildSections({
         });
     }
 
-    for (const c of testCandidates) {
-        if (c.acceptedTestCase != null && surfaced.has(c.acceptedTestCase.id)) continue;
-        if (c.status === "accepted" && c.acceptedTestCase == null) continue;
-        const urlId = c.acceptedTestCase?.id ?? `proposal-${c.id}`;
-        proposed.push({
-            urlId,
-            category: c.status === "rejected" ? "proposed-rejected" : "proposed-pending",
-            testName: c.acceptedTestCase?.name ?? c.name,
-            testSlug: c.acceptedTestCase?.slug,
-            reasoning: c.reasoning,
-            rejectionReasoning: c.rejectionReasoning ?? undefined,
-            plan: c.instruction,
-        });
-    }
-
     return [
         { title: "Added", entries: added },
         { title: "Modified", entries: modified },
@@ -180,30 +141,17 @@ export function buildSections({
         },
         { title: "Removed", entries: removed },
         { title: "Newly quarantined", entries: newlyQuarantined },
-        {
-            title: "Proposed (not added)",
-            hint: "Proposals that were not added to the suite (pending or rejected).",
-            entries: proposed,
-        },
     ];
 }
 
-function candidateGeneration(c: TestCandidate | undefined): TestEntry["generation"] {
-    if (c?.generation == null) return undefined;
+/** The latest executed run for a test case in this snapshot, when one exists. */
+function executedRun(executed: ExecutedTest | undefined): TestEntry["run"] {
+    if (executed?.runId == null) return undefined;
     return {
-        id: c.generation.id,
-        status: c.generation.status,
-        reviewReasoning: c.generation.reviewReasoning ?? undefined,
-    };
-}
-
-function candidateRun(c: TestCandidate | undefined): TestEntry["run"] {
-    if (c?.run == null) return undefined;
-    return {
-        id: c.run.id,
-        status: c.run.status,
-        verdict: c.run.verdict ?? undefined,
-        reviewReasoning: c.run.reviewReasoning ?? undefined,
+        id: executed.runId,
+        status: executed.status,
+        verdict: executed.verdict ?? undefined,
+        reviewReasoning: executed.reviewReasoning ?? undefined,
     };
 }
 

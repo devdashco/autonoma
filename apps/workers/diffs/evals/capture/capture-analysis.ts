@@ -82,17 +82,15 @@ skip: true
 #   include: []   # slugs that MUST be reported affected
 #   exclude: []   # slugs that must NOT be reported affected
 #   exact: []     # the exact affected set (order-insensitive)
-# candidates:
-#   minCount: 0
-#   maxCount: 0
 ---
 
 TODO: author the LLM-judge rubric here.
 
 The judge sees only the agent's structured output plus this body - never the
 codebase or screenshots. Grade qualities the deterministic checks above cannot
-express (was the reasoning sound? are the suggested test candidates sensible and
-on-topic? was the right rationale given?). Keep every point additive to the
-frontmatter, and phrase each as something checkable from the output alone.
+express (was the reasoning sound? are the authored tests via create_test
+non-redundant and on-topic, with a clear coverage justification? was the right
+rationale given?). Keep every point additive to the frontmatter, and phrase each
+as something checkable from the output alone.
 `;
 }

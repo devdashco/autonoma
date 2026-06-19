@@ -372,15 +372,7 @@ function useSnapshotDetails(snapshots: Snapshot[]): SnapshotDetail[] {
   });
 }
 
-const TEST_CATEGORY_ORDER: EntryCategory[] = [
-  "modified",
-  "added",
-  "checked",
-  "removed",
-  "newly-quarantined",
-  "proposed-pending",
-  "proposed-rejected",
-];
+const TEST_CATEGORY_ORDER: EntryCategory[] = ["modified", "added", "checked", "removed", "newly-quarantined"];
 
 const TEST_CATEGORY_TITLE: Record<EntryCategory, string> = {
   added: "Added",
@@ -388,8 +380,6 @@ const TEST_CATEGORY_TITLE: Record<EntryCategory, string> = {
   checked: "Checked",
   removed: "Removed",
   "newly-quarantined": "Newly quarantined",
-  "proposed-pending": "Proposed",
-  "proposed-rejected": "Rejected",
 };
 
 function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSection[] {
@@ -403,7 +393,6 @@ function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSec
     const sections = buildSections({
       changes: detail.changes,
       affectedTests: detail.diffsJob.affectedTests,
-      testCandidates: detail.diffsJob.testCandidates,
       quarantinedTests: detail.quarantinedTests,
       executedTests: detail.executedTests,
     });

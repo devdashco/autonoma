@@ -1,5 +1,5 @@
-import type { DiffsAgentInput, FlowInfo } from "@autonoma/diffs";
-import { FlowIndex, scenarioRecipeDataSchema } from "@autonoma/diffs";
+import type { DiffsAgentInput, FlowInfo, ScenarioInfo } from "@autonoma/diffs";
+import { FlowIndex, ScenarioIndex, scenarioRecipeDataSchema } from "@autonoma/diffs";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 
@@ -27,6 +27,20 @@ const flowInfoSchema = z.object({
     testSlugs: z.array(z.string()),
 });
 
+const scenarioRecipeSchema = z.object({
+    fingerprint: z.string(),
+    fixtureJson: z.unknown(),
+    validationStatus: z.string(),
+});
+
+const scenarioInfoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    activeRecipe: scenarioRecipeSchema.optional(),
+    sampleMetadata: z.unknown().optional(),
+});
+
 const mergeContextInfoSchema = z.object({
     prNumber: z.number(),
     sourceBranchName: z.string(),
@@ -52,10 +66,12 @@ const preClassifiedConflictInfoSchema = z.object({
 /**
  * The frozen, on-disk shape of a captured Analysis case (`input.json`).
  *
- * It mirrors {@link DiffsAgentInput} with two substitutions per the eval-case
+ * It mirrors {@link DiffsAgentInput} with three substitutions per the eval-case
  * contract: the live `Codebase` becomes {@link CodebaseCoords}, and the
- * `FlowIndex` instance becomes its underlying array. Everything else is the
- * plain assembled agent input.
+ * `FlowIndex` and `ScenarioIndex` instances become their underlying arrays.
+ * Everything else is the plain assembled agent input. `scenarios` is defaulted
+ * so a fixture frozen before the diffs agent gained scenario binding still
+ * rehydrates.
  */
 export const analysisCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -63,6 +79,7 @@ export const analysisCaseInputSchema = z.object({
     baseSha: z.string(),
     existingTests: z.array(existingTestInfoSchema),
     flowIndex: z.array(flowInfoSchema),
+    scenarios: z.array(scenarioInfoSchema).default([]),
     merges: z.array(mergeContextInfoSchema).optional(),
     preClassifiedConflicts: z.array(preClassifiedConflictInfoSchema).optional(),
     testScopeGuidelines: z.string().optional(),
@@ -78,18 +95,20 @@ export interface RehydratedAnalysisInput {
 }
 
 /**
- * Reconstruct the agent input from a parsed case, rebuilding the `FlowIndex`
- * from its array form. The codebase itself is returned separately as coords for
- * the caller to rehydrate via `ensureCachedCheckout`.
+ * Reconstruct the agent input from a parsed case, rebuilding the `FlowIndex` and
+ * `ScenarioIndex` from their array forms. The codebase itself is returned
+ * separately as coords for the caller to rehydrate via `ensureCachedCheckout`.
  */
 export function rehydrateAnalysisInput(parsed: AnalysisCaseInput): RehydratedAnalysisInput {
     const flows: FlowInfo[] = parsed.flowIndex;
+    const scenarios: ScenarioInfo[] = parsed.scenarios;
 
     const agentInput: DiffsAgentInputWithoutCodebase = {
         headSha: parsed.headSha,
         baseSha: parsed.baseSha,
         existingTests: parsed.existingTests,
         flowIndex: new FlowIndex(flows),
+        scenarios: new ScenarioIndex(scenarios),
         merges: parsed.merges ?? [],
         preClassifiedConflicts: parsed.preClassifiedConflicts ?? [],
         scenarioRecipes: parsed.scenarioRecipes ?? [],
@@ -101,8 +120,9 @@ export function rehydrateAnalysisInput(parsed: AnalysisCaseInput): RehydratedAna
 
 /**
  * Freeze an assembled agent input into the on-disk case shape: replace the live
- * codebase with the given coords and the `FlowIndex` with its array. Validated
- * through the schema so capture can never write a malformed `input.json`.
+ * codebase with the given coords and the `FlowIndex` / `ScenarioIndex` with
+ * their arrays. Validated through the schema so capture can never write a
+ * malformed `input.json`.
  */
 export function serializeAnalysisInput(
     coords: CodebaseCoords,
@@ -114,6 +134,7 @@ export function serializeAnalysisInput(
         baseSha: agentInput.baseSha,
         existingTests: agentInput.existingTests,
         flowIndex: agentInput.flowIndex.toArray(),
+        scenarios: agentInput.scenarios.toArray(),
         merges: agentInput.merges ?? [],
         preClassifiedConflicts: agentInput.preClassifiedConflicts ?? [],
         testScopeGuidelines: agentInput.testScopeGuidelines,

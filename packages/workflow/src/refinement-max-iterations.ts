@@ -1,12 +1,11 @@
 /**
- * Trigger-specific refinement-loop iteration caps. Diffs gets 4 (the folded
- * resolution turn + 3 refinement turns); onboarding stays at 3. This is the
+ * Trigger-specific refinement-loop iteration caps; both flows use 3. This is the
  * single source of truth for the cap - the refinement-loop workflow derives its
- * default from it, and eval-capture reconstructs the cap a frozen iteration ran
+ * value from it, and eval-capture reconstructs the cap a frozen iteration ran
  * under from its loop's trigger.
  */
 export const REFINEMENT_MAX_ITERATIONS: Readonly<Record<"onboarding" | "diffs", number>> = {
-    diffs: 4,
+    diffs: 3,
     onboarding: 3,
 };
 

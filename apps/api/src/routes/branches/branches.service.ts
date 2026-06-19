@@ -1,5 +1,5 @@
 import type { Prisma } from "@autonoma/db";
-import { type GenerationStatus, type PrismaClient, type RunReviewVerdict, type RunStatus } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import {
@@ -419,18 +419,6 @@ export class BranchesService extends Service {
                             },
                             orderBy: { createdAt: "asc" },
                         },
-                        testCandidates: {
-                            select: {
-                                id: true,
-                                name: true,
-                                instruction: true,
-                                reasoning: true,
-                                rejectionReasoning: true,
-                                status: true,
-                                acceptedTestCase: { select: { id: true, name: true, slug: true } },
-                            },
-                            orderBy: { createdAt: "asc" },
-                        },
                     },
                 },
                 testCaseAssignments: {
@@ -495,80 +483,10 @@ export class BranchesService extends Service {
                 : Promise.resolve(undefined),
         ]);
 
-        const acceptedTestCaseIds = diffsJob.testCandidates
-            .map((c) => c.acceptedTestCase?.id)
-            .filter((id): id is string => id != null);
-
-        const candidateGenByTestCaseId = new Map<
-            string,
-            { id: string; status: GenerationStatus; reviewReasoning?: string }
-        >();
-        if (acceptedTestCaseIds.length > 0) {
-            const candidateGens = await this.db.testGeneration.findMany({
-                where: { snapshotId, testPlan: { testCaseId: { in: acceptedTestCaseIds } } },
-                select: {
-                    id: true,
-                    status: true,
-                    testPlan: { select: { testCaseId: true } },
-                    generationReview: { select: { reasoning: true } },
-                },
-                orderBy: { createdAt: "desc" },
-            });
-            for (const gen of candidateGens) {
-                const tcId = gen.testPlan.testCaseId;
-                if (!candidateGenByTestCaseId.has(tcId)) {
-                    candidateGenByTestCaseId.set(tcId, {
-                        id: gen.id,
-                        status: gen.status,
-                        reviewReasoning: gen.generationReview?.reasoning ?? undefined,
-                    });
-                }
-            }
-        }
-
-        const candidateRunByTestCaseId = new Map<
-            string,
-            {
-                id: string;
-                status: RunStatus;
-                verdict?: RunReviewVerdict;
-                reviewReasoning?: string;
-            }
-        >();
-        if (acceptedTestCaseIds.length > 0) {
-            const candidateRuns = await this.db.run.findMany({
-                where: { assignment: { snapshotId, testCaseId: { in: acceptedTestCaseIds } } },
-                select: {
-                    id: true,
-                    status: true,
-                    assignment: { select: { testCaseId: true } },
-                    runReview: { select: { verdict: true, reasoning: true } },
-                },
-                orderBy: { createdAt: "desc" },
-            });
-            for (const run of candidateRuns) {
-                const tcId = run.assignment.testCaseId;
-                if (!candidateRunByTestCaseId.has(tcId)) {
-                    candidateRunByTestCaseId.set(tcId, {
-                        id: run.id,
-                        status: run.status,
-                        verdict: run.runReview?.verdict ?? undefined,
-                        reviewReasoning: run.runReview?.reasoning ?? undefined,
-                    });
-                }
-            }
-        }
-
-        const diffsJobWithCandidateGens = {
+        const diffsJobWithMeta = {
             ...diffsJob,
             firstIterationReasoning,
             temporalWorkflow,
-            testCandidates: diffsJob.testCandidates.map((c) => ({
-                ...c,
-                generation:
-                    c.acceptedTestCase != null ? (candidateGenByTestCaseId.get(c.acceptedTestCase.id) ?? null) : null,
-                run: c.acceptedTestCase != null ? (candidateRunByTestCaseId.get(c.acceptedTestCase.id) ?? null) : null,
-            })),
         };
 
         const [executedTests, assignmentsForHealth] = await Promise.all([
@@ -584,7 +502,7 @@ export class BranchesService extends Service {
         return {
             snapshot: flatSnapshot,
             changes,
-            diffsJob: diffsJobWithCandidateGens,
+            diffsJob: diffsJobWithMeta,
             quarantinedTests,
             refinementLoop,
             health,

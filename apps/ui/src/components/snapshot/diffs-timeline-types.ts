@@ -4,7 +4,6 @@ export type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
 export type DiffsJob = NonNullable<SnapshotDetail["diffsJob"]>;
 export type DiffsJobStatus = DiffsJob["status"];
 export type AffectedTest = DiffsJob["affectedTests"][number];
-export type TestCandidate = DiffsJob["testCandidates"][number];
 export type SnapshotChange = SnapshotDetail["changes"][number];
 export type QuarantinedTest = SnapshotDetail["quarantinedTests"][number];
 export type ExecutedTest = SnapshotDetail["executedTests"][number];
@@ -25,16 +24,13 @@ const ACTIVE_STAGE_OF_STATUS: Partial<Record<DiffsJobStatus, StageKey>> = {
 function stageEvidence(stage: StageKey, job: DiffsJob): boolean {
     switch (stage) {
         case "analysis":
-            return job.analysisReasoning != null || job.affectedTests.length > 0 || job.testCandidates.length > 0;
+            return job.analysisReasoning != null || job.affectedTests.length > 0;
         case "replay":
             return job.affectedTests.some((t) => t.run != null);
         case "resolution":
-            return job.firstIterationReasoning != null || job.testCandidates.some((c) => c.status !== "pending");
+            return job.firstIterationReasoning != null;
         case "generation":
-            return (
-                job.affectedTests.some((t) => t.generation != null) ||
-                job.testCandidates.some((c) => c.acceptedTestCase != null)
-            );
+            return job.affectedTests.some((t) => t.generation != null);
         case "finalization":
             return false;
     }

@@ -140,7 +140,6 @@ model Organization {
   gitHubWebhookEvents    GitHubWebhookEvent[]
   diffsJobs              DiffsJob[]
   affectedTests          AffectedTest[]
-  testCandidates         TestCandidate[]
   refinementLoops        RefinementLoop[]
 
   @@map("organization")
@@ -659,8 +658,7 @@ model TestCase {
 
   bugEvidence BugTestCaseEvidence[]
 
-  affectedIn            AffectedTest[]
-  acceptedFromCandidate TestCandidate?
+  affectedIn AffectedTest[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1999,14 +1997,6 @@ enum AffectedReason {
   @@map("affected_reason")
 }
 
-enum TestCandidateStatus {
-  pending
-  accepted
-  rejected
-
-  @@map("test_candidate_status")
-}
-
 model DiffsJob {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
@@ -2017,14 +2007,12 @@ model DiffsJob {
   resolutionReasoning String? @map("resolution_reasoning") @db.Text
   failureReason       String? @map("failure_reason") @db.Text
 
-  analysisConversationUrl   String? @map("analysis_conversation_url")
-  resolutionConversationUrl String? @map("resolution_conversation_url")
+  analysisConversationUrl String? @map("analysis_conversation_url")
 
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
 
-  affectedTests  AffectedTest[]
-  testCandidates TestCandidate[]
+  affectedTests AffectedTest[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -2058,26 +2046,3 @@ model AffectedTest {
   @@map("affected_test")
 }
 
-model TestCandidate {
-  id String @id @default(cuid())
-
-  snapshotId String   @map("snapshot_id")
-  diffsJob   DiffsJob @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
-
-  name        String
-  instruction String @db.Text
-  reasoning   String @db.Text
-
-  status             TestCandidateStatus @default(pending)
-  rejectionReasoning String?             @map("rejection_reasoning") @db.Text
-  acceptedTestCaseId String?             @unique @map("accepted_test_case_id")
-  acceptedTestCase   TestCase?           @relation(fields: [acceptedTestCaseId], references: [id], onDelete: SetNull)
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([snapshotId])
-  @@map("test_candidate")
-}

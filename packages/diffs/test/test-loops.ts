@@ -10,7 +10,6 @@ import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
 import type { HealingReviewLink } from "../src/healing/actions";
-import type { HealingTestCandidate } from "../src/healing/types";
 import type { ScenarioData } from "../src/scenario-data";
 import { ScenarioIndex } from "../src/scenario-index";
 import type { ScenarioRecipeData } from "../src/scenario-recipe";
@@ -28,6 +27,7 @@ const FAKE_RESULT_TOOL = new FinishTool<never>({ resultSchema: z.never() });
 export interface DiffsLoopOverrides {
     workingDirectory?: string;
     flowIndex?: FlowIndex;
+    scenarioIndex?: ScenarioIndex;
     existingTests?: ExistingTestInfo[];
     seededAffected?: DiffsAgentResult["affectedTests"];
     validSlugs?: ReadonlySet<string>;
@@ -50,6 +50,7 @@ export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoo
         codebase: new Codebase(overrides.workingDirectory ?? process.cwd()),
         flowIndex,
         existingTests,
+        scenarioIndex: overrides.scenarioIndex ?? new ScenarioIndex([]),
         seededAffected: overrides.seededAffected ?? [],
         validSlugs: overrides.validSlugs ?? new Set(existingTests.map((t) => t.slug)),
         quarantinedSlugs:
@@ -90,8 +91,6 @@ export interface HealingLoopOverrides {
     failureKeysByTestCaseId?: ReadonlyMap<string, string>;
     failureKeys?: ReadonlySet<string>;
     reviewLinksByTestCaseId?: ReadonlyMap<string, HealingReviewLink>;
-    candidates?: HealingTestCandidate[];
-    isFirstTurn?: boolean;
 }
 
 export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAgentLoop {
@@ -111,7 +110,5 @@ export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAg
         failureKeysByTestCaseId: overrides.failureKeysByTestCaseId ?? new Map(),
         failureKeys: overrides.failureKeys ?? new Set(),
         reviewLinksByTestCaseId: overrides.reviewLinksByTestCaseId ?? new Map(),
-        candidatesById: new Map((overrides.candidates ?? []).map((c) => [c.candidateId, c])),
-        isFirstTurn: overrides.isFirstTurn ?? false,
     });
 }

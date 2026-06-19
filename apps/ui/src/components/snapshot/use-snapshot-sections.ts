@@ -14,11 +14,10 @@ export function useSnapshotSections(snapshotId: string): Section[] {
             buildSections({
                 changes,
                 affectedTests: diffsJob.affectedTests,
-                testCandidates: diffsJob.testCandidates,
                 quarantinedTests,
                 executedTests,
             }),
-        [changes, diffsJob.affectedTests, diffsJob.testCandidates, quarantinedTests, executedTests],
+        [changes, diffsJob.affectedTests, quarantinedTests, executedTests],
     );
 }
 

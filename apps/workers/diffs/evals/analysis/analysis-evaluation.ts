@@ -80,7 +80,7 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
 
         addInfo({
             affectedTests: result.affectedTests.map((t) => t.slug),
-            testCandidateCount: result.testCandidates.length,
+            createdTestCount: result.createdTests.length,
             deterministicFailures,
             agentCost,
         });

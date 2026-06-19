@@ -4,6 +4,7 @@ import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import type { TestSuiteInfo } from "@autonoma/test-updates";
+import { loadScenarioIndex } from "../load-scenario-index";
 
 /** The metadata pieces of {@link DiffsAgentInput} that load-context produces - everything except the codebase clone. */
 export type DiffsAgentMetadata = Omit<DiffsAgentInput, "codebase">;
@@ -69,12 +70,13 @@ export async function loadDiffsContext(
 ): Promise<{ metadata: DiffsAgentMetadata }> {
     const { existingTests } = mapTestSuiteToContext(suiteInfo);
 
-    const [flows, application] = await Promise.all([
+    const [flows, application, scenarios] = await Promise.all([
         loadFlows(db, applicationId, suiteInfo),
         db.application.findUniqueOrThrow({
             where: { id: applicationId },
             select: { testScopeGuidelines: true },
         }),
+        loadScenarioIndex(db, applicationId),
     ]);
     const flowIndex = new FlowIndex(flows);
 
@@ -82,6 +84,7 @@ export async function loadDiffsContext(
         extra: {
             existingTests: existingTests.length,
             flows: flows.length,
+            scenarios: scenarios.listScenarios().length,
             quarantinedTests: existingTests.filter((t) => t.quarantine != null).length,
             hasTestScopeGuidelines: application.testScopeGuidelines != null,
         },
@@ -93,6 +96,7 @@ export async function loadDiffsContext(
             baseSha,
             existingTests,
             flowIndex,
+            scenarios,
             testScopeGuidelines: application.testScopeGuidelines ?? undefined,
         },
     };

@@ -45,8 +45,7 @@ export async function applyUpdatePlan(input: ApplyUpdatePlanInput): Promise<{ pl
  * Points the affected test (if any) for this snapshot + test case at the
  * generation just queued for its updated plan, so the UI can render
  * affected -> generation -> run. This is the diffs flow's "Queued for
- * regeneration" link; it used to be set by the first-turn reconciliation tail
- * and now happens at the moment the regeneration is queued.
+ * regeneration" link, set at the moment the regeneration is queued.
  *
  * updateMany is a no-op when no AffectedTest row exists (onboarding, or any
  * update_plan on a test that was not flagged affected), so this is safe to call

@@ -87,10 +87,11 @@ export interface MarkRunFailedInput {
  *  - Onboarding seeds from the snapshot's *pending generations* (the system's
  *    record of "work the loop must finish before activating the snapshot"),
  *    which iter 1's generation pipeline then generates/runs/reviews.
- *  - Diffs seeds from the *affected tests' committed plans* - the plans whose
- *    replays already ran upstream in the diffs workflow. Iter 1 buckets those
- *    replay outcomes directly (a replay-only first turn), so no generation
- *    pipeline fires for it.
+ *  - Diffs seeds from the *affected tests' committed plans* (whose replays
+ *    already ran upstream in the diffs workflow) plus the new tests the diffs
+ *    agent authored during analysis (which carry pending generations). Iter 1's
+ *    pipeline generates/runs the new tests; the affected-test replays are
+ *    bucketed directly from their existing runs.
  */
 export interface InitRefinementLoopInput {
     snapshotId: string;
@@ -101,19 +102,14 @@ export interface InitRefinementLoopOutput {
     organizationId: string;
     firstIterationId: string;
     /**
-     * Whether the workflow should fire iter 1's generation pipeline. Onboarding:
-     * true iff the snapshot has pending generations to generate/run/review.
-     * Diffs: always false - iter 1 analyzes the affected-test replays that ran
-     * upstream, so there is nothing left to generate.
+     * Whether the workflow should fire iter 1's generation pipeline. True iff the
+     * snapshot has pending generations to generate/run/review when the loop
+     * starts. Onboarding: its planner-queued pending gens. Diffs: the new tests
+     * the diffs agent authored during analysis (the affected-test replays already
+     * ran upstream, so they need no generation). False when there is nothing to
+     * generate (a diffs snapshot that authored no new tests).
      */
     runFirstIterationPipeline: boolean;
-    /**
-     * Count of new-test candidates seeded for iter 1 (diffs only; 0 for
-     * onboarding). Iter 1 must run the Healing agent to graduate/reject them even
-     * when no replay failed, so the workflow uses this to avoid converging on a
-     * candidates-only first turn.
-     */
-    firstIterationCandidateCount: number;
 }
 
 /** Transitions an iteration row to status=running. */
@@ -247,21 +243,6 @@ export interface PersistedHealingAction {
     action:
         | { kind: "update_plan"; planId: string; testCaseId: string; newPrompt: string; reasoning: string }
         | {
-              kind: "add_test";
-              folderId: string;
-              name: string;
-              instruction: string;
-              scenarioId?: string;
-              reasoning: string;
-              /**
-               * The candidate this add_test graduates, when it accepted one from the
-               * first-turn Test Candidates list. The apply step uses it to mark the
-               * candidate accepted against the minted test case. Absent for a
-               * spontaneous (non-candidate) add.
-               */
-              acceptingCandidateId?: string;
-          }
-        | {
               kind: "report_bug";
               testCaseId: string;
               title: string;
@@ -290,12 +271,6 @@ export interface PersistedHealingAction {
           };
 }
 
-/** A candidate the agent decided not to graduate into a test, with its reasoning. */
-export interface RejectedCandidateDecision {
-    candidateId: string;
-    reasoning: string;
-}
-
 export interface ApplyHealingActionsInput {
     snapshotId: string;
     organizationId: string;
@@ -304,17 +279,11 @@ export interface ApplyHealingActionsInput {
     currentIterationId: string;
     /** The iteration's number (1-indexed). Used to set iter N+1's `number`. */
     currentIterationNumber: number;
-    /**
-     * Candidates the agent rejected this turn (first turn only; empty otherwise).
-     * Drives the first-turn apply tail's candidate reconciliation: each is marked
-     * rejected with its reasoning. See {@link RunHealingAgentForRefinementOutput}.
-     */
-    rejectedCandidates: RejectedCandidateDecision[];
 }
 
 /**
  * Output of applyHealingActions. When the actions included any plan-changing
- * kinds (update_plan or add_test), the activity also creates iteration N+1 with
+ * kinds (update_plan), the activity also creates iteration N+1 with
  * status=pending and writes its RefinementIterationInput rows. The workflow
  * then fires `runGenerationPipeline` against `nextIterationPlanIds` before
  * advancing into iter N+1's body.
@@ -374,10 +343,9 @@ export interface RunHealingAgentForRefinementInput {
     iterationId: string;
     iteration: number;
     /**
-     * The loop's trigger-specific iteration cap (4 diffs / 3 onboarding). The
-     * agent reads this to detect the final turn and withhold its retry tools
-     * (`update_plan` / `add_test`), so the last round triages instead of
-     * spawning a dangling iteration N+1.
+     * The loop's iteration cap (3 for both diffs and onboarding). The agent reads
+     * this to detect the final turn and withhold its retry tool (`update_plan`),
+     * so the last round triages instead of spawning a dangling iteration N+1.
      */
     maxIterations: number;
     snapshotId: string;
@@ -388,13 +356,6 @@ export interface RunHealingAgentForRefinementInput {
 export interface RunHealingAgentForRefinementOutput {
     persistedActions: PersistedHealingAction[];
     reasoning: string;
-    /**
-     * Candidates the agent explicitly rejected this turn (first turn only; empty
-     * otherwise). Carried separately from `persistedActions` because rejections
-     * target no failure and mint no row - the apply step reconciles them against
-     * the snapshot's TestCandidate rows.
-     */
-    rejectedCandidates: RejectedCandidateDecision[];
 }
 
 export interface GeneralActivities {

@@ -19,7 +19,6 @@ const CASE_TIMEOUT_MS = 900_000;
 export function validateHealingCase(testCase: HealingCase): void {
     if (testCase.frontmatter.skip === true) return;
     validateExpectedActions(testCase);
-    validateCandidateChecks(testCase);
 }
 
 /**
@@ -47,29 +46,6 @@ function validateExpectedActions(testCase: HealingCase): void {
     throw new Error(
         `Healing case "${testCase.name}" has a malformed expectedActions: ${parts.join("; ")}. ` +
             "The keyset must equal the set of failing test cases in input.json.",
-    );
-}
-
-/**
- * Every id named in `acceptsCandidate` / `rejectsCandidate` must reference a
- * candidate actually present in `input.candidates`. A check against a candidate
- * the agent never saw can never pass, so it is an authoring mistake worth
- * surfacing at load time rather than as a confusing run-time failure.
- */
-function validateCandidateChecks(testCase: HealingCase): void {
-    const referenced = [
-        ...(testCase.frontmatter.acceptsCandidate ?? []),
-        ...(testCase.frontmatter.rejectsCandidate ?? []),
-    ];
-    if (referenced.length === 0) return;
-
-    const knownIds = new Set(testCase.input.candidates.map((c) => c.candidateId));
-    const unknown = referenced.filter((id) => !knownIds.has(id));
-    if (unknown.length === 0) return;
-
-    throw new Error(
-        `Healing case "${testCase.name}" references unknown candidate id(s) [${unknown.join(", ")}] in ` +
-            "acceptsCandidate / rejectsCandidate. Every id must appear in input.candidates.",
     );
 }
 
@@ -115,7 +91,6 @@ export class HealingEvaluation extends Evaluation<HealingCase> {
             baseSha: testCase.input.codebase.baseSha,
             iteration: String(testCase.input.iteration),
             failures: String(testCase.input.failures.length),
-            candidates: String(testCase.input.candidates.length),
         };
     }
 
@@ -144,18 +119,11 @@ export class HealingEvaluation extends Evaluation<HealingCase> {
 
         const actionKinds = result.actions.map((a) => a.kind);
         const targetTestCaseIds = [...new Set(result.actions.map((a) => a.testCaseId))];
-        const acceptedCandidates = result.newTests
-            .map((t) => t.acceptingCandidateId)
-            .filter((id): id is string => id != null);
-        const rejectedCandidates = result.rejectedCandidates.map((c) => c.candidateId);
 
         addInfo({
             actionKinds,
             actionCount: result.actions.length,
             targetTestCaseIds,
-            newTestCount: result.newTests.length,
-            acceptedCandidates,
-            rejectedCandidates,
             deterministicFailures,
             agentCost,
         });

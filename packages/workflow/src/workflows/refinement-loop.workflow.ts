@@ -23,7 +23,6 @@ const diffs = proxyActivities<DiffsActivities>({
 export interface RefinementLoopInput {
     snapshotId: string;
     triggeredBy: "onboarding" | "diffs";
-    maxIterations?: number;
 }
 
 export interface RefinementLoopResult {
@@ -40,21 +39,22 @@ export interface RefinementLoopResult {
  * if any failed, then (if healing produced plan changes) fire the next
  * iteration's gen-replay pipeline. Iter 1's analyzable data is fired by the
  * init phase below; subsequent iterations have their data fired by the
- * previous iteration's tail. "Iter 1 is special" disappears from the body.
+ * previous iteration's tail.
  *
  * The loop's scope - which plans each iteration is responsible for - is
  * recorded in `RefinementIterationInput` rows. Iter 1's rows are seeded by
- * trigger (diffs -> the affected tests' committed replay plans; onboarding ->
- * the snapshot's pending generations); iter N+1's rows come from the planIds
- * that healing's update_plan / add_test actions produced. `analyzeResults`
- * reads that table directly; the loop has no implicit reads of upstream state.
+ * trigger (diffs -> the affected tests' committed replay plans plus the new
+ * tests the diffs agent authored; onboarding -> the snapshot's pending
+ * generations); iter N+1's rows come from the planIds that healing's
+ * update_plan actions produced. `analyzeResults` reads that table directly; the
+ * loop has no implicit reads of upstream state.
  *
- * For diffs, iter 1 also receives the Step 1 new-test candidates: a first turn
- * with candidates but no failures still runs, so the agent graduates or rejects
- * them before the loop converges.
+ * Iteration 1 analyzes whatever its seeded plans produced (replays that already
+ * ran, plus any new-test generations fired by the iter-1 pipeline) and heals the
+ * failures, exactly like later iterations.
  */
 export async function refinementLoopWorkflow(input: RefinementLoopInput): Promise<RefinementLoopResult> {
-    const maxIterations = input.maxIterations ?? maxIterationsForTrigger(input.triggeredBy);
+    const maxIterations = maxIterationsForTrigger(input.triggeredBy);
     const baseIds = { snapshot: { snapshotId: input.snapshotId } };
 
     log.info("Refinement loop workflow started", {
@@ -62,11 +62,10 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
         extra: { maxIterations, triggeredBy: input.triggeredBy },
     });
 
-    const { loopId, organizationId, firstIterationId, runFirstIterationPipeline, firstIterationCandidateCount } =
-        await general.initRefinementLoop({
-            snapshotId: input.snapshotId,
-            triggeredBy: input.triggeredBy,
-        });
+    const { loopId, organizationId, firstIterationId, runFirstIterationPipeline } = await general.initRefinementLoop({
+        snapshotId: input.snapshotId,
+        triggeredBy: input.triggeredBy,
+    });
 
     const loopIds = {
         ...baseIds,
@@ -76,7 +75,7 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
     log.info("Refinement loop initialized", {
         ...loopIds,
         refinementIteration: { iterationId: firstIterationId, iterationNumber: 1 },
-        extra: { runFirstIterationPipeline, firstIterationCandidateCount },
+        extra: { runFirstIterationPipeline },
     });
 
     // --- Iteration loop: analyze, heal, fire next ---
@@ -120,15 +119,10 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             for (const tcId of results.validatedTestCaseIds) validatedTestCaseIds.add(tcId);
 
             const hasFailures = results.failuresAtGeneration.length > 0 || results.failuresAtReplay.length > 0;
-            // Candidates are seeded only on the first turn (diffs); a turn with
-            // candidates but no failures must still run so the agent graduates or
-            // rejects them, rather than converging immediately.
-            const hasUndecidedCandidates = currentIterationNumber === 1 && firstIterationCandidateCount > 0;
             log.info("Iteration analysis complete", {
                 ...iterIds,
                 extra: {
                     hasFailures,
-                    hasUndecidedCandidates,
                     validatedTestCaseCount: results.validatedTestCaseIds.length,
                     generationFailureCount: results.failuresAtGeneration.length,
                     replayFailureCount: results.failuresAtReplay.length,
@@ -136,10 +130,10 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
                 },
             });
 
-            if (!hasFailures && !hasUndecidedCandidates) {
+            if (!hasFailures) {
                 finalStatus = "converged";
                 await general.finishRefinementIteration({ iterationId: currentIterationId });
-                log.info("Refinement iteration converged with no work", iterIds);
+                log.info("Refinement iteration converged with no failures", iterIds);
                 break;
             }
 
@@ -160,7 +154,6 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
                 actions: triage.persistedActions,
                 currentIterationId,
                 currentIterationNumber,
-                rejectedCandidates: triage.rejectedCandidates,
             });
 
             await general.finishRefinementIteration({ iterationId: currentIterationId });

@@ -1,11 +1,4 @@
-import type {
-    ExistingTestInfo,
-    FailureRecord,
-    FlowInfo,
-    FlowSummary,
-    HealingTestCandidate,
-    ScenarioInfo,
-} from "@autonoma/diffs";
+import type { ExistingTestInfo, FailureRecord, FlowInfo, FlowSummary, ScenarioInfo } from "@autonoma/diffs";
 import { FlowIndex, ScenarioIndex } from "@autonoma/diffs";
 import { describe, expect, it } from "vitest";
 import type { CodebaseCoords } from "../evals/framework";
@@ -25,16 +18,15 @@ const coords: CodebaseCoords = {
 };
 
 /**
- * The on-disk healing fixture is now the single capture/replay format for every
- * refinement turn (the resolution-specific format was removed in #957). These
- * tests pin the two transforms a fixture survives that the typechecker cannot
- * guarantee: the `FlowIndex` / `ScenarioIndex` instances collapse to arrays and
- * rebuild, and the resolution-era optional fields (`candidates`, `existingTests`,
+ * The on-disk healing fixture is the single capture/replay format for every
+ * refinement turn. These tests pin the two transforms a fixture survives that
+ * the typechecker cannot guarantee: the `FlowIndex` / `ScenarioIndex` instances
+ * collapse to arrays and rebuild, and the optional fields (`existingTests`,
  * `analysisReasoning`, per-failure `reviewLink` / `lineage`) carry their values
- * through - or default cleanly when a pre-fold fixture omits them.
+ * through - or default cleanly when an older fixture omits them.
  */
 describe("healing fixture round-trip", () => {
-    it("carries a first-turn fixture's candidates and replay failures through capture/replay", () => {
+    it("carries a fixture's replay failures and suite context through capture/replay", () => {
         const failures: FailureRecord[] = [
             {
                 key: "run-1",
@@ -49,21 +41,6 @@ describe("healing fixture round-trip", () => {
                 reviewReasoning: "The pay button moved behind a new modal.",
                 lineage: [],
                 reviewLink: { runReviewId: "rr-1" },
-            },
-        ];
-
-        const candidates: HealingTestCandidate[] = [
-            {
-                candidateId: "cand-a",
-                name: "Apply a promo code",
-                instruction: "Enter a valid promo code at checkout and verify the discount",
-                reasoning: "The diff adds a promo-code field with no coverage",
-            },
-            {
-                candidateId: "cand-b",
-                name: "Empty cart checkout",
-                instruction: "Attempt to check out with an empty cart",
-                reasoning: "The diff guards the empty-cart path",
             },
         ];
 
@@ -86,13 +63,12 @@ describe("healing fixture round-trip", () => {
             coords,
             {
                 iteration: 1,
-                maxIterations: 4,
+                maxIterations: 3,
                 snapshotId: "snap-1",
                 applicationId: "app-1",
                 organizationId: "org-1",
                 priorActions: [],
                 failures,
-                candidates,
                 flowIndex: new FlowIndex(flows),
                 existingTests,
                 planAuthoring: {
@@ -110,8 +86,6 @@ describe("healing fixture round-trip", () => {
         const reparsed = healingCaseInputSchema.parse(JSON.parse(JSON.stringify(frozen)));
         const { agentInput } = rehydrateHealingInput(reparsed);
 
-        // First-turn candidates survive (an optional field, so not type-guaranteed).
-        expect(agentInput.candidates).toEqual(candidates);
         // Replay failures keep their discriminated reviewLink + lineage.
         expect(agentInput.failures).toEqual(failures);
         // The suite + flow/scenario indices rebuild from their frozen array forms.
@@ -120,14 +94,14 @@ describe("healing fixture round-trip", () => {
         expect(agentInput.planAuthoring.scenarios.toArray()).toEqual(scenarios);
         // analysisReasoning is default-backed, so its value must round-trip, not reset.
         expect(agentInput.analysisReasoning).toBe("Checkout was restructured around a promo-code field.");
-        // The trigger-specific cap round-trips so the eval gates the final turn as production does.
-        expect(agentInput.maxIterations).toBe(4);
+        // The iteration cap round-trips so the eval gates the final turn as production does.
+        expect(agentInput.maxIterations).toBe(3);
     });
 
-    it("defaults the resolution-era fields when a pre-fold fixture omits them", () => {
-        // A later-turn case captured before the resolution capabilities folded in
-        // carries no `candidates` / `existingTests` / `flowIndex` / `analysisReasoning`
-        // and a failure with no `lineage`. It must still load, with empty defaults.
+    it("defaults the optional fields when an older fixture omits them", () => {
+        // A case captured before these capabilities folded in carries no
+        // `existingTests` / `flowIndex` / `analysisReasoning` and a failure with no
+        // `lineage`. It must still load, with empty defaults.
         const legacy: unknown = {
             codebase: coords,
             iteration: 2,
@@ -155,7 +129,6 @@ describe("healing fixture round-trip", () => {
         const parsed: HealingCaseInput = healingCaseInputSchema.parse(legacy);
         const { agentInput } = rehydrateHealingInput(parsed);
 
-        expect(agentInput.candidates).toEqual([]);
         expect(agentInput.existingTests).toEqual([]);
         expect(agentInput.flowIndex.toArray()).toEqual([]);
         expect(agentInput.analysisReasoning).toBe("");

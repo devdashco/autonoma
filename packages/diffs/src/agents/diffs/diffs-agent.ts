@@ -6,12 +6,15 @@ import { buildDiffAnalysis } from "../../diff-analysis";
 import type { ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { PLAN_AUTHORING_GUIDE } from "../../healing";
+import type { ScenarioIndex } from "../../scenario-index";
 import type { ScenarioRecipeData } from "../../scenario-recipe";
 import {
     buildCodebaseTools,
     ListFlowsTool,
+    ListScenariosTool,
     ListTestsTool,
     ReadScenarioRecipeEntitiesTool,
+    ReadScenarioTool,
     ReadTestsTool,
     SubagentTool,
 } from "../tools";
@@ -19,9 +22,9 @@ import type { AffectedTest } from "./affected-test";
 import { DiffsAgentLoop } from "./diffs-agent-loop";
 import { DIFFS_SYSTEM_PROMPT, buildDiffsUserPrompt } from "./diffs-prompt";
 import { DiffsResultTool } from "./diffs-result-tool";
+import { CreateTestTool, type CreatedTest } from "./tools/create-test-tool";
 import { ExplainMergeConflictTool } from "./tools/explain-merge-conflict-tool";
 import { MarkAffectedTestTool } from "./tools/mark-affected-test-tool";
-import { SuggestTestTool, type TestCandidate } from "./tools/suggest-test-tool";
 
 export interface DiffsAgentConfig {
     model: LanguageModel;
@@ -47,6 +50,12 @@ export interface DiffsAgentInput {
     /** Free-text testing guidelines from the application owner. */
     testScopeGuidelines?: string;
     /**
+     * The application's scenarios (named test data environments). Exposed via
+     * `list_scenarios` / `read_scenario` so the agent can bind a `scenarioId`
+     * when it authors a new test that needs seeded preconditions.
+     */
+    scenarios: ScenarioIndex;
+    /**
      * Recipe **templates** for the scenarios the tests in scope reference,
      * resolved at setup from each scenario's point-in-time
      * `ScenarioRecipeVersion.fixtureJson`. This is template data (what each
@@ -59,7 +68,8 @@ export interface DiffsAgentInput {
 
 export interface DiffsAgentResult {
     affectedTests: AffectedTest[];
-    testCandidates: TestCandidate[];
+    /** New tests the agent authored via `create_test`. The runner mints each one. */
+    createdTests: CreatedTest[];
     reasoning: string;
 }
 
@@ -80,9 +90,11 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
     private readonly listFlowsTool = new ListFlowsTool();
     private readonly listTestsTool = new ListTestsTool();
     private readonly readTestsTool = new ReadTestsTool();
+    private readonly listScenariosTool = new ListScenariosTool();
+    private readonly readScenarioTool = new ReadScenarioTool();
     private readonly markAffectedTestTool = new MarkAffectedTestTool();
     private readonly explainMergeConflictTool = new ExplainMergeConflictTool();
-    private readonly suggestTestTool = new SuggestTestTool();
+    private readonly createTestTool = new CreateTestTool();
     private readonly readScenarioRecipeEntitiesTool = new ReadScenarioRecipeEntitiesTool();
     private readonly resultTool = new DiffsResultTool();
 
@@ -126,9 +138,11 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             this.listFlowsTool,
             this.listTestsTool,
             this.readTestsTool,
+            this.listScenariosTool,
+            this.readScenarioTool,
             this.markAffectedTestTool,
             this.explainMergeConflictTool,
-            this.suggestTestTool,
+            this.createTestTool,
         ];
         if (scenarioRecipes.length > 0) tools.push(this.readScenarioRecipeEntitiesTool);
 
@@ -141,6 +155,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             codebase: input.codebase,
             flowIndex: input.flowIndex,
             existingTests: input.existingTests,
+            scenarioIndex: input.scenarios,
             seededAffected,
             validSlugs: new Set(input.existingTests.map((t) => t.slug)),
             quarantinedSlugs: new Set(input.existingTests.filter((t) => t.quarantine != null).map((t) => t.slug)),

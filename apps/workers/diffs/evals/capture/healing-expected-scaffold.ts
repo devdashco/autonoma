@@ -5,14 +5,11 @@
  * first-turn capture.
  *
  * `sourceLabel` describes where the case was captured from (e.g.
- * `iteration <id>` or `snapshot <id>`). The candidate-channel scaffold is
- * emitted only when the captured turn carried candidates (the folded-resolution
- * first turn).
+ * `iteration <id>` or `snapshot <id>`).
  */
 export function buildHealingExpected(
     sourceLabel: string,
     failures: { testCaseId: string; testCaseSlug: string }[],
-    candidates: { candidateId: string; name: string }[],
 ): string {
     const expectedLines = failures.map(
         (f) =>
@@ -29,7 +26,7 @@ skip: true
 # and each value is the action kind that test case should receive.
 # expectedActions:
 ${expectedBlock}
-${candidateBlock(candidates)}---
+---
 
 TODO: author the LLM-judge rubric here.
 
@@ -41,39 +38,9 @@ codebase or screenshots. Grade qualities the deterministic check cannot express:
     (application defect vs. engine/agent limitation)? Are the description and
     severity proportionate to the cited reasoning?
   - For each \`remove_test\`: is the cited reason plausible given the failure
-    context (e.g. feature removed from the app)?
-${candidateRubric(candidates)}Keep every point additive to the frontmatter, and phrase each as something
+    context (e.g. an invalid test born this snapshot, or a feature removed from
+    the app)?
+Keep every point additive to the frontmatter, and phrase each as something
 checkable from the structured output alone.
-`;
-}
-
-/**
- * The candidate-channel deterministic-check scaffold, emitted only when the
- * captured turn carried first-turn candidates (the folded resolution turn).
- * Lists each candidate id so the author can pin which to accept / reject.
- */
-function candidateBlock(candidates: { candidateId: string; name: string }[]): string {
-    if (candidates.length === 0) return "";
-
-    const ids = candidates.map((c) => `#   - ${c.candidateId}   # ${c.name}`).join("\n");
-    return `# Candidate channel (first-turn / folded resolution). Uncomment what applies.
-# newTests:           # inclusive bounds on how many new tests the agent adds
-#   minCount: 0
-#   maxCount: 0
-# acceptsCandidate:   # candidate ids the agent MUST accept via add_test
-${ids}
-# rejectsCandidate:   # candidate ids the agent MUST reject
-${ids}
-`;
-}
-
-/** Judge-rubric hints for the candidate channel, emitted only when candidates were captured. */
-function candidateRubric(candidates: { candidateId: string; name: string }[]): string {
-    if (candidates.length === 0) return "";
-
-    return `  - For each accepted candidate (\`add_test\`): is the new-test instruction clear,
-    on-topic for the candidate, and placed in a sensible folder?
-  - For each rejected candidate: is the rejection reasoning sound (e.g. duplicate
-    coverage, out of scope) rather than a missed opportunity?
 `;
 }

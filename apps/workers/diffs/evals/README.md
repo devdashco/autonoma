@@ -12,9 +12,10 @@ committed.
 
 Diff Resolution no longer has its own step. The Resolution agent was folded into
 the Healing agent as iteration 1 of the refinement loop, so a first-turn case
-(replay failures plus diff-analysis candidates) is now just another Healing
-fixture - captured and graded through the single Healing capture/eval path
-described below.
+(the affected-test replay failures) is now just another Healing fixture -
+captured and graded through the single Healing capture/eval path described below.
+New tests are authored upstream by the diffs agent (`create_test`); healing only
+heals and culls, so it has no test-authoring channel to grade.
 
 Each step lives in its own subdirectory (`<step>/`) with the same four files
 (`<step>-input.ts` schema, `<step>-frontmatter.ts` deterministic checks,
@@ -90,15 +91,18 @@ affected:                                  # checks over the affected-test slug 
   include: [slug-a]                        #   must be present
   exclude: [slug-b]                        #   must be absent
   exact: [slug-a, slug-c]                  #   the exact set (order-insensitive)
-candidates:                                # bounds on the new-test-candidate count
-  minCount: 1
-  maxCount: 3
 ---
 
 Free-text judge rubric. The judge sees only the agent's structured output plus this
 body - never the codebase or screenshots. Write it ADDITIVE to the frontmatter: grade
-qualities the deterministic checks cannot (sound reasoning, sensible candidates).
+qualities the deterministic checks cannot (sound reasoning; non-redundant, on-topic
+tests authored via `create_test` with a clear coverage justification).
 ```
+
+The diffs agent now authors tests directly via `create_test` (no candidate
+pre-gate). Grading the quality of those authored tests - dedup discipline,
+coverage justification - is a substantive judge concern (tracked in #1035), not a
+count-bounds check.
 
 ### Reviewer frontmatter (generation + replay)
 
@@ -124,15 +128,10 @@ point, no hallucinated steps, correct engine-vs-app attribution?
 
 ### Healing frontmatter
 
-The Healing agent has two output channels and the frontmatter grades both:
-
-- `expectedActions` grades the **per-failure action union**. This subsumes the old
-  resolution `modified` / `removed` / `reportedBugs` checks: a modify is
-  `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
-  `report_engine_limitation`.
-- `newTests` / `acceptsCandidate` / `rejectsCandidate` grade the **candidate
-  channel** that rides on the folded-resolution first turn. They are vacuous (and
-  normally omitted) for later turns and onboarding, which carry no candidates.
+Healing only heals and culls; it authors no tests, so the frontmatter grades a
+single channel. `expectedActions` grades the **per-failure action union**: a modify
+is `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
+`report_engine_limitation`.
 
 ```yaml
 ---
@@ -142,26 +141,17 @@ expectedActions:                  # one entry per failing test case in input.jso
     tc-abc: update_plan           # the kind the agent must emit for this test case
     tc-def: report_bug
     tc-ghi: remove_test
-newTests:                         # bounds on newTests.length (first turn only)
-    minCount: 1
-    maxCount: 3
-acceptsCandidate: [candidate-id-x]  # each id MUST appear as some newTests[].acceptingCandidateId
-rejectsCandidate: [candidate-id-y]  # each id MUST appear as some rejectedCandidates[].candidateId
 ---
 Free-text judge rubric. Grade qualities the deterministic check cannot:
     - For each update_plan: does the newPrompt actually address the cited failure?
     - For each report_bug / report_engine_limitation: is the triage correct?
     - For each remove_test: is the cited reason plausible given the failure context?
-    - For each accepted/rejected candidate: is the new-test instruction on-topic, or
-      the rejection reasoning sound?
 ```
 
 Healing's runtime invariant is that every input failure is handled by exactly one
 action (the agent loop throws otherwise). The eval mirrors that: the `expectedActions`
 keyset must equal the set of `failures[].testCaseId` in `input.json`. A partial or
-mismatched map throws at load time rather than at run time. Likewise, every id in
-`acceptsCandidate` / `rejectsCandidate` must reference a candidate in
-`input.candidates`, or the case throws at load time.
+mismatched map throws at load time rather than at run time.
 
 ### Multimedia rehydration
 
@@ -230,21 +220,18 @@ pnpm --filter @autonoma/worker-diffs capture:healing                <iterationId
 pnpm --filter @autonoma/worker-diffs capture:healing-from-snapshot  <snapshotId>   [--name <case-name>] [--force]
 ```
 
-A **folded-resolution first turn** is captured with `capture:healing` like any
-other iteration - pass iteration 1 of a diffs refinement loop. The capture
-buckets its replay-only outcomes (a pre-existing test replayed against the diff
-has a run but no generation) and loads that turn's diff-analysis candidates, so
-the frozen `input.json` carries both `failures` and `candidates`. When candidates
-are present the scaffolded `expected.md` lists their ids under the candidate-channel
-checks.
+A diffs **first turn** is captured with `capture:healing` like any other
+iteration - pass iteration 1 of a diffs refinement loop. The capture buckets its
+outcomes (affected-test replays have a run but no generation; the diffs agent's
+new tests have a generation + run), so the frozen `input.json` carries those
+`failures`.
 
 **Pre-#986 / loop-less snapshots use `capture:healing-from-snapshot <snapshotId>`.**
 Before the cut-over (#986), "resolution" ran outside the refinement loop, so those
 snapshots have no `RefinementIteration` for `capture:healing` to start from. This
 command reconstructs the same first-turn `HealingInput` straight from the snapshot:
-failures from the affected-test replays (the plans `seedDiffsReplayPlanIds` would
-seed iteration 1 from), candidates from the snapshot's Step 1 proposals, and the
-change / analysis reasoning / per-failure lineage from the shared
+failures from the affected-test replays (the plans diffs iteration 1 is seeded
+from) and the change / analysis reasoning / per-failure lineage from the shared
 `DiffJobContextLoader`. It is the migration path for the legacy resolution corpus,
 and produces a fixture identical in shape to an iteration-based first-turn capture.
 The suite (`existingTests` + flows) is read from the **previous** snapshot, because
@@ -264,21 +251,15 @@ the snapshot's **previous** snapshot - the unmutated copy - to reproduce exactly
 This is controlled by the `testSuiteSource` option on the shared `assembleDiffsAgentInput` loader
 (`"current"` for the runner, `"previous"` for capture).
 
-**Test candidates (Healing first turn).** A folded-resolution first turn carries the snapshot's
-diff-analysis candidates. At production turn-1 time they all carry `status: "pending"`; the apply
-tail afterwards marks each `"accepted"` or `"rejected"`. The shared loader reads candidates
-regardless of status, so capture recovers the same input shape the agent saw - the candidate
-`id`/`name`/`instruction`/`reasoning` fields are immutable. Later turns and onboarding carry no
-candidates, so `input.candidates` is empty there.
-
 **Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
 `bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
 time). Those reads only touch rows that the rest of the pipeline never mutates by id
 (`TestGeneration`, `Run`, their reviews; `update_plan` creates a _new_ `TestPlan` rather than
 mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
-filtered out). The bucketing reproduces exactly - including a **folded-resolution first turn**,
-whose seeded plans are replay-only (a pre-existing test replayed against the diff has a `Run` but
-no `TestGeneration`), bucketed purely by run outcome.
+filtered out). The bucketing reproduces exactly - including a **diffs first turn**, whose seeded
+plans mix replay-only affected tests (a pre-existing test replayed against the diff has a `Run` but
+no `TestGeneration`, bucketed by run outcome) and the diffs agent's new tests (a `TestGeneration` +
+`Run`, bucketed by both).
 
 **Per-failure diff-job context (Healing).** Healing assembles its input through the shared
 `DiffJobContextLoader` (`loadHealingContext`), the same path the reviewers use, so
@@ -292,12 +273,11 @@ fixtures captured before this still rehydrate. `change` and `analysisReasoning` 
 healing runs against a checked-out head SHA, downstream of a successful analysis - though
 `analysisReasoning` defaults to `""` on read for a fixture frozen before it was captured.
 
-**Final-turn gating (Healing).** Capture also freezes the loop's trigger-specific iteration cap as
-`maxIterations`, recovered from the iteration's `RefinementLoop.triggeredBy` (4 diffs / 3 onboarding).
-The eval runs the real `HealingAgent`, which withholds the retry tools (`update_plan` / `add_test`)
-when `iteration === maxIterations`, so a final-turn fixture exercises the same triage-only tool set
-production does. `maxIterations` defaults to `4` (the corpus is diffs-only) for a fixture frozen
-before it was captured.
+**Final-turn gating (Healing).** Capture also freezes the loop's iteration cap as `maxIterations`,
+recovered from the iteration's `RefinementLoop.triggeredBy` (3 for both diffs and onboarding). The
+eval runs the real `HealingAgent`, which withholds the retry tool (`update_plan`) when
+`iteration === maxIterations`, so a final-turn fixture exercises the same triage-only tool set
+production does. `maxIterations` defaults to `3` for a fixture frozen before it was captured.
 
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
@@ -321,8 +301,9 @@ are read live from the application at capture time:
 - `testScopeGuidelines` (both steps) - free-text guidelines on the `Application` row. If the
   owner edits them between capture and eval run, the captured value will diverge from what
   production saw at the time.
-- `scenarioIndex` (healing) - the application's enabled scenarios. Scenarios are referenced by id,
-  so if one is deleted between capture and eval run the frozen ids become stale.
+- `scenarios` (analysis + healing) - the application's enabled scenarios (analysis exposes them so
+  `create_test` can bind a `scenarioId`; healing for `update_plan` grounding). Scenarios are
+  referenced by id, so if one is deleted between capture and eval run the frozen ids become stale.
 - `folder list + names/descriptions` (analysis + healing, via `loadFlows` / the healing
   `planAuthoring` block) - the per-folder _test slugs_ are snapshot-scoped, but the folder
   metadata itself is read live. Folders cannot currently be product-edited, so this rarely drifts.

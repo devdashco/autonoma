@@ -8,11 +8,10 @@ import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 export interface TriggerRefinementLoopParams {
     snapshotId: string;
     triggeredBy: "onboarding" | "diffs";
-    maxIterations?: number;
 }
 
 export async function triggerRefinementLoop(params: TriggerRefinementLoopParams): Promise<void> {
-    const { snapshotId, triggeredBy, maxIterations } = params;
+    const { snapshotId, triggeredBy } = params;
 
     return await withObservabilityContext({ snapshot: { snapshotId } }, async () => {
         logger.info("Triggering refinement loop workflow");
@@ -25,7 +24,7 @@ export async function triggerRefinementLoop(params: TriggerRefinementLoopParams)
             workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
             taskQueue: TaskQueue.GENERAL,
             searchAttributes: getWorkflowSearchAttributes(),
-            args: [{ snapshotId, triggeredBy, maxIterations }],
+            args: [{ snapshotId, triggeredBy }],
         });
 
         logger.info("Refinement loop workflow started", { workflowId });

@@ -37,7 +37,7 @@ export async function runDiffsAgent({
     logger.info("Diffs analysis complete", {
         extra: {
             affectedTests: result.affectedTests.length,
-            testCandidates: result.testCandidates.length,
+            createdTests: result.createdTests.length,
             reasoning: result.reasoning.slice(0, 500),
         },
     });

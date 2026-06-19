@@ -90,13 +90,6 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
           <Prose>{entry.reasoning}</Prose>
         </DetailSection>
       )}
-      {entry.category === "proposed-rejected" &&
-        entry.rejectionReasoning != null &&
-        entry.rejectionReasoning.trim().length > 0 && (
-          <DetailSection label="Why this was rejected">
-            <Prose>{entry.rejectionReasoning}</Prose>
-          </DetailSection>
-        )}
       {entry.plan != null && entry.plan.trim().length > 0 && (
         <DetailSection label="Plan">
           <ClampedProse>{entry.plan}</ClampedProse>

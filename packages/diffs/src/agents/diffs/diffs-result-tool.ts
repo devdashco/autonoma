@@ -20,7 +20,7 @@ class EmptyReasoningError extends FixableToolError {
 
 /**
  * Terminal tool for the {@link DiffsAgent}. Reads the affected-test and
- * test-candidate arrays off the loop and merges them with the agent's final
+ * created-test arrays off the loop and merges them with the agent's final
  * reasoning to produce a complete {@link DiffsAgentResult}.
  */
 export class DiffsResultTool extends ReportResultTool<DiffsResultInput, DiffsAgentResult, DiffsAgentLoop> {
@@ -30,7 +30,7 @@ export class DiffsResultTool extends ReportResultTool<DiffsResultInput, DiffsAge
             description:
                 "Call this tool when you have finished analyzing the diff. " +
                 "Provide your overall reasoning and summary. " +
-                "All actions (mark_affected_test, explain_merge_conflict, suggest_test) " +
+                "All actions (mark_affected_test, explain_merge_conflict, create_test) " +
                 "should have been called BEFORE calling finish.",
             inputSchema: diffsResultInputSchema,
         });
@@ -40,7 +40,7 @@ export class DiffsResultTool extends ReportResultTool<DiffsResultInput, DiffsAge
         if (input.reasoning.trim() === "") throw new EmptyReasoningError();
         return {
             affectedTests: [...loop.affectedTests],
-            testCandidates: [...loop.testCandidates],
+            createdTests: [...loop.createdTests],
             reasoning: input.reasoning,
         };
     }

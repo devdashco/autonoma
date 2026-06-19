@@ -3,12 +3,12 @@ import { type ChangeContext, type IterationLineage, buildChangeContextSection } 
 import { type ScenarioData, summarizeEntities } from "../scenario-data";
 import type { HealingAction } from "./actions";
 import { buildPlanAuthoringContext } from "./plan-authoring";
-import type { FailureRecord, HealingTestCandidate } from "./types";
+import type { FailureRecord } from "./types";
 
 /**
  * Whether this is the loop's final iteration. On the final turn the agent's
- * retry tools (`update_plan` / `add_test`) are withheld - mirrored here so the
- * prompt instructs the agent to triage rather than retry.
+ * retry tool (`update_plan`) is withheld - mirrored here so the prompt instructs
+ * the agent to triage rather than retry.
  */
 function isFinalTurn(input: HealingInput): boolean {
     return input.iteration >= input.maxIterations;
@@ -37,7 +37,7 @@ export function buildHealingPrompt(input: HealingInput): string {
     if (isFinalTurn(input)) {
         sections.push(
             `This is the **final iteration** (the loop's ${input.maxIterations}-iteration budget is exhausted). ` +
-                "There is no next turn, so retrying is not an option: `update_plan` and `add_test` are unavailable. " +
+                "There is no next turn, so retrying is not an option: `update_plan` is unavailable. " +
                 "Reach a terminal disposition for every failure - `report_bug`, `report_engine_limitation`, or " +
                 "`remove_test`. A plan that is still failing here but is not an application bug or engine limitation " +
                 "should be removed.",
@@ -56,10 +56,6 @@ export function buildHealingPrompt(input: HealingInput): string {
         sections.push(buildFailuresSection(input.failures, isFinalTurn(input)));
     } else {
         sections.push("# Failures\n\nNone in this batch.");
-    }
-
-    if (input.candidates.length > 0) {
-        sections.push(buildCandidatesSection(input.candidates));
     }
 
     sections.push(buildInstructionsSection(input));
@@ -232,62 +228,22 @@ function buildFailureScenarioSection(scenario: ScenarioData): string {
     return `**Scenario data** (this subject ran against **${scenario.scenarioName}**). A plan that depends on data not listed here is malformed - rewrite it to match the seeded data rather than reporting a bug:\n${body}`;
 }
 
-/**
- * Render the new-test candidates the agent must decide this turn. Each is
- * either graduated into a real test via `add_test` (passing its id as
- * `acceptingCandidateId`) or recorded in `rejectedCandidates` at `finish`.
- */
-function buildCandidatesSection(candidates: HealingTestCandidate[]): string {
-    const parts = [`# Test Candidates (${candidates.length})`];
-    parts.push(
-        "Proposed new tests for behavior introduced by this change. Decide each one: accept it by calling " +
-            "`add_test` with `acceptingCandidateId` set to the candidate id (you may refine the instruction first), " +
-            "or reject it by listing its id in `rejectedCandidates` when you call `finish`. Use `list_tests` / " +
-            "`read_tests` to avoid duplicating coverage that already exists.",
-    );
-    for (const c of candidates) {
-        parts.push(
-            [
-                `## ${c.name} (candidate \`${c.candidateId}\`)`,
-                `- **Reasoning**: ${c.reasoning}`,
-                `- **Instruction**: ${c.instruction}`,
-            ].join("\n"),
-        );
-    }
-    return parts.join("\n\n");
-}
-
 function buildInstructionsSection(input: HealingInput): string {
-    const hasFailures = input.failures.length > 0;
-    const hasCandidates = input.candidates.length > 0;
-
-    if (!hasFailures && !hasCandidates) {
+    if (input.failures.length === 0) {
         return [
             "# Instructions",
-            "No failures and no candidates in this batch. Call `finish` immediately with a brief explanation.",
+            "No failures in this batch. Call `finish` immediately with a brief explanation.",
         ].join("\n");
     }
 
-    const steps: string[] = [];
-    if (hasFailures) {
-        steps.push("Read each failure and the reviewer's reasoning.");
-        steps.push(
-            "Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
-        );
-        steps.push(
-            isFinalTurn(input)
-                ? "For each failure, choose exactly one terminal action: `report_bug`, `report_engine_limitation`, or `remove_test`. There is no next turn, so `update_plan` is unavailable."
-                : "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
-        );
-    }
-    if (hasCandidates) {
-        steps.push(
-            "For each test candidate, either accept it with `add_test` (set `acceptingCandidateId`) or reject it via `rejectedCandidates` at finish. Explore the suite with `list_tests` / `read_tests` first to avoid duplicate coverage.",
-        );
-    }
-    steps.push(
-        "Call `finish` with a one-paragraph summary once every failure is handled and every candidate is decided.",
-    );
+    const steps = [
+        "Read each failure and the reviewer's reasoning.",
+        "Look for cross-cutting patterns - if multiple failures share a root cause, explore the codebase once and apply the understanding to all of them.",
+        isFinalTurn(input)
+            ? "For each failure, choose exactly one terminal action: `report_bug`, `report_engine_limitation`, or `remove_test`. There is no next turn, so `update_plan` is unavailable."
+            : "For each failure, choose exactly one action: `update_plan`, `report_bug`, `report_engine_limitation`, or `remove_test`.",
+        "Call `finish` with a one-paragraph summary once every failure is handled.",
+    ];
 
     const numbered = steps.map((step, i) => `${i + 1}. ${step}`);
     return ["# Instructions", ...numbered].join("\n");

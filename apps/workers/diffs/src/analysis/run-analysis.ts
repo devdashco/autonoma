@@ -1,9 +1,10 @@
 import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
-import type { AffectedTest, Codebase } from "@autonoma/diffs";
+import type { AffectedTest, Codebase, CreatedTest, FlowIndex } from "@autonoma/diffs";
 import { type AffectedTestSpec, prepareRuns } from "@autonoma/diffs/prepare-runs";
-import { logger } from "@autonoma/logger";
+import { type Logger, logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
+import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import type { PreparedRunInfo } from "@autonoma/workflow/activities";
 import { uploadConversation } from "../upload-conversation";
 import { assembleDiffsAgentInput } from "./assemble-input";
@@ -26,9 +27,9 @@ export interface DiffsAnalysisResult {
 
 /**
  * Analysis runner: runs the merge flow + DiffsAgent against the provided
- * codebase clone, then applies the result (persists test candidates and
- * prepares replay runs). Returns the reasoning + conversation URL for the
- * activity to record on the DiffsJob.
+ * codebase clone, then applies the result (mints the tests the agent authored
+ * and prepares replay runs for the affected tests). Returns the reasoning +
+ * conversation URL for the activity to record on the DiffsJob.
  */
 export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysisParams): Promise<DiffsAnalysisResult> {
     logger.info("Starting diffs analysis");
@@ -52,11 +53,20 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
             agentAffectedTests: agentResult.affectedTests.length,
             importedAffectedTests: importedAffectedTests.length,
             combined: combinedAffectedTests.length,
-            testCandidates: agentResult.testCandidates.length,
+            createdTests: agentResult.createdTests.length,
         },
     });
 
-    await persistTestCandidates(snapshotId, branchData.organizationId, agentResult.testCandidates);
+    // Mint the authored tests first: each creates a test case + plan + a pending
+    // generation, and the refinement loop seeds iteration 1 from the snapshot's
+    // pending generations, so these must exist before the loop starts.
+    await createAuthoredTests({
+        snapshotId,
+        organizationId: branchData.organizationId,
+        flowIndex: agentInput.flowIndex,
+        createdTests: agentResult.createdTests,
+        logger: logger.child({ name: "createAuthoredTests" }),
+    });
 
     const replays = await prepareReplays({
         snapshotId,
@@ -81,22 +91,45 @@ function combineAffectedTests(imported: AffectedTest[], fromAgent: AffectedTest[
     return Array.from(bySlug.values());
 }
 
-async function persistTestCandidates(
-    snapshotId: string,
-    organizationId: string,
-    candidates: { name: string; instruction: string; reasoning: string }[],
-): Promise<void> {
-    if (candidates.length === 0) return;
+interface CreateAuthoredTestsParams {
+    snapshotId: string;
+    organizationId: string;
+    flowIndex: FlowIndex;
+    createdTests: CreatedTest[];
+    logger: Logger;
+}
 
-    await db.testCandidate.createMany({
-        data: candidates.map((c) => ({
-            snapshotId,
-            organizationId,
-            name: c.name,
-            instruction: c.instruction,
-            reasoning: c.reasoning,
-        })),
-    });
+/**
+ * Mints each test the diffs agent authored as a TestCase + plan + assignment +
+ * pending generation, storing the coverage justification as the test case's
+ * description.
+ *
+ * The folder name was already validated against this flow index at the tool
+ * boundary, so an unresolved folder here is a hard invariant violation.
+ */
+async function createAuthoredTests(params: CreateAuthoredTestsParams): Promise<void> {
+    const { snapshotId, organizationId, flowIndex, createdTests, logger } = params;
+    if (createdTests.length === 0) return;
+
+    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId, organizationId });
+
+    for (const test of createdTests) {
+        const folder = flowIndex.getFlow(test.folderName);
+        if (folder == null) {
+            throw new Error(`Folder "${test.folderName}" not found for authored test "${test.name}"`);
+        }
+
+        const { testCaseId, planId } = await updater.apply(
+            new AddTest({
+                name: test.name,
+                plan: test.plan,
+                description: test.coverageJustification,
+                folderId: folder.id,
+                scenarioId: test.scenarioId,
+            }),
+        );
+        logger.info("Authored test created and generation queued", { extra: { name: test.name, testCaseId, planId } });
+    }
 }
 
 interface PrepareReplaysParams {

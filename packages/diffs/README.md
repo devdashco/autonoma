@@ -6,8 +6,8 @@ AI agents that drive the diff-analysis, healing, and review pipeline. Every agen
 
 | Agent | Trigger | Decides |
 |---|---|---|
-| `DiffsAgent` | PR diffs | Which existing tests might be affected; what new tests are missing |
-| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test), plus which new-test candidates to graduate via add_test. For diffs, iteration 1 reconciles the first replay failures + Step 1 candidates |
+| `DiffsAgent` | PR diffs | Which existing tests might be affected; and authors any missing tests directly via `create_test` (mints the test case + plan + a pending generation, with a required coverage justification) |
+| `HealingAgent` | Refinement loop iteration | What to do about each plan that failed this iteration (update_plan / report_bug / report_engine_limitation / remove_test). It only heals and culls - it never authors tests |
 | `GenerationReviewer` | Every generation | Verdict (success / plan_mismatch / agent_limitation / application_bug) |
 | `ReplayReviewer` | Every failed replay | Verdict (engine_error / application_bug) |
 

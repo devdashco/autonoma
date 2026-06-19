@@ -68,7 +68,6 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
-            testCandidates: [],
             quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });
@@ -82,7 +81,6 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
-            testCandidates: [],
             quarantinedTests: [],
             executedTests: [],
         });
@@ -99,7 +97,6 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [],
             affectedTests: [affectedWithInitialRun()],
-            testCandidates: [],
             quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });

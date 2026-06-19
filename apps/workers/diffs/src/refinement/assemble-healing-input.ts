@@ -7,9 +7,7 @@ import {
     type HealingFailureSubject,
     type HealingInput,
     type HealingSubjectContext,
-    type HealingTestCandidate,
     type PlanAuthoringInput,
-    ScenarioIndex,
     healingActionSchema,
     loadFlows,
     mapTestSuiteToContext,
@@ -17,6 +15,7 @@ import {
 import { logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
 import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/workflow/activities";
+import { loadScenarioIndex } from "../load-scenario-index";
 import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
 /** Everything {@link HealingAgent} needs except the on-disk codebase clone. */
@@ -92,16 +91,15 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
 
     // The diff-job context (per-failure lineage + scenario + affected facts, and
     // the snapshot's change facts + application/org) comes from the shared loader.
-    // Prior actions and the suite (for the suite-browsing tools + add_test folder
-    // validation) are independent of it, so gather them concurrently.
-    const [diffJobContext, priorActions, suiteInfo, candidates] = await Promise.all([
+    // Prior actions and the suite (for the suite-browsing tools) are independent
+    // of it, so gather them concurrently.
+    const [diffJobContext, priorActions, suiteInfo] = await Promise.all([
         new DiffJobContextLoader(db).loadHealingContext({
             snapshotId,
             subjects: baseFailures.map(toHealingSubject),
         }),
         loadPriorActions(iterationId),
         fetchTestSuiteInfo(db, snapshotId),
-        loadFirstTurnCandidates(iterationNumber, snapshotId),
     ]);
 
     const { applicationId, organizationId } = diffJobContext;
@@ -119,11 +117,6 @@ export async function assembleHealingInput(params: AssembleHealingInputParams): 
         maxIterations,
         priorActions,
         failures,
-        // Candidates ride only on the first turn (the folded resolution turn,
-        // diffs only); later turns and onboarding get an empty list, leaving
-        // add_test in its spontaneous-only mode and the result tool's candidate
-        // clause vacuous.
-        candidates,
         flowIndex: new FlowIndex(flows),
         existingTests,
         planAuthoring,
@@ -176,42 +169,10 @@ export function mergeDiffJobContext(
 }
 
 /**
- * Load the first turn's new-test candidates (the Step 1 diff-analysis proposals)
- * as {@link HealingTestCandidate}. Only the first iteration carries candidates;
- * later turns get an empty list. Onboarding has no candidates either, so this
- * returns empty there even on turn 1.
- *
- * Read regardless of status (pending/accepted/rejected): at production turn-1
- * time they are all still pending (reconciliation runs in the apply tail,
- * afterwards), and the candidate id/name/instruction/reasoning fields are
- * immutable - so reading all statuses lets eval-capture recover the exact set
- * the live turn saw after the pipeline has decided them.
- */
-export async function loadFirstTurnCandidates(
-    iterationNumber: number,
-    snapshotId: string,
-): Promise<HealingTestCandidate[]> {
-    if (iterationNumber !== 1) return [];
-
-    const candidates = await db.testCandidate.findMany({
-        where: { snapshotId },
-        select: { id: true, name: true, instruction: true, reasoning: true },
-    });
-
-    return candidates.map((c) => ({
-        candidateId: c.id,
-        name: c.name,
-        instruction: c.instruction,
-        reasoning: c.reasoning,
-    }));
-}
-
-/**
  * Read every per-failure action emitted by *earlier* iterations of the same
- * loop, in emission order. `add_test` rows are excluded: they live outside the
- * per-failure action union ({@link healingActionSchema}), so feeding them
- * through the parser would throw. The new tests they minted surface to later
- * iterations through the suite itself, not through `priorActions`.
+ * loop, in emission order. Every kind in the table parses against
+ * {@link healingActionSchema} (update_plan / report_bug /
+ * report_engine_limitation / remove_test); healing authors no other rows.
  */
 export async function loadPriorActions(currentIterationId: string): Promise<HealingAction[]> {
     const current = await db.refinementIteration.findUniqueOrThrow({
@@ -220,7 +181,7 @@ export async function loadPriorActions(currentIterationId: string): Promise<Heal
     });
 
     const priorRows = await db.refinementAction.findMany({
-        where: { iteration: { loopId: current.loopId, number: { lt: current.number } }, kind: { not: "add_test" } },
+        where: { iteration: { loopId: current.loopId, number: { lt: current.number } } },
         select: { kind: true, payload: true },
         orderBy: { createdAt: "asc" },
     });
@@ -296,46 +257,6 @@ export async function loadPlanAuthoringInput({
         flows,
         testScopeGuidelines: application.testScopeGuidelines ?? undefined,
     };
-}
-
-async function loadScenarioIndex(db: PrismaClient, applicationId: string): Promise<ScenarioIndex> {
-    const scenarios = await db.scenario.findMany({
-        where: { applicationId, isDisabled: false },
-        select: {
-            id: true,
-            name: true,
-            description: true,
-            activeRecipeVersion: {
-                select: { fingerprint: true, fixtureJson: true, validationStatus: true },
-            },
-            instances: {
-                where: { status: "UP_SUCCESS" },
-                orderBy: { upAt: "desc" },
-                take: 3,
-                select: { metadata: true },
-            },
-        },
-    });
-
-    const details = scenarios.map((s) => {
-        const sample = s.instances.find((i) => i.metadata != null);
-        return {
-            id: s.id,
-            name: s.name,
-            description: s.description ?? undefined,
-            activeRecipe:
-                s.activeRecipeVersion != null
-                    ? {
-                          fingerprint: s.activeRecipeVersion.fingerprint,
-                          fixtureJson: s.activeRecipeVersion.fixtureJson,
-                          validationStatus: s.activeRecipeVersion.validationStatus,
-                      }
-                    : undefined,
-            sampleMetadata: sample?.metadata ?? undefined,
-        };
-    });
-
-    return new ScenarioIndex(details);
 }
 
 async function loadFlowSummaries(db: PrismaClient, applicationId: string, snapshotId: string): Promise<FlowSummary[]> {

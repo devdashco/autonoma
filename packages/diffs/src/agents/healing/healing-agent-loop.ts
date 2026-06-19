@@ -3,13 +3,11 @@ import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import type { HealingAction, HealingReviewLink } from "../../healing/actions";
-import type { HealingTestCandidate } from "../../healing/types";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
 import type { ScenarioLookupLoop } from "../tools/lookup/scenario-lookup-loop";
 import type { TestLookupLoop } from "../tools/lookup/test-lookup-loop";
 import type { HealingResult } from "./healing-agent";
-import type { HealingNewTest } from "./tools/add-test-tool";
 
 interface HealingAgentLoopParams extends AgentConfig<HealingResult> {
     codebase: Codebase;
@@ -19,20 +17,15 @@ interface HealingAgentLoopParams extends AgentConfig<HealingResult> {
     failureKeysByTestCaseId: ReadonlyMap<string, string>;
     failureKeys: ReadonlySet<string>;
     reviewLinksByTestCaseId: ReadonlyMap<string, HealingReviewLink>;
-    candidatesById: ReadonlyMap<string, HealingTestCandidate>;
-    isFirstTurn: boolean;
 }
 
 /**
  * Per-run state for the {@link HealingAgent}. The four per-failure action tools
  * share two invariants the framework enforces inline: each `testCaseId` may
  * only be acted on once per iteration, and every failure key must be addressed
- * before the result tool accepts the finish call. `add_test` is the fifth tool;
- * it targets no failure (so it sits outside the per-failure union) and instead
- * decides candidates - tracked via {@link candidatesById} / {@link
- * claimedCandidateIds}, which the result tool reads to enforce that every
- * candidate is decided. The Loop exposes its state directly so each tool can do
- * its own check + push without a centralised collector.
+ * before the result tool accepts the finish call. Healing only heals and culls;
+ * it never authors tests, so the loop exposes its action state directly and each
+ * tool does its own check + push without a centralised collector.
  */
 export class HealingAgentLoop
     extends AgentLoop<HealingResult>
@@ -55,21 +48,13 @@ export class HealingAgentLoop
      * review evidence (and hallucinated IDs) are absent.
      */
     public readonly reviewLinksByTestCaseId: ReadonlyMap<string, HealingReviewLink>;
-    /** Candidates offered this turn, by id. Empty on turns with no candidates. */
-    public readonly candidatesById: ReadonlyMap<string, HealingTestCandidate>;
-    /** Whether this is the first turn of the refinement loop (gates spontaneous add_test). */
-    public readonly isFirstTurn: boolean;
 
     /** Per-failure actions the agent has recorded this iteration. */
     public readonly actions: HealingAction[] = [];
-    /** New tests the agent has recorded this iteration via `add_test`. */
-    public readonly newTests: HealingNewTest[] = [];
     /** testCaseIds that already have an action recorded - used by tools to reject duplicates. */
     public readonly handledTestCaseIds = new Set<string>();
     /** Failure keys whose test case has been addressed. */
     public readonly handledFailureKeys = new Set<string>();
-    /** Candidate ids accepted by an `add_test` call this iteration. */
-    public readonly claimedCandidateIds = new Set<string>();
 
     constructor({
         codebase,
@@ -79,8 +64,6 @@ export class HealingAgentLoop
         failureKeysByTestCaseId,
         failureKeys,
         reviewLinksByTestCaseId,
-        candidatesById,
-        isFirstTurn,
         ...config
     }: HealingAgentLoopParams) {
         super(config);
@@ -91,8 +74,6 @@ export class HealingAgentLoop
         this.failureKeysByTestCaseId = failureKeysByTestCaseId;
         this.failureKeys = failureKeys;
         this.reviewLinksByTestCaseId = reviewLinksByTestCaseId;
-        this.candidatesById = candidatesById;
-        this.isFirstTurn = isFirstTurn;
     }
 
     /** Failure keys the agent has yet to address. */
@@ -100,7 +81,7 @@ export class HealingAgentLoop
         return [...this.failureKeys].filter((k) => !this.handledFailureKeys.has(k));
     }
 
-    protected override snapshotPartial(): { actions: HealingAction[]; newTests: HealingNewTest[] } {
-        return { actions: [...this.actions], newTests: [...this.newTests] };
+    protected override snapshotPartial(): { actions: HealingAction[] } {
+        return { actions: [...this.actions] };
     }
 }
