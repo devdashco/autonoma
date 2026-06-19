@@ -215,7 +215,7 @@ The worker drains the sink's buffer on shutdown.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
 - `pnpm --filter @autonoma/previewkit migrate:config [--dry-run] [--force]` - one-off: import every linked
   Application's `.preview.yaml` (at its main-branch head) into a `PreviewkitConfigRevision` and activate it.
-  Idempotent (skips Applications that already have an active revision unless `--force`); needs the previewkit env.
+  Idempotent (skips Applications that already have any config revision unless `--force`); needs the previewkit env.
 - `scripts/apply-standard-resources.sh [--apply] [--namespace NS]` - retrofit running preview namespaces to the
   current `STANDARD_RESOURCES` tiers + replicas cap (existing workloads keep their old requests until their next
   deploy; run this after changing the standards). Dry-run by default; only touches containers still requesting

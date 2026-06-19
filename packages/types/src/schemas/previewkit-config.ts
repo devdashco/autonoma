@@ -119,6 +119,48 @@ const hooksSchema = z
     })
     .default({ pre_deploy: [], post_deploy: [] });
 
+// `build` selects an app's build strategy, discriminated on `framework`:
+// - node / bun / next / vite: previewkit generates a Dockerfile from the
+//   install / build / run commands (defaulted from the framework + package
+//   manager + build context, each overridable).
+// - dockerfile: build a user-authored Dockerfile at the given path.
+// When `build` is omitted the pipeline falls back to Railpack autodetection
+// (an on-disk Dockerfile still wins). `build_context: root` builds from the
+// repository root so workspace dependencies resolve - this, plus a
+// turbo-filtered build/run command, replaces the former `monorepo: turbo`.
+const nodeVersionRegex = /^\d+(\.\d+)?(\.\d+)?$/;
+const buildContextSchema = z.enum(["app", "root"]).default("app");
+
+function nodeFrameworkBuildSchema<TFramework extends "node" | "next" | "vite">(framework: TFramework) {
+    return z.object({
+        framework: z.literal(framework),
+        package_manager: z.enum(["npm", "pnpm", "yarn"]).default("pnpm"),
+        node_version: z.string().regex(nodeVersionRegex, "must look like 22, 22.5, or 22.5.0").default("22"),
+        install_command: z.string().min(1).optional(),
+        build_command: z.string().min(1).optional(),
+        run_command: z.string().min(1).optional(),
+        build_context: buildContextSchema,
+    });
+}
+
+const buildSchema = z.discriminatedUnion("framework", [
+    nodeFrameworkBuildSchema("node"),
+    nodeFrameworkBuildSchema("next"),
+    nodeFrameworkBuildSchema("vite"),
+    z.object({
+        framework: z.literal("bun"),
+        install_command: z.string().min(1).optional(),
+        build_command: z.string().min(1).optional(),
+        run_command: z.string().min(1).optional(),
+        build_context: buildContextSchema,
+    }),
+    z.object({
+        framework: z.literal("dockerfile"),
+        dockerfile: z.string().min(1, "dockerfile path is required"),
+        build_context: buildContextSchema,
+    }),
+]);
+
 /**
  * Builds the preview config schema. `allowCustomResources` is the only knob: it
  * decides whether per-app/service `resources` overrides are honored (trusted DB
@@ -132,6 +174,7 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
         path: z.string().default("."),
         build_context: z.string().optional(),
         dockerfile: z.string().optional(),
+        build: buildSchema.optional(),
         monorepo: z.enum(["turbo"]).optional(),
         build_args: z.record(z.string(), z.string()).default({}),
         build_secrets: z.array(z.string()).default([]),
@@ -211,6 +254,10 @@ export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
 // `{ cpu, memoryRequest, memoryLimit }`); only the source of the values differs.
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = PreviewConfig["apps"][number];
+
+/** An app's build strategy. Discriminated union on `framework`. */
+export type Build = z.infer<typeof buildSchema>;
+export type BuildFramework = Build["framework"];
 
 export type ConfigIssueSeverity = "error" | "warning";
 

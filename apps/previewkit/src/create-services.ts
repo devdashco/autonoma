@@ -149,6 +149,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         awsSecretsFetcher,
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
+        dockerHubMirror: env.DOCKER_HUB_MIRROR,
         storage,
         ...(logSink != null ? { logSink } : {}),
     });

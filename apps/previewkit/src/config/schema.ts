@@ -5,6 +5,7 @@ export {
     trustedPreviewConfigSchema,
     type AddonConfig,
     type AppConfig,
+    type Build,
     type BranchConvention,
     type ContainerResources,
     type PreviewConfig,

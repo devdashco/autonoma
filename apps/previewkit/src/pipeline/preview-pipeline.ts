@@ -47,6 +47,7 @@ import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../depl
 import { runHookJob } from "../deployer/hook-job-runner";
 import { execInDeploymentPod } from "../deployer/pod-exec";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
+import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
@@ -108,6 +109,9 @@ interface PreviewPipelineOptions {
     awsSecretsFetcher: AwsSecretsFetcher;
     addonManager: AddonManager;
     registryUrl: string;
+    /** ECR pull-through cache prefix for Docker Hub; threaded into generated
+     *  Dockerfile base images. "" disables mirroring (see mirrorDockerHubImage). */
+    dockerHubMirror: string;
     storage: StorageProvider;
     /** Build-log sink. When set, the pipeline mirrors phase transitions +
      *  terminal status into it (the builder mirrors raw output), keyed by
@@ -131,6 +135,7 @@ export class PreviewPipeline {
     private readonly awsSecretsFetcher: AwsSecretsFetcher;
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
+    private readonly dockerHubMirror: string;
     private readonly storage: StorageProvider;
     private readonly logSink?: BuildLogSink;
 
@@ -141,6 +146,7 @@ export class PreviewPipeline {
         this.awsSecretsFetcher = options.awsSecretsFetcher;
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
+        this.dockerHubMirror = options.dockerHubMirror;
         this.storage = options.storage;
         this.logSink = options.logSink;
     }
@@ -894,6 +900,56 @@ export class PreviewPipeline {
      * outcome instead of throwing — the caller relies on this to keep the
      * other apps' builds running when one fails.
      */
+    /**
+     * Resolves an app's build inputs. An explicit `build` block is the single
+     * source of strategy: a `dockerfile` framework builds the named Dockerfile;
+     * any other framework builds a generated Dockerfile (via `generateDockerfile`);
+     * `build_context: root` builds from the repo root. With no `build` block, falls
+     * back to the legacy dockerfile / monorepo / Railpack path (removed once `build`
+     * is universal).
+     */
+    private resolveBuildInputs(
+        app: PreviewConfig["apps"][number],
+        repoDir: string,
+        resolvedBuildArgs: Record<string, string>,
+    ): {
+        contextPath: string;
+        buildContext?: string;
+        dockerfile?: string;
+        generatedDockerfile?: string;
+        monorepoTool?: "turbo";
+    } {
+        const appDir = path.resolve(repoDir, app.path);
+
+        if (app.build != null) {
+            const build = app.build;
+            const contextPath = build.build_context === "root" ? repoDir : appDir;
+            if (build.framework === "dockerfile") {
+                return { contextPath, dockerfile: build.dockerfile };
+            }
+            const generatedDockerfile = generateDockerfile(build, {
+                registryMirror: this.dockerHubMirror,
+                buildArgs: resolvedBuildArgs,
+                port: app.port,
+                appName: app.name,
+            });
+            return { contextPath, generatedDockerfile };
+        }
+
+        const buildContext =
+            app.build_context != null
+                ? path.resolve(repoDir, app.build_context)
+                : app.monorepo != null
+                  ? repoDir
+                  : undefined;
+        return {
+            contextPath: appDir,
+            ...(buildContext != null ? { buildContext } : {}),
+            ...(app.dockerfile != null ? { dockerfile: app.dockerfile } : {}),
+            ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
+        };
+    }
+
     private async buildOneApp(app: PreviewConfig["apps"][number], ctx: AppBuildContext): Promise<AppBuildOutcome> {
         const start = Date.now();
         try {
@@ -917,17 +973,6 @@ export class PreviewPipeline {
             });
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
-            const contextPath = path.resolve(dir, app.path);
-            // Resolve buildContext from explicit override first, then fall back
-            // to the cloned repo root when the app declares a monorepo tool.
-            // Without an explicit override, a `monorepo: turbo` app must build
-            // from the repo root so railpack sees the workspace lockfile.
-            const buildContext =
-                app.build_context != null
-                    ? path.resolve(dir, app.build_context)
-                    : app.monorepo != null
-                      ? dir
-                      : undefined;
             const cacheKey = `${ctx.org}/${ctx.repo}/${app.name}`;
 
             const appArn = ctx.arnByApp.get(app.name);
@@ -952,17 +997,19 @@ export class PreviewPipeline {
                 ctx.addonOutputs,
             );
 
+            const buildInputs = this.resolveBuildInputs(app, dir, resolvedBuildArgs);
             const result = await this.builder.build({
                 appName: app.name,
-                contextPath,
-                buildContext,
-                dockerfile: app.dockerfile,
+                contextPath: buildInputs.contextPath,
                 buildArgs: resolvedBuildArgs,
                 imageTag,
                 cacheKey,
                 namespace: ctx.namespace,
-                ...(app.monorepo != null ? { monorepoTool: app.monorepo } : {}),
-                ...(ctx.signal != null ? { signal: ctx.signal } : {}),
+                buildContext: buildInputs.buildContext,
+                dockerfile: buildInputs.dockerfile,
+                generatedDockerfile: buildInputs.generatedDockerfile,
+                monorepoTool: buildInputs.monorepoTool,
+                signal: ctx.signal,
             });
 
             return {

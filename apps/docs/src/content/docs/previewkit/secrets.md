@@ -3,7 +3,7 @@ title: Secrets
 description: How to manage credentials, API keys, and other sensitive values for your Previewkit environments.
 ---
 
-Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in `.preview.yaml`. Manage it through the autonoma API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
+Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in your stack configuration. Manage it through the autonoma API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
 
 ## Managing secrets
 
@@ -14,7 +14,7 @@ PUT    /v1/previewkit/secrets/:applicationId/:app/:key           # single upsert
 DELETE /v1/previewkit/secrets/:applicationId/:app/:key           # delete one key
 ```
 
-`applicationId` is your autonoma Application row id. Look it up once via the dashboard and hardcode it in your CI. `app` matches the `name:` field of an app inside `.preview.yaml`. For a single-app repo it's just that one name; for a monorepo each app has its own bundle.
+`applicationId` is your autonoma Application row id. Look it up once via the dashboard and hardcode it in your CI. `app` matches an app's `name` in your stack configuration. For a single-app repo it's just that one name; for a monorepo each app has its own bundle.
 
 ### Authentication
 
@@ -50,7 +50,7 @@ Updates take effect on the next preview deploy for that app.
 
 ## Build-time secrets (`build_secrets`)
 
-`NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in `build_secrets:` inside `.preview.yaml` and Previewkit will pass them to your builder:
+`NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in an app's `build_secrets` and Previewkit will pass them to your builder:
 
 ```yaml
 apps:
@@ -66,21 +66,21 @@ Each name must already be a key you've uploaded via the API. The build fails fas
 
 Server-only secrets (those your running pod reads via `process.env`) do NOT need to be in `build_secrets` - the runtime mount already covers them. Listing them anyway is harmless but verbose.
 
-## Overrides committed to git
+## Config-level overrides
 
-If you also define a key in `.preview.yaml`'s `env:` map, the value there wins over the uploaded one. Use this for behaviour switches that must pass code review:
+If you also define a key in an app's `env` map in your stack configuration, the value there wins over the uploaded one. Use this for behaviour switches you want pinned alongside the rest of the config:
 
 ```yaml
 apps:
   - name: api
     port: 4000
     env:
-      # A wrong API edit can't silently flip a preview into "talk to live banking".
+      # Pin a preview to safe defaults so it can't talk to live services.
       PLAID_ENV: "sandbox"
       SEND_EMAILS_LOCALLY: "false"
 ```
 
-Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env:` resolve the same way - see [environment templating](/previewkit/preview-yaml/#environment-templating).
+Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the same way.
 
 ## What goes where
 
@@ -88,9 +88,9 @@ Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env:` resolve th
 |---|---|
 | Third-party API keys, database URLs, signed tokens | Previewkit API |
 | `NEXT_PUBLIC_*` / `VITE_*` baked into a client bundle | Previewkit API, also listed in `build_secrets` |
-| In-cluster service URLs (`{{db.host}}`, `{{api.host}}`) | `.preview.yaml` env - resolved automatically, no upload needed |
-| PR / owner / namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`) | `.preview.yaml` env - resolved automatically, no upload needed |
-| Behaviour switches that should pass code review (`PLAID_ENV=sandbox`, `SEND_EMAILS_LOCALLY=false`) | `.preview.yaml` env - keep in git so a wrong API edit can't silently flip a preview into "talk to production" mode |
-| Anything non-sensitive that varies between environments | `.preview.yaml` env - reviewable in git |
+| In-cluster service URLs (`{{db.host}}`, `{{api.host}}`) | Stack config `env` - resolved automatically, no upload needed |
+| PR / owner / namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`) | Stack config `env` - resolved automatically, no upload needed |
+| Behaviour switches (`PLAID_ENV=sandbox`, `SEND_EMAILS_LOCALLY=false`) | Stack config `env` - pinned alongside the rest of the configuration |
+| Anything non-sensitive that varies between environments | Stack config `env` |
 
 If you're unsure, default to the Previewkit API. You only need to think about `build_secrets` when a value must be present *during* the build (the client-bundle case above).

@@ -11,7 +11,6 @@
         "test:integration": "vitest run --config vitest.integration.config.ts --passWithNoTests",
         "test:kind": "vitest run --config vitest.kind.config.ts",
         "typecheck": "tsc --noEmit",
-        "migrate:config": "tsx scripts/migrate-yaml-to-db.ts",
         "start:worker": "tsx --import ./src/worker/preload.ts src/worker/index.ts"
     },
     "dependencies": {
