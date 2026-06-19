@@ -46,6 +46,7 @@ model BenchmarkGeneration {
   appUrl           String                    @map("app_url")
   status           BenchmarkGenerationStatus @default(pending)
   verdict          String?
+  verdictReasoning String?                   @map("verdict_reasoning")
   stepCount        Int?                      @map("step_count")
   createdAt        DateTime                  @default(now()) @map("created_at")
   completedAt      DateTime?                 @map("completed_at")
@@ -78,9 +79,10 @@ model BenchmarkRun {
   runId    String                 @map("run_id")
   org      String
   status   BenchmarkGenerationStatus @default(pending)
-  verdict  String?
-  createdAt  DateTime             @default(now()) @map("created_at")
-  completedAt DateTime?           @map("completed_at")
+  verdict          String?
+  verdictReasoning String?  @map("verdict_reasoning")
+  createdAt        DateTime @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
 
   batch BenchmarkBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
 

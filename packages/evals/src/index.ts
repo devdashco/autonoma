@@ -16,3 +16,8 @@ export {
     identifierSetCheckSchema,
 } from "./frontmatter";
 export { type JudgeParams, type JudgeResult, type JudgeVerdict, judgeVerdictSchema } from "./judge";
+export {
+    type GenerationBenchmarkVerdict,
+    GenerationBenchmarkReviewer,
+} from "./benchmark/generation-benchmark-reviewer";
+export { type ReplayBenchmarkVerdict, ReplayBenchmarkReviewer } from "./benchmark/replay-benchmark-reviewer";
