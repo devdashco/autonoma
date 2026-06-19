@@ -140,6 +140,21 @@ RUN set -eux; \
     sed -i 's/pgrx       = "^0.12.7"/pgrx       = { version = "0.12.9", features = [ "unsafe-postgres" ] }/g' Cargo.toml; \
     cargo pgrx install --release --pg-config "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
 
+# pg_session_jwt - JWT-backed session claims for row-level security (Neon
+# Authorize style). The vendored pgrx-tests sub-crate is bumped too so the whole
+# workspace resolves on one pgrx version.
+RUN set -eux; \
+    wget -O pg_session_jwt.tar.gz https://github.com/neondatabase/pg_session_jwt/archive/refs/tags/v0.3.1.tar.gz; \
+    echo "62fec9e472cb805c53ba24a0765afdb8ea2720cfc03ae7813e61687b36d1b0ad pg_session_jwt.tar.gz" | sha256sum -c -; \
+    mkdir pg_session_jwt && tar xzf pg_session_jwt.tar.gz --strip-components=1 -C pg_session_jwt; \
+    cd pg_session_jwt; \
+    sed -i 's/pgrx = "0.12.6"/pgrx = { version = "0.12.9", features = [ "unsafe-postgres" ] }/g' Cargo.toml; \
+    sed -i 's/version = "0.12.6"/version = "0.12.9"/g' pgrx-tests/Cargo.toml; \
+    sed -i 's/pgrx = "=0.12.6"/pgrx = { version = "=0.12.9", features = [ "unsafe-postgres" ] }/g' pgrx-tests/Cargo.toml; \
+    sed -i 's/pgrx-macros = "=0.12.6"/pgrx-macros = "=0.12.9"/g' pgrx-tests/Cargo.toml; \
+    sed -i 's/pgrx-pg-config = "=0.12.6"/pgrx-pg-config = "=0.12.9"/g' pgrx-tests/Cargo.toml; \
+    cargo pgrx install --release --pg-config "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config"
+
 #########################################################################################
 # Final image
 #########################################################################################
@@ -188,6 +203,7 @@ COPY --from=ext-build \
     "/usr/lib/postgresql/${PG_MAJOR}/lib/pg_graphql.so" \
     "/usr/lib/postgresql/${PG_MAJOR}/lib/pg_tiktoken.so" \
     "/usr/lib/postgresql/${PG_MAJOR}/lib/pgx_ulid.so" \
+    "/usr/lib/postgresql/${PG_MAJOR}/lib/pg_session_jwt.so" \
     "/usr/lib/postgresql/${PG_MAJOR}/lib/pg_hashids.so" \
     "/usr/lib/postgresql/${PG_MAJOR}/lib/"
 
@@ -196,6 +212,7 @@ COPY --from=ext-build \
     "/usr/share/postgresql/${PG_MAJOR}/extension/pg_graphql"* \
     "/usr/share/postgresql/${PG_MAJOR}/extension/pg_tiktoken"* \
     "/usr/share/postgresql/${PG_MAJOR}/extension/pgx_ulid"* \
+    "/usr/share/postgresql/${PG_MAJOR}/extension/pg_session_jwt"* \
     "/usr/share/postgresql/${PG_MAJOR}/extension/pg_hashids"* \
     "/usr/share/postgresql/${PG_MAJOR}/extension/pgjwt"* \
     "/usr/share/postgresql/${PG_MAJOR}/extension/"

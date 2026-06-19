@@ -336,8 +336,8 @@ heavyweight builds (plv8, rdkit, pg_duckdb, pg_mooncake, pgrag). Highlights:
 - **Search / types:** `vector` (pgvector), `postgis` (+ `postgis_raster`, `postgis_topology`),
   `pgrouting`, `h3` / `h3_postgis`, `hll`, `rum`, `ip4r`, `prefix`, `unit`, `semver`,
   `roaringbitmap`, `pg_uuidv7`, `pgx_ulid`, `pg_hashids`.
-- **App / API:** `pg_graphql`, `pg_jsonschema`, `pg_tiktoken`, `pgjwt`, plus contrib (`uuid-ossp`,
-  `pgcrypto`, `citext`, `hstore`, `pg_trgm`, `ltree`, ...).
+- **App / API:** `pg_graphql`, `pg_jsonschema`, `pg_tiktoken`, `pgjwt`, `pg_session_jwt` (JWT-backed
+  RLS), plus contrib (`uuid-ossp`, `pgcrypto`, `citext`, `hstore`, `pg_trgm`, `ltree`, ...).
 - **Ops / time-series:** `timescaledb`, `pg_cron`, `pg_partman`, `pg_repack`, `pg_ivm`, `hypopg`,
   `pg_hint_plan`, `plpgsql_check`, `pgaudit`, `pgauditlogtofile`, `wal2json`, `pgtap`.
 
