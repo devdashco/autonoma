@@ -11,6 +11,7 @@ import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
 import { buildGatekeeperApiEgressPolicy, buildNetworkPolicies } from "./network-policy-factory";
+import { findTerminalPodFailure, summarizePodStates } from "./pod-failure";
 import { PostgresRestorer } from "./postgres-restorer";
 import {
     buildAppDeployment,
@@ -555,49 +556,68 @@ export class Deployer {
     ): Promise<void> {
         const start = Date.now();
         logger.info("Waiting for deployment to be ready", { namespace, app: appName });
+        const labelSelector = `app=${appName}`;
 
         while (Date.now() - start < timeoutMs) {
-            try {
-                const res = await this.appsApi.readNamespacedDeployment({ namespace, name: appName });
-                const { metadata, spec, status } = res;
-                const desired = spec?.replicas ?? 1;
-                const generation = metadata?.generation ?? 0;
-                const observed = status?.observedGeneration ?? 0;
-                const updated = status?.updatedReplicas ?? 0;
-                const available = status?.availableReplicas ?? 0;
-
-                if (observed >= generation && updated >= desired && available >= desired) {
-                    logger.info("Deployment ready", { namespace, app: appName });
-                    return;
-                }
-
-                // Fail fast if any pod is in CrashLoopBackOff — it won't become
-                // available within the timeout window anyway.
-                const pods = await this.coreApi.listNamespacedPod({
-                    namespace,
-                    labelSelector: `app=${appName}`,
-                });
-                for (const pod of pods.items) {
-                    for (const cs of pod.status?.containerStatuses ?? []) {
-                        if (cs.state?.waiting?.reason === "CrashLoopBackOff") {
-                            throw new Error(`Pod for "${appName}" is in CrashLoopBackOff`);
-                        }
-                    }
-                }
-            } catch (err) {
-                if (err instanceof Error && err.message.includes("CrashLoopBackOff")) {
-                    logger.warn("Deployment failing due to CrashLoopBackOff, skipping wait", {
-                        namespace,
-                        app: appName,
-                    });
-                    throw err;
-                }
-                logger.warn("Transient error polling deployment status, retrying", { namespace, app: appName, err });
+            if (await this.isDeploymentAvailable(namespace, appName)) {
+                logger.info("Deployment ready", { namespace, app: appName });
+                return;
             }
+
+            // Fail fast on a terminal pod state (bad image, crash loop, bad
+            // config). It will never become available within the timeout, and the
+            // precise reason is far more actionable than a generic "timed out".
+            // The reason string keeps the literal k8s reason so tryDeployApp can
+            // still detect CrashLoopBackOff - the one failure the post_deploy
+            // recovery retries.
+            const failure = findTerminalPodFailure(await this.listPodsQuietly(namespace, labelSelector));
+            if (failure != null) {
+                logger.warn("Deployment hit a terminal pod state, failing fast", { namespace, app: appName, failure });
+                throw new Error(`Deployment "${appName}" will not become ready: ${failure}`);
+            }
+
             await new Promise((r) => setTimeout(r, 3000));
         }
 
-        throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}`);
+        const pods = summarizePodStates(await this.listPodsQuietly(namespace, labelSelector));
+        logger.error("Timed out waiting for deployment to be ready", { namespace, app: appName, pods });
+        throw new Error(`Timed out waiting for deployment "${appName}" to be ready in ${namespace}; pods: ${pods}`);
+    }
+
+    /**
+     * Reads the Deployment and reports whether its current generation is fully
+     * rolled out and available. Transient API errors are logged and reported as
+     * "not ready" so the readiness loop keeps polling.
+     */
+    private async isDeploymentAvailable(namespace: string, appName: string): Promise<boolean> {
+        try {
+            const res = await this.appsApi.readNamespacedDeployment({ namespace, name: appName });
+            const { metadata, spec, status } = res;
+            const desired = spec?.replicas ?? 1;
+            const generation = metadata?.generation ?? 0;
+            const observed = status?.observedGeneration ?? 0;
+            const updated = status?.updatedReplicas ?? 0;
+            const available = status?.availableReplicas ?? 0;
+            return observed >= generation && updated >= desired && available >= desired;
+        } catch (err) {
+            logger.warn("Transient error polling deployment status, retrying", { namespace, app: appName, err });
+            return false;
+        }
+    }
+
+    /**
+     * Lists the pods for a label selector, returning [] on error. The readiness
+     * loops treat "could not read pods" as "keep waiting", never as a terminal
+     * failure, so a flaky API call can't fail a deploy on its own.
+     */
+    private async listPodsQuietly(namespace: string, labelSelector: string): Promise<k8s.V1Pod[]> {
+        try {
+            const res = await this.coreApi.listNamespacedPod({ namespace, labelSelector });
+            return res.items;
+        } catch (err) {
+            logger.warn("Could not list pods for readiness check", { namespace, labelSelector, err });
+            return [];
+        }
     }
 
     private async waitForServicesReady(
@@ -625,74 +645,84 @@ export class Deployer {
         const notReadyServices = new Set<string>();
 
         while (Date.now() - start < timeoutMs) {
-            let allReady = true;
+            const pending = await this.findPendingServices(namespace, serviceNames, notReadyServices);
 
-            for (const name of serviceNames) {
-                try {
-                    const res = await this.coreApi.listNamespacedEndpoints({
-                        namespace,
-                        fieldSelector: `metadata.name=${name}`,
-                    });
-                    const endpoints = res.items[0];
-                    const readyAddresses = endpoints?.subsets?.flatMap((s) => s.addresses ?? []);
-                    if (!readyAddresses?.length) {
-                        allReady = false;
-                        if (!notReadyServices.has(name)) {
-                            notReadyServices.add(name);
-                            logger.info("Service not ready yet", { namespace, service: name });
-                        }
-                        break;
-                    } else if (notReadyServices.has(name)) {
-                        notReadyServices.delete(name);
-                        logger.info("Service became ready", { namespace, service: name });
-                    }
-                } catch {
-                    allReady = false;
-                    if (!notReadyServices.has(name)) {
-                        notReadyServices.add(name);
-                        logger.info("Service not ready yet (endpoint query failed)", { namespace, service: name });
-                    }
-                    break;
-                }
-            }
-
-            if (allReady) {
+            if (pending.length === 0) {
                 logger.info("All services ready", { namespace });
                 return;
+            }
+
+            // Fail fast if a not-yet-ready service has a pod in a terminal state.
+            // A misconfigured recipe image or a crash-looping dependency won't
+            // recover by waiting, so surface the reason now instead of after the
+            // full timeout.
+            for (const name of pending) {
+                const failure = findTerminalPodFailure(await this.listPodsQuietly(namespace, `app=${name}`));
+                if (failure != null) {
+                    logger.error("Service hit a terminal pod state, failing fast", {
+                        namespace,
+                        service: name,
+                        failure,
+                    });
+                    throw new Error(`Service "${name}" will not become ready: ${failure}`);
+                }
             }
 
             await new Promise((r) => setTimeout(r, 5000));
         }
 
-        // Log pod status for debugging before throwing
+        // Log pod status for every service before throwing, to explain the timeout.
         for (const name of serviceNames) {
-            try {
-                const pods = await this.coreApi.listNamespacedPod({
-                    namespace,
-                    labelSelector: `app=${name}`,
-                });
-                for (const pod of pods.items) {
-                    const phase = pod.status?.phase;
-                    const conditions = pod.status?.conditions?.map((c) => `${c.type}=${c.status}`).join(",");
-                    const containerStatuses = pod.status?.containerStatuses?.map(
-                        (cs) =>
-                            `${cs.name}:ready=${cs.ready},restarts=${cs.restartCount},state=${JSON.stringify(cs.state)}`,
-                    );
-                    logger.error("Service pod not ready at timeout", {
-                        namespace,
-                        service: name,
-                        pod: pod.metadata?.name,
-                        phase,
-                        conditions,
-                        containerStatuses,
-                    });
-                }
-            } catch {
-                logger.error("Could not fetch pod status for service", { namespace, service: name });
-            }
+            const pods = summarizePodStates(await this.listPodsQuietly(namespace, `app=${name}`));
+            logger.error("Service pods not ready at timeout", { namespace, service: name, pods });
         }
 
         throw new Error(`Timed out waiting for services to be ready in ${namespace}`);
+    }
+
+    /**
+     * Returns the services whose Endpoints have no ready addresses yet, logging
+     * each not-ready / became-ready transition once via `notReadyServices`.
+     */
+    private async findPendingServices(
+        namespace: string,
+        serviceNames: string[],
+        notReadyServices: Set<string>,
+    ): Promise<string[]> {
+        const pending: string[] = [];
+        for (const name of serviceNames) {
+            if (await this.serviceHasReadyEndpoints(namespace, name)) {
+                if (notReadyServices.delete(name)) {
+                    logger.info("Service became ready", { namespace, service: name });
+                }
+                continue;
+            }
+            pending.push(name);
+            if (!notReadyServices.has(name)) {
+                notReadyServices.add(name);
+                logger.info("Service not ready yet", { namespace, service: name });
+            }
+        }
+        return pending;
+    }
+
+    /**
+     * Whether a Service has at least one ready backend address. Endpoint query
+     * errors are logged and treated as "not ready" so the loop keeps polling.
+     */
+    private async serviceHasReadyEndpoints(namespace: string, name: string): Promise<boolean> {
+        try {
+            const res = await this.coreApi.listNamespacedEndpoints({
+                namespace,
+                fieldSelector: `metadata.name=${name}`,
+            });
+            const endpoints = res.items[0];
+            const readyAddresses = endpoints?.subsets?.flatMap((s) => s.addresses ?? []);
+            return readyAddresses != null && readyAddresses.length > 0;
+        } catch (err) {
+            logger.warn("Endpoint query failed; treating service as not ready", { namespace, service: name, err });
+            return false;
+        }
     }
 
     /**
