@@ -24,7 +24,7 @@
         "@autonoma/storage": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
-        "gray-matter": "^4.0.3",
+        "@11ty/gray-matter": "^2.1.0",
         "zod": "catalog:"
     },
     "devDependencies": {

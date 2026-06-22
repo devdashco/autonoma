@@ -38,7 +38,6 @@
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
         "ai": "catalog:",
-        "gray-matter": "^4.0.3",
         "playwright": "catalog:",
         "zod": "catalog:"
     },

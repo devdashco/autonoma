@@ -18,7 +18,7 @@ import {
     TOTAL_SETUP_STEPS,
 } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
-import matter from "gray-matter";
+import matter from "@11ty/gray-matter";
 import type { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 
 const log = logger.child({ name: "ApplicationSetupService" });
