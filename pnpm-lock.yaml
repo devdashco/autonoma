@@ -652,9 +652,6 @@ importers:
       '@temporalio/worker':
         specifier: 'catalog:'
         version: 1.15.0(esbuild@0.28.1)(tslib@2.8.1)
-      js-yaml:
-        specifier: ^4.2.0
-        version: 4.2.0
       tar-fs:
         specifier: ^3.1.2
         version: 3.1.2
@@ -668,9 +665,6 @@ importers:
       '@testcontainers/postgresql':
         specifier: ^11.12.0
         version: 11.12.0
-      '@types/js-yaml':
-        specifier: ^4.0.9
-        version: 4.0.9
       '@types/node':
         specifier: 'catalog:'
         version: 25.2.3

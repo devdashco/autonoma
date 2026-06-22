@@ -39,8 +39,6 @@ export interface GitProvider {
 
     getBranchHead(repoFullName: string, branchName: string): Promise<string>;
 
-    fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined>;
-
     /**
      * Download the repository at `ref` as a gzipped tarball and extract its contents into
      * `targetDir`. Implementations must strip the archive's top-level directory so files

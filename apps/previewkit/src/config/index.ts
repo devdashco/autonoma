@@ -1,11 +1,11 @@
 /**
  * Platform-owned configuration applied to every preview, independent of any
- * client's `.preview.yaml`. Consolidates settings that were previously
+ * client's preview config. Consolidates settings that were previously
  * scattered across env vars (REGISTRY_URL, PREVIEW_DOMAIN, BUILD_TIMEOUT_MS)
  * and code constants (the standard container resources).
  *
  * Two tiers with different precedence against a client's config:
- *   - `defaults`: the platform's fallback - a client `.preview.yaml` value
+ *   - `defaults`: the platform's fallback - a client preview config value
  *     wins (e.g. `registry`, `domain`). Resolved as `clientValue ?? default`.
  *   - `standards`: platform defaults for omitted resource values and the
  *     maximum replica policy.
@@ -21,7 +21,7 @@ export { MAX_REPLICAS, STANDARD_RESOURCES };
 export type { ContainerResources };
 
 export interface PreviewkitDefaults {
-    /** Platform fallbacks; a client `.preview.yaml` value takes precedence. */
+    /** Platform fallbacks; a client preview config value takes precedence. */
     defaults: {
         registry: string;
         domain: string;

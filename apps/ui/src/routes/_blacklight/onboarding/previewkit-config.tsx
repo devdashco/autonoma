@@ -13,7 +13,6 @@ import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
 import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useAuth } from "lib/auth";
 import {
   usePreviewkitConfig,
   useRepoSuggestions,
@@ -27,7 +26,6 @@ import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AppCard } from "./-components/previewkit/app-card";
-import { toPreviewYaml } from "./-components/previewkit/preview-yaml";
 import { SecretsSection, type SecretsApp } from "./-components/previewkit/secrets-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import { SuggestionsBanner } from "./-components/previewkit/suggestions-banner";
@@ -48,7 +46,6 @@ import {
   type DraftIssues,
   type TopologyDraft,
 } from "./-components/previewkit/topology-draft";
-import { YamlPreviewPanel } from "./-components/previewkit/yaml-preview-panel";
 
 export const Route = createFileRoute("/_blacklight/onboarding/previewkit-config")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("previewkit-config")} />,
@@ -104,7 +101,6 @@ function PreviewkitConfigContent({
   focusSection,
 }: { appId: string } & Omit<PreviewkitConfigPageProps, "appId">) {
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
   const configQuery = usePreviewkitConfig(appId);
   const repositoryQuery = useApplicationRepositoryFromGitHub(appId);
   const suggestionsQuery = useRepoSuggestions(appId, !configQuery.data.saved);
@@ -311,14 +307,6 @@ function PreviewkitConfigContent({
     ...deployableApps.flatMap((app) => (app.name.trim() !== "" ? [`{{${app.name}.url}}`] : [])),
   ];
 
-  const yamlDocuments = [
-    { label: repoName, yaml: toPreviewYaml(compiled.primary.document) },
-    ...compiled.dependencies.map((dependency) => ({
-      label: dependency.repo,
-      yaml: toPreviewYaml(dependency.document),
-    })),
-  ];
-
   // Secrets are stored against the Application that owns each app's config
   // revision: primary-repo apps against this Application, dependency-repo apps
   // against their own (created and linked at save time).
@@ -348,8 +336,8 @@ function PreviewkitConfigContent({
         description={
           <p className="max-w-3xl">
             Map every deployable app to its repo, path, and entrypoints for{" "}
-            <span className="text-text-primary">{repoName}</span>. Managed services come from recipes. The YAML stays
-            copyable, but this onboarding deploy reads the saved revision.
+            <span className="text-text-primary">{repoName}</span>. Managed services come from recipes. This onboarding
+            deploy reads the saved revision.
           </p>
         }
       />
@@ -370,7 +358,7 @@ function PreviewkitConfigContent({
         }}
       />
 
-      <div className={cn("grid gap-6", isAdmin ? "xl:grid-cols-[minmax(0,1fr)_minmax(28rem,0.9fr)]" : undefined)}>
+      <div className="grid gap-6">
         <div className="space-y-6">
           {activeStep === "apps" ? (
             <AppsStep
@@ -433,8 +421,6 @@ function PreviewkitConfigContent({
             onSelect={setActiveStep}
           />
         </div>
-
-        {isAdmin ? <YamlPreviewPanel documents={yamlDocuments} /> : undefined}
       </div>
     </>
   );

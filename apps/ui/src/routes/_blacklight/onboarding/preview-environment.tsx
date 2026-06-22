@@ -58,8 +58,8 @@ export function PreviewEnvironmentPage({ appId }: { appId?: string }) {
           active
           icon={<CloudArrowUpIcon size={28} weight="duotone" />}
           title="Build with PreviewKit"
-          description="PreviewKit builds your stack for main and future pull requests from a .preview.yaml file in your repo."
-          bullets={["Repo-first config", "Apps, services, and databases", "Fastest path for new teams"]}
+          description="PreviewKit builds your stack for main and future pull requests from config you author in the dashboard."
+          bullets={["Dashboard-authored config", "Apps, services, and databases", "Fastest path for new teams"]}
           actionLabel="Build with PreviewKit"
           onClick={() => choose("previewkit")}
           disabled={selectMode.isPending}

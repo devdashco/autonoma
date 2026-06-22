@@ -32,8 +32,8 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
         revisionId: revision.id,
         schemaVersion: revision.schemaVersion,
     });
-    // Config revisions are platform-authored (not a repo's `.preview.yaml`), so
-    // per-app/service `resources` overrides are trusted and honored here.
+    // Config revisions are platform-authored, so per-app/service `resources`
+    // overrides are trusted and honored here.
     const config = resolveConfig({
         document: revision.document,
         schemaVersion: revision.schemaVersion,
@@ -44,7 +44,7 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
 
 /**
  * Resolves an Application's active config: its `activeConfigRevisionId` document, run
- * through the same upgrade + validation pipeline as the `.preview.yaml` path.
+ * through the upgrade + validation pipeline in `resolveConfig`.
  *
  * Returns undefined when the Application has no active revision (the normal "this repo
  * hasn't adopted server-side config" signal) or when the active id dangles / points at

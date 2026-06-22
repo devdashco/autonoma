@@ -11,7 +11,7 @@ import {
 } from "@aws-sdk/client-secrets-manager";
 
 /**
- * Org-scoped secret bundles referenced by `.preview.yaml` addons via the
+ * Org-scoped secret bundles referenced by preview config addons via the
  * `auth_secret:` field. One PreviewkitOrgSecret row per (org, name); the
  * row holds an AWS Secrets Manager ARN whose SecretString is a JSON map.
  *

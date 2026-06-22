@@ -46,7 +46,7 @@ function SecretsPage() {
 }
 
 // A single Application holds many per-app secret bundles (one per app declared
-// in `.preview.yaml`), keyed by appName - which rarely equals the Application's
+// in the preview config), keyed by appName - which rarely equals the Application's
 // slug. The picker chooses the bundle and drives both the editable list and the
 // API examples, so you always act on the bundle you can see.
 function SecretsManager({ applicationId, appLabel }: { applicationId: string; appLabel: string }) {
@@ -250,7 +250,7 @@ function NoAppsState({ onAddApp }: { onAddApp: () => void }) {
       <div>
         <p className="text-sm font-medium text-text-primary">No app secret bundles yet</p>
         <p className="mt-1 font-mono text-xs text-text-secondary">
-          Secrets are grouped per app, as declared in <code>.preview.yaml</code>. Create one to get started.
+          Secrets are grouped per app, as declared in your preview config. Create one to get started.
         </p>
       </div>
       <Button variant="accent" className="gap-1.5" onClick={onAddApp}>

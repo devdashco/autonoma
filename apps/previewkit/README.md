@@ -13,7 +13,7 @@ PR opened/updated
   Webhook received by the autonoma API, forwarded to Previewkit
       |
       v
-  Read .preview.yaml from repo
+  Resolve the Application's active config revision
       |
       v
   Clone repo, build images (Railpack or Dockerfile)
@@ -25,7 +25,7 @@ PR opened/updated
   Deploy infrastructure services (Postgres, Redis)
       |
       v
-  Load per-app secrets, merge with .preview.yaml env, resolve templates
+  Load per-app secrets, merge with config env, resolve templates
       |
       v
   Deploy app containers + Ingress
@@ -39,18 +39,15 @@ PR opened/updated
 
 On PR close, the entire namespace is deleted.
 
-## Config sources
+## Config source
 
-Previewkit resolves a repo's config in this order:
+Previewkit deploys from the Application's **active config revision** - a `PreviewkitConfigRevision` row holding the preview config document, authored from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder). An Application with no active revision opts out: its pull requests are skipped.
 
-1. **Active dashboard revision** - configs saved from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder) are stored as `PreviewkitConfigRevision` rows; the Application's active revision wins.
-2. **Repo-committed `.preview.yaml`** - the fallback when no active revision exists.
+The same applies to multirepo dependency repos (`config.multirepo.repos`): each dependency repo's own Application active revision is used. A dependency repo with no active revision is skipped.
 
-The same order applies to multirepo dependency repos (`config.multirepo.repos`): each dependency repo's own Application active revision is preferred, falling back to that repo's `.preview.yaml`. A dependency with neither is skipped.
+## Config document
 
-## Config: `.preview.yaml`
-
-Add a `.preview.yaml` to your repository root:
+The preview config is authored from the Autonoma dashboard and stored as a `PreviewkitConfigRevision`. It has the following shape (shown here as YAML for readability):
 
 ```yaml
 version: 1
@@ -122,7 +119,7 @@ hooks:
 | `replicas` | No | `1` | Number of pod replicas. Capped at 3 (platform policy); higher values are clamped, not rejected |
 | `primary` | No | | Marks this app as the environment's primary URL |
 | `depends_on` | No | | Names of apps/services this app waits for before starting |
-| `resources` | No | | **Ignored in `.preview.yaml`.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. The field is still accepted so existing configs validate, but its `cpu`/`memory` values have no effect here - resource sizing is honored only for platform-authored server-side config revisions. |
+| `resources` | No | | **Ignored for user-authored config.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. The field is still accepted so existing configs validate, but its `cpu`/`memory` values have no effect here - resource sizing is honored only for trusted, platform-authored config. |
 
 **Service fields:**
 
@@ -133,7 +130,7 @@ hooks:
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
 | `env` | No | `{}` | Extra environment variables for the service container |
 | `options` | No | `{}` | Recipe-specific options (e.g. `docker-image`'s `image` / `port` / `readiness`) |
-| `resources` | No | | **Ignored in `.preview.yaml`** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
+| `resources` | No | | **Ignored for user-authored config** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
 
 ### Template Syntax
 
@@ -154,12 +151,12 @@ Templates resolve to Kubernetes service DNS names within the namespace (e.g. `db
 
 Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`. They are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (`build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.
 
-At deploy time, secrets are merged with `.preview.yaml` env vars. The config file takes priority, allowing you to override connection strings for preview infrastructure while keeping API keys in the secret store:
+At deploy time, secrets are merged with the config's env vars. The config takes priority, allowing you to override connection strings for preview infrastructure while keeping API keys in the secret store:
 
 ```
-Stored secrets (base)       -> { DATABASE_URL: "postgres://prod:5432", OPENAI_API_KEY: "sk-..." }
-.preview.yaml env (override) -> { DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview" }
-After merge + resolve       -> { DATABASE_URL: "postgresql://preview:preview@db:5432/preview", OPENAI_API_KEY: "sk-..." }
+Stored secrets (base)  -> { DATABASE_URL: "postgres://prod:5432", OPENAI_API_KEY: "sk-..." }
+Config env (override)  -> { DATABASE_URL: "postgresql://preview:preview@{{db.host}}:5432/preview" }
+After merge + resolve  -> { DATABASE_URL: "postgresql://preview:preview@db:5432/preview", OPENAI_API_KEY: "sk-..." }
 ```
 
 ### API Routes
@@ -181,7 +178,7 @@ PUT    /v1/previewkit/secrets/:applicationId/:app/:key     Save one secret ({"va
 DELETE /v1/previewkit/secrets/:applicationId/:app/:key     Delete one secret
 ```
 
-`applicationId` is your autonoma Application id; `app` matches an app `name:` in `.preview.yaml`.
+`applicationId` is your autonoma Application id; `app` matches an app `name:` in the preview config.
 
 **Save a secret:**
 

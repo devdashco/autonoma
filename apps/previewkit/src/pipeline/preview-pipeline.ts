@@ -22,7 +22,6 @@ import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manage
 import { BuildAbortedError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
-import { loadPreviewConfig } from "../config/file";
 import { loadActiveConfig, loadConfigRevision } from "../config/revisions";
 import {
     type BranchConvention,
@@ -98,8 +97,6 @@ interface DependencyEntry {
     tmpDir: string;
     usedFallback: boolean;
     targetBranch: string;
-    /** Where the dependency's config came from: a dashboard-authored DB revision or its repo-committed `.preview.yaml`. */
-    source: "revision" | "file";
 }
 
 interface PreviewPipelineOptions {
@@ -121,8 +118,7 @@ interface PreviewPipelineOptions {
 
 /**
  * Result of {@link PreviewPipeline.prepare}. `skipped` short-circuits the rest
- * of the pipeline for repos that opted out (no active config revision / no
- * `.preview.yaml`).
+ * of the pipeline for repos that opted out (no active config revision).
  */
 export type PreparePreviewResult =
     | { skipped: true }
@@ -152,21 +148,17 @@ export class PreviewPipeline {
     }
 
     /**
-     * Resolves the primary app's config: the Application's active DB config revision
-     * if it has one, otherwise a fallback to the repo's `.preview.yaml` at the
-     * deployed commit (so repos that haven't adopted server-side config keep working).
-     * Returns undefined when neither exists - the opt-out signal. `revisionId` is
-     * undefined for the file fallback: there is no stored revision to pin the snapshot to.
+     * Resolves the primary app's config from the Application's active DB config
+     * revision. Returns undefined when the Application has no active revision -
+     * the opt-out signal. A redeploy pins the revision the environment was
+     * originally deployed with so a later change to the active config doesn't
+     * alter the redeploy's topology; a pinned id that no longer resolves degrades
+     * to the current active revision.
      */
     private async resolvePrimaryConfig(
         applicationId: string,
-        repoFullName: string,
-        ref: string,
         pinnedRevisionId: string | undefined,
-    ): Promise<{ config: PreviewConfig; revisionId: string | undefined } | undefined> {
-        // Redeploy pins the revision the environment was originally deployed with, so a
-        // change to the Application's active config afterwards doesn't alter a redeploy's
-        // topology. A pinned id that no longer resolves degrades to the current config.
+    ): Promise<{ config: PreviewConfig; revisionId: string } | undefined> {
         if (pinnedRevisionId != null) {
             const pinned = await loadConfigRevision(applicationId, pinnedRevisionId);
             if (pinned != null) {
@@ -179,22 +171,16 @@ export class PreviewPipeline {
         }
 
         const active = await loadActiveConfig(applicationId);
-        if (active != null) {
-            return { config: active.config, revisionId: active.revisionId };
-        }
+        if (active == null) return undefined;
 
-        const fileConfig = await loadPreviewConfig(this.provider, repoFullName, ref);
-        if (fileConfig == null) return undefined;
-
-        logger.info("No active config revision; falling back to .preview.yaml", { applicationId, repoFullName, ref });
-        return { config: fileConfig, revisionId: undefined };
+        return { config: active.config, revisionId: active.revisionId };
     }
 
     /**
-     * Step 1 - resolve the Application + config (active revision or `.preview.yaml`),
-     * set the initial commit status + PR comment, and ensure the namespace exists so
-     * status can be polled from the first moment. Returns `{ skipped: true }` for repos
-     * that opted out (not linked, or no active revision / `.preview.yaml`).
+     * Step 1 - resolve the Application + its active config revision, set the
+     * initial commit status + PR comment, and ensure the namespace exists so
+     * status can be polled from the first moment. Returns `{ skipped: true }` for
+     * repos that opted out (not linked, or no active config revision).
      */
     async prepare(event: PullRequestEvent, configRevisionId?: string | undefined): Promise<PreparePreviewResult> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
@@ -216,9 +202,9 @@ export class PreviewPipeline {
             return { skipped: true };
         }
 
-        const resolved = await this.resolvePrimaryConfig(application.id, repoFullName, headSha, configRevisionId);
+        const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
         if (resolved == null) {
-            logger.warn("No active config revision and no .preview.yaml; skipping deployment", {
+            logger.warn("No active config revision; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
@@ -315,9 +301,9 @@ export class PreviewPipeline {
             throw new Error(`Application not found for ${repoFullName} (org ${organizationId})`);
         }
 
-        const resolved = await this.resolvePrimaryConfig(application.id, repoFullName, headSha, configRevisionId);
+        const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
         if (resolved == null) {
-            throw new Error(`No active config revision and no .preview.yaml for ${repoFullName} at ${shortSha}`);
+            throw new Error(`No active config revision for ${repoFullName} at ${shortSha}`);
         }
         const primaryConfig = resolved.config;
         const resolvedRevisionId = resolved.revisionId;
@@ -342,7 +328,7 @@ export class PreviewPipeline {
             await recordSafe(() => recordEnvironmentManifest(namespace, mergedConfig));
             // Snapshot the effective (merged) config so a re-deploy of this PR
             // reproduces the same topology. configRevisionId records which primary
-            // revision fed it (undefined for a .preview.yaml-sourced deploy).
+            // revision fed it.
             await recordSafe(() =>
                 recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId: resolvedRevisionId }),
             );
@@ -504,11 +490,11 @@ export class PreviewPipeline {
     ): Promise<DeployPreviewEnvironmentOutput> {
         const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
-        // Re-hydrate the merged config across the Temporal activity boundary. Each
-        // source already had its resource policy applied upstream (a `.preview.yaml`
-        // was standardized; a DB revision's overrides were honored), so this re-parse
-        // must preserve those values rather than re-standardize them - hence the
-        // trusted schema, which passes already-normalized resources through unchanged.
+        // Re-hydrate the merged config across the Temporal activity boundary. The
+        // config's resource policy was already applied upstream (a DB revision's
+        // overrides were honored), so this re-parse must preserve those values
+        // rather than re-standardize them - hence the trusted schema, which passes
+        // already-normalized resources through unchanged.
         const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
 
         const deployOpts = {
@@ -783,9 +769,9 @@ export class PreviewPipeline {
         });
     }
 
-    // Resolves the target branch, resolves the dependency's config (active DB
-    // revision first, then `.preview.yaml`), and clones the repo into a temp dir.
-    // Returns null when neither config source resolves (opt-out).
+    // Resolves the target branch, resolves the dependency's config from its
+    // active DB revision, and clones the repo into a temp dir. Returns null when
+    // the dependency has no active config revision (opt-out).
     private async cloneDependency(
         dep: RepoDependency,
         prNumber: number,
@@ -805,7 +791,6 @@ export class PreviewPipeline {
             repo: dep.repo,
             branch: resolved.branch,
             usedFallback: resolved.usedFallback,
-            source: resolved.source,
             revisionId: resolved.revisionId,
         });
         return {
@@ -814,7 +799,6 @@ export class PreviewPipeline {
             tmpDir,
             usedFallback: resolved.usedFallback,
             targetBranch,
-            source: resolved.source,
         };
     }
 

@@ -6,10 +6,10 @@
  *
  * This interface is intentionally dependency-free: it threads only plain
  * serializable data so `@autonoma/workflow` never imports app-side types.
- * The rich `.preview.yaml` config crosses as a JSON string
+ * The rich preview config crosses as a JSON string
  * (`mergedConfigJson`) and is re-validated with the existing
- * `previewConfigSchema` at the activity boundary inside the app; everything
- * else is scalars, string maps, or flat result rows.
+ * `trustedPreviewConfigSchema` at the activity boundary inside the app;
+ * everything else is scalars, string maps, or flat result rows.
  */
 
 /** Serializable mirror of apps/previewkit's `PullRequestEvent`. */
@@ -34,8 +34,8 @@ export interface PreparePreviewDeployInput {
 
 export interface PreparePreviewDeployOutput {
     /**
-     * True when the repo opted out (not linked to an Application, or no
-     * `.preview.yaml` at the ref). The workflow ends cleanly without building.
+     * True when the repo opted out (not linked to an Application, or no active
+     * config revision). The workflow ends cleanly without building.
      */
     skipped: boolean;
     namespace: string;

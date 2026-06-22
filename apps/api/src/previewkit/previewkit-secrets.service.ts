@@ -90,7 +90,7 @@ export class PreviewkitSecretsService {
     /**
      * Lists the per-app secret bundle names registered for an application.
      * Each (applicationId, appName) is its own bundle - a monorepo Application
-     * can declare many apps in `.preview.yaml` - so the UI needs this to let
+     * can declare many apps in its preview config - so the UI needs this to let
      * the user pick which bundle to view; the app name rarely matches the
      * Application's slug.
      */

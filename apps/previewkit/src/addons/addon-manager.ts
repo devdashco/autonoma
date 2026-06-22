@@ -32,7 +32,7 @@ export class AddonManager {
     }
 
     /**
-     * Provisions every addon declared in `.preview.yaml`. Each addon is its
+     * Provisions every addon declared in the preview config. Each addon is its
      * own failure domain — one failed addon does not abort the others.
      *
      * Caching: rows with `status = ok` replay their cached outputs without
@@ -97,7 +97,7 @@ export class AddonManager {
                 try {
                     const provider = this.registry.get(row.provider);
                     // Look up the addon's auth_secret from the most recent
-                    // `.preview.yaml` reference. The config isn't available at
+                    // the preview config reference. The config isn't available at
                     // teardown time (the PR may be closed against any ref), so
                     // we persist the options on the row's `state.options` blob.
                     // For now: re-derive from a separate `options` column would
@@ -213,7 +213,7 @@ export class AddonManager {
     ): Promise<void> {
         // Persist enough context on the row for an independent teardown:
         // the auth_secret name (so we can re-resolve creds at PR-close time
-        // without re-reading `.preview.yaml`), the provider-specific options,
+        // without re-reading the preview config), the provider-specific options,
         // and the provider's opaque state blob. We deliberately do NOT
         // store the auth secret value itself — only its name.
         void authSecret;

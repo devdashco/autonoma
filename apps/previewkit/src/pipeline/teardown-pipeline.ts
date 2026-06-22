@@ -36,9 +36,9 @@ export class TeardownPipeline {
 
         // 0. Short-circuit if the namespace doesn't exist. This happens when
         //    the deploy was silently skipped (no Application linked, or no
-        //    `.preview.yaml` at the head SHA) — there's nothing to tear down,
-        //    no comment to update, no commit status to flip. Acting anyway
-        //    would try to delete a non-existent namespace and surface a 404.
+        //    active config revision) - there's nothing to tear down, no comment
+        //    to update, no commit status to flip. Acting anyway would try to
+        //    delete a non-existent namespace and surface a 404.
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
         const exists = await this.deployer.namespaceExists(repoFullName, prNumber);
         if (!exists) {

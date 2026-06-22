@@ -13,8 +13,8 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
 }
 
 // Seeds a config revision directly and points the Application at it, standing
-// in for the future authoring API (there is no in-app writer now that the
-// `.preview.yaml` import path is gone).
+// in for the authoring API in apps/api (previewkit itself only reads config
+// revisions, never writes them).
 async function seedActiveRevision(
     harness: PreviewkitTestHarness,
     applicationId: string,
@@ -73,7 +73,7 @@ integrationTestSuite({
         test("loadActiveConfig honors per-app/service resource overrides from a revision", async ({ harness }) => {
             const applicationId = await createApplication(harness);
             // A revision is a trusted, platform-authored source, so its `resources`
-            // overrides are honored - unlike a `.preview.yaml`, which is ignored.
+            // overrides are honored - unlike untrusted client input, which is ignored.
             await seedActiveRevision(harness, applicationId, {
                 version: 1,
                 apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],

@@ -3,7 +3,7 @@ import { logger as rootLogger, type Logger } from "../logger";
 
 /**
  * Fetches secret values from AWS Secrets Manager and exposes a lookup helper
- * for `.preview.yaml`'s `build_secrets:` field.
+ * for the preview config's `build_secrets:` field.
  *
  * Each `PreviewkitSecret.awsSecretArn` is expected to point at an AWS SM
  * secret whose `SecretString` is a JSON object — same shape the existing

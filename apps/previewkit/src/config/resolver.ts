@@ -4,31 +4,29 @@ import { previewConfigSchema, type PreviewConfig, trustedPreviewConfigSchema } f
 /**
  * The config-document schema version this build understands. Stored on each
  * `PreviewkitConfigRevision` so older documents can be upgraded on read.
- * Distinct from the `.preview.yaml` `version` field (the config format
+ * Distinct from the config document's own `version` field (the config format
  * version), which the schema validates directly.
  */
 export const CURRENT_CONFIG_SCHEMA_VERSION = 1;
 
 export interface ResolveConfigInput {
-    /** Raw config document: a parsed `.preview.yaml` object or a stored
-     *  `PreviewkitConfigRevision.document`. Same shape as the schema input. */
+    /** Raw config document: a stored `PreviewkitConfigRevision.document`.
+     *  Same shape as the schema input. */
     document: unknown;
-    /** Version the document was written against. Defaults to current; the file
-     *  path leaves it unset (the yaml's own `version` field is validated by
-     *  the schema). */
+    /** Version the document was written against. Defaults to current (the
+     *  document's own `version` field is validated by the schema). */
     schemaVersion?: number;
     /** When true, honor any per-app/service `resources` overrides in the
      *  document; when false (default), discard them and apply the standard tier.
-     *  Reserved for trusted, platform-authored sources (DB config revisions) -
-     *  the `.preview.yaml` path leaves this false so a repo can't size its own
+     *  Reserved for trusted, platform-authored sources (DB config revisions);
+     *  untrusted client input leaves this false so it can't size its own
      *  preview. See `buildResourcesSchema` in `./schema`. */
     allowCustomResources?: boolean;
 }
 
 /**
- * Resolves a stored or file-sourced config document into a validated
- * `PreviewConfig`. One path shared by the `.preview.yaml` loader and the
- * DB-backed loader:
+ * Resolves a stored config document (a `PreviewkitConfigRevision.document`) into
+ * a validated `PreviewConfig`:
  *   1. upgrade the document from its `schemaVersion` to the current one,
  *   2. validate with the config schema (which also applies platform standards,
  *      e.g. the `resources` transform). The trusted variant is used when

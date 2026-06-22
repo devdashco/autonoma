@@ -5,7 +5,7 @@
  *
  * Lifecycle:
  *   - On PR open / push, `AddonManager.provisionAll` calls `provision` once
- *     per addon declared in `.preview.yaml`. The returned `outputs` are
+ *     per addon declared in the preview config. The returned `outputs` are
  *     surfaced into the template engine so apps can reference
  *     `{{addonName.<key>}}` in env and build_args; `state` is persisted
  *     opaquely on the `PreviewkitAddon` row and replayed verbatim to
@@ -19,7 +19,7 @@
  * `new NeonProvider()` registered into `AddonProviderRegistry` at boot.
  */
 export interface ProvisionInput {
-    /** Provider-specific options forwarded verbatim from `.preview.yaml`. The
+    /** Provider-specific options forwarded verbatim from the preview config. The
      *  provider validates them with its own zod schema. */
     options: Record<string, unknown>;
 
@@ -53,7 +53,7 @@ export interface DeprovisionInput {
 }
 
 export interface AddonProvider {
-    /** Identifier used in `.preview.yaml`'s `provider:` field. Must be
+    /** Identifier used in the preview config's `provider:` field. Must be
      *  unique within an `AddonProviderRegistry`. */
     readonly name: string;
 

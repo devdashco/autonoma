@@ -142,9 +142,7 @@ export interface ResolvedConfigSnapshotInput {
  * Snapshots the fully-resolved config used for a deploy onto the environment
  * row. Immutable per deploy: a re-deploy of the same PR reproduces the same
  * topology even if the Application's active revision changes afterwards.
- * `configRevisionId` records which primary revision fed the snapshot (absent
- * when the config came straight from a `.preview.yaml` and the best-effort
- * import didn't yield a revision id).
+ * `configRevisionId` records which primary revision fed the snapshot.
  */
 export async function recordResolvedConfig(input: ResolvedConfigSnapshotInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordResolvedConfig" });

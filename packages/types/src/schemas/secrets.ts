@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const SECRET_KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Mirrors the k8sNameRegex in apps/previewkit/src/config/schema.ts. Secret
-// bundles are scoped to the same app names that appear in `.preview.yaml`.
+// bundles are scoped to the same app names that appear in the preview config.
 const APP_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 export const SecretKeySchema = z

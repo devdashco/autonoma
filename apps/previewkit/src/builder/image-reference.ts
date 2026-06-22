@@ -32,7 +32,7 @@ export interface PreviewImageReferenceInput {
     org: string;
     /** Lowercased GitHub repository name. */
     repo: string;
-    /** App name from `.preview.yaml`. */
+    /** App name from the preview config. */
     appName: string;
     prNumber: number;
     /** 7-char short commit SHA. */

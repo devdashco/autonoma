@@ -1,7 +1,6 @@
 import { db } from "@autonoma/db";
 import type { GitProvider } from "../git-provider/git-provider";
 import { type Logger, logger as rootLogger } from "../logger";
-import { loadPreviewConfig } from "./file";
 import { type ActiveConfig, loadActiveConfig } from "./revisions";
 import type { PreviewConfig, RepoDependency } from "./schema";
 
@@ -10,27 +9,20 @@ export interface ResolvedDependencyConfig {
     /** The branch the dependency's tarball should be fetched at. */
     branch: string;
     usedFallback: boolean;
-    source: "revision" | "file";
-    revisionId?: string;
+    revisionId: string;
 }
 
 /**
- * Resolves a multirepo dependency's preview config, preferring the dependency
- * repo's Application active DB revision (dashboard-authored config) over its
- * repo-committed `.preview.yaml`.
+ * Resolves a multirepo dependency's preview config from the dependency repo's
+ * Application active DB config revision (dashboard-authored config).
  *
- * Resolution order:
- * 1. Map `dep.repo` -> GitHub repo id -> the org's Application row, and load its
- *    active config revision. When one exists, the clone branch is resolved
- *    independently (target branch, then `fallback_branch`).
- * 2. Fall back to the `.preview.yaml` path with its existing semantics: the file's
- *    presence on the target branch (then the fallback branch) signals both that
- *    the dependency opted in and which branch to clone.
+ * Maps `dep.repo` -> GitHub repo id -> the org's Application row, and loads its
+ * active config revision. The clone branch is resolved independently (the
+ * target branch, then `fallback_branch`).
  *
- * Returns undefined when neither source yields a config (the dependency is
- * skipped, matching the historical opt-out behavior). GitHub lookup failures
- * degrade to the file path so a flaky API call can never regress existing
- * `.preview.yaml`-based dependencies.
+ * Returns undefined when the dependency has no active config revision (it is
+ * skipped, matching the historical opt-out behavior) or when neither the target
+ * nor the fallback branch resolves.
  */
 export async function resolveDependencyConfig(
     provider: GitProvider,
@@ -42,46 +34,18 @@ export async function resolveDependencyConfig(
     logger.info("Resolving dependency config", { name: dep.name, repo: dep.repo, targetBranch, organizationId });
 
     const revision = await loadDependencyRevision(provider, organizationId, dep, logger);
-    if (revision != null) {
-        const branch = await resolveCloneBranch(provider, dep, targetBranch, logger);
-        if (branch == null) {
-            logger.warn("Dependency repo has an active config revision but no resolvable branch, skipping", {
-                name: dep.name,
-                repo: dep.repo,
-                targetBranch,
-                fallbackBranch: dep.fallback_branch,
-            });
-            return undefined;
-        }
-        logger.info("Dependency config resolved from DB revision", {
+    if (revision == null) {
+        logger.warn("No active config revision for dependency repo; skipping", {
             name: dep.name,
             repo: dep.repo,
-            revisionId: revision.revisionId,
-            branch: branch.name,
+            targetBranch,
         });
-        return {
-            config: revision.config,
-            branch: branch.name,
-            usedFallback: branch.usedFallback,
-            source: "revision",
-            revisionId: revision.revisionId,
-        };
+        return undefined;
     }
 
-    // File path keeps the historical semantics: `.preview.yaml` presence on a
-    // branch signals both opt-in and which branch to clone.
-    let config = await loadPreviewConfig(provider, dep.repo, targetBranch);
-    let branch = targetBranch;
-    let usedFallback = false;
-
-    if (config == null && targetBranch !== dep.fallback_branch) {
-        config = await loadPreviewConfig(provider, dep.repo, dep.fallback_branch);
-        branch = dep.fallback_branch;
-        usedFallback = true;
-    }
-
-    if (config == null) {
-        logger.warn("No active config revision and no .preview.yaml found for dependency repo", {
+    const branch = await resolveCloneBranch(provider, dep, targetBranch, logger);
+    if (branch == null) {
+        logger.warn("Dependency repo has an active config revision but no resolvable branch, skipping", {
             name: dep.name,
             repo: dep.repo,
             targetBranch,
@@ -90,15 +54,25 @@ export async function resolveDependencyConfig(
         return undefined;
     }
 
-    logger.info("Dependency config resolved from .preview.yaml", { name: dep.name, repo: dep.repo, branch });
-    return { config, branch, usedFallback, source: "file" };
+    logger.info("Dependency config resolved from DB revision", {
+        name: dep.name,
+        repo: dep.repo,
+        revisionId: revision.revisionId,
+        branch: branch.name,
+    });
+    return {
+        config: revision.config,
+        branch: branch.name,
+        usedFallback: branch.usedFallback,
+        revisionId: revision.revisionId,
+    };
 }
 
 /**
  * Maps the dependency repo's full name onto the org's Application row and loads
  * its active config revision. Returns undefined whenever any link in the chain
  * is missing (repo not visible, no Application, no active revision) - the caller
- * then falls back to the `.preview.yaml` path.
+ * then skips the dependency.
  */
 async function loadDependencyRevision(
     provider: GitProvider,
@@ -111,7 +85,7 @@ async function loadDependencyRevision(
         const repo = await provider.getRepositoryByFullName(dep.repo);
         repoId = repo?.id;
     } catch (err) {
-        logger.warn("Failed to resolve dependency repo on GitHub, falling back to .preview.yaml", {
+        logger.warn("Failed to resolve dependency repo on GitHub; skipping", {
             name: dep.name,
             repo: dep.repo,
             err,
@@ -125,7 +99,7 @@ async function loadDependencyRevision(
         select: { id: true },
     });
     if (application == null) {
-        logger.info("Dependency repo has no Application in this org, falling back to .preview.yaml", {
+        logger.info("Dependency repo has no Application in this org; skipping", {
             name: dep.name,
             repo: dep.repo,
             githubRepositoryId: repoId,

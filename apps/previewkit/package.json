@@ -36,14 +36,12 @@
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
         "@temporalio/worker": "catalog:",
-        "js-yaml": "^4.2.0",
         "tar-fs": "^3.1.2",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@autonoma/integration-test": "workspace:*",
         "@testcontainers/postgresql": "^11.12.0",
-        "@types/js-yaml": "^4.0.9",
         "@types/node": "catalog:",
         "@types/tar-fs": "^2.0.4",
         "@vitest/coverage-v8": "^4.1.6",

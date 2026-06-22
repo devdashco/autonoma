@@ -63,7 +63,7 @@ export async function previewDeployWorkflow(input: PreviewDeployWorkflowInput): 
 
     const prep = await lifecycle.preparePreviewDeploy({ event, configRevisionId });
     if (prep.skipped) {
-        log.info("Preview deploy skipped (repo not linked or no .preview.yaml)", ids);
+        log.info("Preview deploy skipped (repo not linked or no active config revision)", ids);
         return;
     }
 

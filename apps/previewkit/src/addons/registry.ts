@@ -1,7 +1,7 @@
 import type { AddonProvider } from "./provider";
 
 /**
- * Lookup table from provider name (the `provider:` field in `.preview.yaml`)
+ * Lookup table from provider name (the `provider:` field in the preview config)
  * to a registered implementation. Mirrors the shape of `RecipeRegistry` for
  * service recipes — both are plain in-process registries populated at boot.
  */

@@ -15,7 +15,7 @@ const VARIABLE_TEMPLATE_REGEX = /\{\{(pr|namespace|owner)\}\}/g;
 
 /**
  * Per-addon outputs produced by `AddonManager.provisionAll`. The outer key
- * is the addon name from `.preview.yaml`; the inner map is the provider's
+ * is the addon name from the preview config; the inner map is the provider's
  * declared outputs (e.g. NeonProvider returns `{ connectionString, host,
  * database }`). Apps reference these as `{{addonName.<key>}}`.
  */
@@ -54,13 +54,13 @@ export class EnvInjector {
     constructor(private recipeRegistry: RecipeRegistry) {}
 
     /**
-     * Resolves runtime env from `.preview.yaml` by templating its values.
+     * Resolves runtime env from the preview config by templating its values.
      *
      * Sensitive runtime env (API keys, third-party credentials) lives in the
      * per-app AWS Secrets Manager bundle and is mounted into the pod via
      * ExternalSecretsOperator's `envFrom: secretRef`, which lands those keys
      * as environment variables INDEPENDENTLY of this function. If both the
-     * AWS SM bundle and `.preview.yaml`'s `env:` define the same key, the
+     * AWS SM bundle and the preview config's `env:` define the same key, the
      * Kubernetes `env:` list (i.e. this function's output) wins over
      * `envFrom`, matching the kubectl rule. Treat that as the override
      * channel for committed switches like PLAID_ENV / SEND_EMAILS_LOCALLY.
@@ -156,7 +156,7 @@ export class EnvInjector {
             if (field === "port") return String(svc.port);
             throw new Error(
                 `{{${name}.${field}}} in ${sourceKey}: only host/port/url are supported for apps and services. ` +
-                    `If "${name}" is meant to be an addon, declare it under \`addons:\` in .preview.yaml.`,
+                    `If "${name}" is meant to be an addon, declare it under \`addons:\` in the preview config.`,
             );
         }
 

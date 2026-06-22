@@ -3,8 +3,8 @@ import { logger as rootLogger, type Logger } from "../logger";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 
 /**
- * Resolves a `.preview.yaml` `auth_secret: "name"` reference into the actual
- * key-value map stored in AWS Secrets Manager. Per-organization scope: a
+ * Resolves an `auth_secret: "name"` reference from the preview config into the
+ * actual key-value map stored in AWS Secrets Manager. Per-organization scope: a
  * `PreviewkitOrgSecret` row binds an org-secret name to an AWS SM ARN, and the
  * ARN points at a JSON map whose keys are picked by individual providers
  * (NeonProvider grabs `token`, etc.).
@@ -39,7 +39,7 @@ export class OrgSecretResolver {
         if (record == null) {
             throw new Error(
                 `No PreviewkitOrgSecret named "${name}" registered for organization ${organizationId}. ` +
-                    `Create one via the org-secrets API before referencing it from .preview.yaml.`,
+                    `Create one via the org-secrets API before referencing it from the preview config.`,
             );
         }
 

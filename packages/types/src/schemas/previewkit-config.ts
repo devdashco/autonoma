@@ -37,16 +37,15 @@ const resourcesInput = z
 
 /**
  * Builds the `resources` schema for one container tier. The trust boundary lives
- * here: per-app/service resource sizing is honored only for platform-authored DB
- * config revisions, never for a repo's `.preview.yaml` (anyone who can open a PR
- * edits that file, so it must not size its own preview, and onboarding users must
- * not set unbounded budgets).
+ * here: per-app/service resource sizing is honored only for trusted,
+ * platform-authored config, never for untrusted client input (so onboarding
+ * users can't set unbounded budgets for their own preview).
  *
- * - `allowCustomResources === false` (a `.preview.yaml`): client input is
+ * - `allowCustomResources === false` (untrusted client input): client input is
  *   discarded; every container gets the standard {@link STANDARD_RESOURCES} tier
- *   for its role. The field is still accepted so existing files keep validating.
- * - `allowCustomResources === true` (a DB config revision): client `cpu` /
- *   `memory` are honored, each missing field falling back to the tier standard.
+ *   for its role. The field is still accepted so existing configs keep validating.
+ * - `allowCustomResources === true` (trusted platform-authored config): client
+ *   `cpu` / `memory` are honored, each missing field falling back to the tier standard.
  *   `memory` sets both the request and the limit unless the normalized
  *   `memoryRequest` / `memoryLimit` are present (the deploy-time re-parse).
  */
@@ -163,9 +162,9 @@ const buildSchema = z.discriminatedUnion("framework", [
 
 /**
  * Builds the preview config schema. `allowCustomResources` is the only knob: it
- * decides whether per-app/service `resources` overrides are honored (trusted DB
- * config revisions) or discarded in favor of the standard tier (a repo's
- * `.preview.yaml`). Every other validation rule is identical. See
+ * decides whether per-app/service `resources` overrides are honored (trusted,
+ * platform-authored config) or discarded in favor of the standard tier (untrusted
+ * client input). Every other validation rule is identical. See
  * {@link buildResourcesSchema}.
  */
 function buildPreviewConfigSchema(allowCustomResources: boolean) {
@@ -236,17 +235,18 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
 }
 
 /**
- * The public `.preview.yaml` contract. Per-app/service `resources` overrides are
- * accepted but ignored here (every container gets the standard tier); a repo
- * cannot size its own preview. Use this for any repo-sourced config.
+ * The untrusted client-config contract (e.g. the dashboard authoring form).
+ * Per-app/service `resources` overrides are accepted but ignored here (every
+ * container gets the standard tier); untrusted input cannot size its own
+ * preview. Use this for any client-supplied config.
  */
 export const previewConfigSchema = buildPreviewConfigSchema(false);
 
 /**
  * Variant that honors per-app/service `resources` overrides. Use ONLY for
  * trusted, platform-authored config: DB config revisions and the deploy-time
- * re-parse of an already-resolved merged config. NEVER parse a repo's
- * `.preview.yaml` with this - that path must use {@link previewConfigSchema}.
+ * re-parse of an already-resolved merged config. NEVER parse untrusted client
+ * input with this - that path must use {@link previewConfigSchema}.
  */
 export const trustedPreviewConfigSchema = buildPreviewConfigSchema(true);
 

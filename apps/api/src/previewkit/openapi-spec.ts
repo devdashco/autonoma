@@ -44,7 +44,7 @@ const appParam = {
     in: "path",
     required: true,
     schema: { type: "string" },
-    description: "App name as declared in the repo's .preview.yaml",
+    description: "App name as declared in the preview config",
 } as const;
 
 const keyParam = {
@@ -62,9 +62,9 @@ export const openApiSpec = {
         version: "0.1.0",
         description:
             "Public Previewkit surface, served by the autonoma API under /v1/previewkit/*. " +
-            "Per-app secrets, environment status, and the .preview.yaml schema are served natively by the API; " +
+            "Per-app secrets and environment status are served natively by the API; " +
             "deploy / main-branch deploy / teardown / redeploy run Previewkit's Kubernetes + BuildKit pipeline. " +
-            "Every route requires an Authorization: Bearer header (autonoma API key, or the service shared secret for internal callers) except the public schema endpoint.",
+            "Every route requires an Authorization: Bearer header (autonoma API key, or the service shared secret for internal callers).",
     },
     servers: [{ url: "/", description: "autonoma API host" }],
     security: [{ bearerAuth: [] }],
@@ -78,7 +78,6 @@ export const openApiSpec = {
             description:
                 "CRUD over per-app AWS Secrets Manager bundles. Each (applicationId, app) maps to one AWS SM secret whose keys are auto-mounted into the running pod via the ExternalSecrets bridge.",
         },
-        { name: "Schema", description: "Static .preview.yaml JSON schema for editor validation" },
     ],
     paths: {
         "/v1/previewkit/environments": {
@@ -276,20 +275,6 @@ export const openApiSpec = {
                     "404": {
                         description: "Bundle or key not found",
                         content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } },
-                    },
-                },
-            },
-        },
-        "/v1/previewkit/schema/preview.yaml.json": {
-            get: {
-                tags: ["Schema"],
-                summary: "JSON schema for .preview.yaml",
-                description: "Public (no auth). Reference it as a $schema URL for editor validation of .preview.yaml.",
-                security: [],
-                responses: {
-                    "200": {
-                        description: "JSON Schema document",
-                        content: { "application/json": { schema: { type: "object" } } },
                     },
                 },
             },

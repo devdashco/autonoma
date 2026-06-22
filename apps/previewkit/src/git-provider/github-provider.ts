@@ -127,31 +127,6 @@ export class GitHubProvider implements GitProvider {
         return data.commit.sha;
     }
 
-    async fetchFileContent(repoFullName: string, path: string, ref: string): Promise<string | undefined> {
-        const { owner, repo } = parseRepo(repoFullName);
-        const octokit = await this.getInstallationOctokit(repoFullName);
-
-        try {
-            const { data } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-                owner,
-                repo,
-                path,
-                ref,
-            });
-
-            if (Array.isArray(data) || data.type !== "file") {
-                return undefined;
-            }
-
-            return Buffer.from(data.content, "base64").toString("utf-8");
-        } catch (error: unknown) {
-            if (error instanceof Error && "status" in error && (error as { status: number }).status === 404) {
-                return undefined;
-            }
-            throw error;
-        }
-    }
-
     async fetchRepoTarball(repoFullName: string, ref: string, targetDir: string): Promise<void> {
         const { owner, repo } = parseRepo(repoFullName);
         const octokit = await this.getInstallationOctokit(repoFullName);

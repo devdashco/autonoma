@@ -51,8 +51,7 @@ export function AddAppDialog({ open, onOpenChange, existingApps, onCreated }: Ad
         <DialogHeader>
           <DialogTitle>New App</DialogTitle>
           <DialogDescription>
-            Secrets are grouped per app, matching the app names declared in your{" "}
-            <code className="font-mono">.preview.yaml</code>.
+            Secrets are grouped per app, matching the app names declared in your preview config.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>

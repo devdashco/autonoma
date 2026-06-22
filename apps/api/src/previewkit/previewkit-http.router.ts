@@ -12,7 +12,6 @@ import { z } from "zod";
 import { auth } from "../context";
 import { env } from "../env";
 import { openApiSpec } from "./openapi-spec";
-import previewSchema from "./preview-schema.json" with { type: "json" };
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
 import { PreviewkitSecretsService } from "./previewkit-secrets.service";
 import { previewkitTriggerService } from "./previewkit-service";
@@ -81,8 +80,8 @@ const deployRequestSchema = z.object({
 /**
  * Public HTTP surface for Previewkit, mounted at `/v1/previewkit`. Two kinds of route:
  *
- *  - **Native** (secrets CRUD, environment status, the `.preview.yaml` JSON schema, and the
- *    `openapi.json` describing this surface): implemented directly here - no forwarding. They
+ *  - **Native** (secrets CRUD, environment status, and the `openapi.json` describing this
+ *    surface): implemented directly here - no forwarding. They
  *    need only the DB + AWS Secrets Manager, which the API already has.
  *
  *  - **Lifecycle ops** (deploy / main-branch deploy / teardown / redeploy): the API
@@ -277,9 +276,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         return c.json({ applicationId, app, key, status: "deleted" });
     })
-
-    // ─── Native: static `.preview.yaml` JSON schema (public, for editors) ──
-    .get("/schema/preview.yaml.json", (c) => c.json(previewSchema))
 
     // ─── Lifecycle ops: start the preview Temporal workflows ──────────
     .post("/environments", requireAuth, async (c) => {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SecretItemSchema, type SecretItem } from "./secrets";
 
-// Same regex used by `.preview.yaml` for addon names — the org-secret name is
+// Same regex the preview config uses for addon names - the org-secret name is
 // what the `auth_secret:` field references, so they share a namespace and a
 // shape (lowercase alphanumeric with hyphens, Kubernetes-label friendly).
 const ORG_SECRET_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
@@ -12,7 +12,7 @@ export const OrgSecretNameSchema = z
     .max(63)
     .regex(
         ORG_SECRET_NAME_REGEX,
-        "Org secret name must be lowercase alphanumeric with hyphens (matches the `.preview.yaml` auth_secret field)",
+        "Org secret name must be lowercase alphanumeric with hyphens (matches the preview config auth_secret field)",
     );
 
 export const ListOrgSecretsInputSchema = z.object({

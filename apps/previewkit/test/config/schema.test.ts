@@ -73,7 +73,7 @@ describe("previewConfigSchema", () => {
         expect(result.apps[0].replicas).toBe(1);
         expect(result.apps[0].build_args).toEqual({});
         expect(result.apps[0].env).toEqual({});
-        // On the `.preview.yaml` path, omitting resources yields the app-tier standard.
+        // On the untrusted schema, omitting resources yields the app-tier standard.
         expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });
     });
 
@@ -95,7 +95,7 @@ describe("previewConfigSchema", () => {
         });
     });
 
-    describe("resources (ignored on the .preview.yaml path)", () => {
+    describe("resources (ignored on the untrusted schema)", () => {
         it("yields the app-tier standard when omitted", () => {
             const result = previewConfigSchema.parse(validConfig);
             expect(result.apps[0].resources).toEqual({ cpu: "250m", memoryRequest: "512Mi", memoryLimit: "1Gi" });

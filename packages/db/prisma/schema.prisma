@@ -340,8 +340,9 @@ model Application {
   // Revision currently in effect for this Application's previews. A real FK
   // (named relation, since previewkitConfigRevisions is the other edge to the
   // same model - mirrors the mainBranch cycle above) so the pointer can never
-  // dangle. onDelete: SetNull lets a revision be deleted out from under it,
-  // degrading to the .preview.yaml fallback rather than erroring.
+  // dangle. onDelete: SetNull lets a revision be deleted out from under it; the
+  // Application then has no active config and its previews are skipped (opt-out)
+  // rather than erroring.
   activeConfigRevisionId String?                   @unique @map("active_config_revision_id")
   activeConfigRevision   PreviewkitConfigRevision? @relation("ActiveConfigRevision", fields: [activeConfigRevisionId], references: [id], onDelete: SetNull)
 
@@ -1872,7 +1873,7 @@ model PreviewkitSecret {
   @@map("previewkit_secret")
 }
 
-// Org-scoped credentials referenced by `.preview.yaml` addons via the
+// Org-scoped credentials referenced by preview config addons via the
 // `auth_secret` field. Stored in AWS Secrets Manager as a JSON map (matching
 // the per-app PreviewkitSecret pattern); each provider's options schema picks
 // the key it needs (e.g. NeonProvider expects `token`).
@@ -1901,7 +1902,7 @@ enum PreviewkitConfigSource {
 }
 
 // Immutable, versioned snapshots of an Application's preview config document.
-// `document` is the same shape as `.preview.yaml` and validates against
+// `document` is a preview config document validated against
 // `previewConfigSchema`; it is stored as opaque JSON and validated on read by
 // the resolver (boundary validation), so the DB never constrains a churning
 // config format. `schemaVersion` lets the resolver upgrade older documents

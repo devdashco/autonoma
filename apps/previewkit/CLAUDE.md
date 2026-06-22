@@ -9,7 +9,7 @@ This file is loaded automatically when a session works under `apps/previewkit/`.
 It complements:
 - the repo-root `CLAUDE.md` (monorepo-wide conventions - ESM, strict TS, no `as`,
   `undefined` over `null`, Sentry logging, Zod-at-boundaries, no em dashes);
-- `apps/previewkit/README.md` (the user-facing `.preview.yaml` config reference);
+- `apps/previewkit/README.md` (the user-facing preview config reference);
 - the `ui-conventions` skill (required reading before editing the admin UI in
   `apps/ui/`).
 
@@ -64,13 +64,12 @@ half-deleted namespace.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
   `BuildRuntime`), `buildkit-builder.ts` (`buildctl` dispatch), `turbo-monorepo.ts`.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
-  validate), `file.ts` (`loadPreviewConfig` reads a repo's `.preview.yaml`), `revisions.ts`
-  (`loadActiveConfig` reads the Application's active DB config revision), `dependency-config.ts`
-  (`resolveDependencyConfig` - multirepo dependency repos prefer their own Application's active
-  DB revision, then fall back to their `.preview.yaml`), `index.ts` (`createPreviewkitDefaults`),
-  `migrate-yaml-to-revisions.ts` (one-off `.preview.yaml` -> DB import).
-  The pipeline prefers the active DB revision and falls back to the repo's `.preview.yaml`
-  (`PreviewPipeline.resolvePrimaryConfig`); dependencies resolve the same way in `cloneDependency`.
+  validate), `revisions.ts` (`loadActiveConfig` reads the Application's active DB config revision),
+  `dependency-config.ts` (`resolveDependencyConfig` - multirepo dependency repos resolve from their
+  own Application's active DB revision), `index.ts` (`createPreviewkitDefaults`).
+  The pipeline deploys from the active DB revision only (`PreviewPipeline.resolvePrimaryConfig`); an
+  Application with no active revision is skipped, and dependencies resolve the same way in
+  `cloneDependency`.
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (Deployments/Services/Ingress/ConfigMaps/RBAC, incl. the Gatekeeper proxy), `env-injector.ts`
   (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
@@ -89,8 +88,8 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
 - **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live log stream
   (SSE relay reading Grafana Loki via `LokiLogStore` behind the shared `LogStore` seam;
   `?source=build` for build output, `?source=app` for runtime stdout/stderr), secrets CRUD
-  (`PreviewkitSecretsService` - AWS Secrets Manager + DB), the `.preview.yaml` JSON schema, and
-  `openapi.json`. Secret values are kept out of the API request log via a body-log blocklist
+  (`PreviewkitSecretsService` - AWS Secrets Manager + DB), and `openapi.json`. Secret values are
+  kept out of the API request log via a body-log blocklist
   prefix on `/v1/previewkit/secrets`. Loki is a VPC-internal EC2 instance (`PREVIEWKIT_LOKI_URL`
   in the API env; unset -> the stream route 503s): build logs are pushed by this worker's
   `LokiBuildLogSink`, app logs by an Alloy DaemonSet on the preview cluster
@@ -213,9 +212,6 @@ The worker drains the sink's buffer on shutdown.
     and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
 - DB schema changes: edit `packages/db/prisma/schema.prisma` -> `pnpm db:migrate` -> `pnpm db:generate`.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
-- `pnpm --filter @autonoma/previewkit migrate:config [--dry-run] [--force]` - one-off: import every linked
-  Application's `.preview.yaml` (at its main-branch head) into a `PreviewkitConfigRevision` and activate it.
-  Idempotent (skips Applications that already have any config revision unless `--force`); needs the previewkit env.
 - `scripts/apply-standard-resources.sh [--apply] [--namespace NS]` - retrofit running preview namespaces to the
   current `STANDARD_RESOURCES` tiers + replicas cap (existing workloads keep their old requests until their next
   deploy; run this after changing the standards). Dry-run by default; only touches containers still requesting
