@@ -1,14 +1,17 @@
 import { AffectedTestRow } from "./affected-test-row";
-import type { DiffsJob } from "./diffs-timeline-types";
+import { CreatedTestRow } from "./created-test-row";
+import type { CreatedTest, DiffsJob } from "./diffs-timeline-types";
 import { ReasoningBlock } from "./reasoning-block";
 import { StageEmpty } from "./stage-empty";
 
 interface StageAnalysisProps {
   job: DiffsJob;
+  createdTests: CreatedTest[];
 }
 
-export function StageAnalysis({ job }: StageAnalysisProps) {
+export function StageAnalysis({ job, createdTests }: StageAnalysisProps) {
   const hasAffected = job.affectedTests.length > 0;
+  const hasCreated = createdTests.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -24,6 +27,19 @@ export function StageAnalysis({ job }: StageAnalysisProps) {
           </div>
         ) : (
           <StageEmpty message="No affected tests detected" />
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <SectionHeader title="New tests" count={createdTests.length} />
+        {hasCreated ? (
+          <div className="flex flex-col gap-1.5">
+            {createdTests.map((test) => (
+              <CreatedTestRow key={test.testCase.id} test={test} />
+            ))}
+          </div>
+        ) : (
+          <StageEmpty message="No new tests authored" />
         )}
       </div>
     </div>

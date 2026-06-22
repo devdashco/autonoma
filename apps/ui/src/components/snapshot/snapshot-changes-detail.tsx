@@ -86,7 +86,7 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
       </header>
 
       {entry.reasoning != null && entry.reasoning.trim().length > 0 && (
-        <DetailSection label={entry.category === "checked" ? "Why this was checked" : "Why this changed"}>
+        <DetailSection label={reasoningLabel(entry.category)}>
           <Prose>{entry.reasoning}</Prose>
         </DetailSection>
       )}
@@ -116,6 +116,12 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
       )}
     </article>
   );
+}
+
+function reasoningLabel(category: TestEntry["category"]): string {
+  if (category === "added") return "Why existing tests do not cover this";
+  if (category === "checked") return "Why this was checked";
+  return "Why this changed";
 }
 
 function DetailSection({

@@ -15,6 +15,7 @@ import type { GitHubInstallationService } from "../../github/github-installation
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
+import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
@@ -489,12 +490,24 @@ export class BranchesService extends Service {
             temporalWorkflow,
         };
 
-        const [executedTests, assignmentsForHealth] = await Promise.all([
+        // Created tests are the assignments added vs. the previous snapshot; resolve them
+        // from the already-computed changes so a single diff drives both surfaces. The
+        // generation/run inspector they carry is only rendered on the single-snapshot page,
+        // so it loads alongside the refinement loop - the lean PR-overview fan-out leaves it
+        // out (the overview reads added-test runs from executedTests) to avoid extra
+        // per-snapshot queries.
+        const createdTestCaseIds = changes.filter((c) => c.type === "added").map((c) => c.testCaseId);
+        const createdTestsPromise: Promise<SnapshotCreatedTest[]> = options.includeRefinementLoop
+            ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
+            : Promise.resolve([]);
+
+        const [executedTests, assignmentsForHealth, createdTests] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
             this.db.testCaseAssignment.findMany({
                 where: { snapshotId },
                 select: { testCaseId: true, quarantineIssueId: true },
             }),
+            createdTestsPromise,
         ]);
         const counts = this.computeHealthCounts(assignmentsForHealth, executedTests);
         const health = computeSnapshotHealth(snapshot.status, counts);
@@ -503,6 +516,7 @@ export class BranchesService extends Service {
             snapshot: flatSnapshot,
             changes,
             diffsJob: diffsJobWithMeta,
+            createdTests,
             quarantinedTests,
             refinementLoop,
             health,

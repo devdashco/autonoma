@@ -6,6 +6,7 @@ import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
 import { useState } from "react";
 import {
   computeStageStatuses,
+  type CreatedTest,
   type DiffsJob,
   type SnapshotChange,
   type StageKey,
@@ -17,11 +18,11 @@ import { StageAnalysis } from "./stage-analysis";
 import { StageFinalization } from "./stage-finalization";
 import { StageGeneration } from "./stage-generation";
 import { StageReplay } from "./stage-replay";
-import { StageResolution } from "./stage-resolution";
 
 interface PipelineStripProps {
   diffsJob: DiffsJob;
   changes: SnapshotChange[];
+  createdTests: CreatedTest[];
   refinementLoop: RefinementLoop | undefined;
   snapshotId: string;
 }
@@ -29,12 +30,11 @@ interface PipelineStripProps {
 const STAGES: Array<{ key: StageKey; title: string }> = [
   { key: "analysis", title: "Analysis" },
   { key: "replay", title: "Replay" },
-  { key: "resolution", title: "Resolution" },
   { key: "generation", title: "Generation" },
   { key: "finalization", title: "Finalization" },
 ];
 
-export function PipelineStrip({ diffsJob, changes, refinementLoop, snapshotId }: PipelineStripProps) {
+export function PipelineStrip({ diffsJob, changes, createdTests, refinementLoop, snapshotId }: PipelineStripProps) {
   const stageStatuses = computeStageStatuses(diffsJob);
   const failedStage = STAGES.find(({ key }) => stageStatuses[key] === "failed")?.key;
   const currentStage = STAGES.find(({ key }) => stageStatuses[key] === "current")?.key;
@@ -85,6 +85,7 @@ export function PipelineStrip({ diffsJob, changes, refinementLoop, snapshotId }:
               stageKey={expanded}
               diffsJob={diffsJob}
               changes={changes}
+              createdTests={createdTests}
               refinementLoop={refinementLoop}
               snapshotId={snapshotId}
             />
@@ -181,22 +182,22 @@ function StageDetail({
   stageKey,
   diffsJob,
   changes,
+  createdTests,
   refinementLoop,
   snapshotId,
 }: {
   stageKey: StageKey;
   diffsJob: DiffsJob;
   changes: SnapshotChange[];
+  createdTests: CreatedTest[];
   refinementLoop: RefinementLoop | undefined;
   snapshotId: string;
 }) {
   switch (stageKey) {
     case "analysis":
-      return <StageAnalysis job={diffsJob} />;
+      return <StageAnalysis job={diffsJob} createdTests={createdTests} />;
     case "replay":
       return <StageReplay job={diffsJob} />;
-    case "resolution":
-      return <StageResolution job={diffsJob} />;
     case "generation":
       return <StageGeneration job={diffsJob} refinementLoop={refinementLoop} snapshotId={snapshotId} />;
     case "finalization":

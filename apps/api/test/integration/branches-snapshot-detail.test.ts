@@ -72,6 +72,44 @@ apiTestSuite({
             expect(detail.executedTests).toEqual([]);
         });
 
+        test("returns tests created this snapshot with their coverage justification and generation/run", async ({
+            harness,
+        }) => {
+            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Guest check"] });
+            const assignment = fixture.assignments["guest"]!;
+
+            await harness.db.testCase.update({
+                where: { id: assignment.testCaseId },
+                data: { description: "No existing test covers the unauthenticated guest checkout path." },
+            });
+            const { plan } = await attachPlan(harness, assignment);
+
+            const generation = await createSuccessfulGeneration(
+                harness,
+                fixture.snapshotId,
+                plan.id,
+                new Date("2026-01-01T10:02:00Z"),
+            );
+            const run = await createRun(harness, assignment.id, "success", new Date("2026-01-01T10:05:00Z"), {
+                planId: plan.id,
+            });
+
+            // Created tests carry the generation/run inspector, which only loads on the full
+            // single-snapshot payload (the lean PR-overview fan-out skips it for query budget).
+            const detail = await harness
+                .request()
+                .branches.snapshotDetail({ snapshotId: fixture.snapshotId, includeRefinementLoop: true });
+
+            expect(detail.createdTests).toHaveLength(1);
+            expect(detail.createdTests[0]).toMatchObject({
+                testCase: { id: assignment.testCaseId, slug: "guest-check" },
+                coverageJustification: "No existing test covers the unauthenticated guest checkout path.",
+                plan: "Complete checkout",
+                generation: { id: generation.id, status: "success", verdict: "success" },
+                run: { id: run.id, status: "success" },
+            });
+        });
+
         test("uses the final refinement loop outcome instead of earlier failed attempts", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
             const assignment = fixture.assignments.checkout;

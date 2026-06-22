@@ -20,6 +20,7 @@ import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
 import { PipelineStrip } from "components/snapshot/pipeline-strip";
 import { SnapshotReportDocument, SnapshotReportDocumentSkeleton } from "components/snapshot/report-document";
 import { ShaRange } from "components/snapshot/sha-range";
+import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import { useAuth } from "lib/auth";
 import { formatDuration, formatRelativeTime } from "lib/format";
 import {
@@ -70,7 +71,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
   const [pipelineOpen, setPipelineOpen] = useState(false);
-  const { changes, diffsJob, refinementLoop } = detail;
+  const { changes, createdTests, diffsJob, refinementLoop } = detail;
 
   return (
     <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
@@ -175,13 +176,14 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           <Outlet />
         </div>
       ) : (
-        <SnapshotReportBody report={report} detail={detail} />
+        <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}
 
       {isAdmin && pipelineOpen && (
         <PipelineStrip
           diffsJob={diffsJob}
           changes={changes}
+          createdTests={createdTests}
           refinementLoop={refinementLoop}
           snapshotId={report.snapshot.id}
         />
@@ -190,9 +192,18 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   );
 }
 
-function SnapshotReportBody({ report, detail }: { report: SnapshotReport; detail: SnapshotDetail }) {
+function SnapshotReportBody({
+  report,
+  detail,
+  prNumber,
+}: {
+  report: SnapshotReport;
+  detail: SnapshotDetail;
+  prNumber: number;
+}) {
   return (
     <div className="flex flex-col gap-6">
+      <SuiteChangesSummary detail={detail} prNumber={prNumber} />
       <TestsRunPanel detail={detail} />
       <SnapshotReportDocument report={report} />
     </div>

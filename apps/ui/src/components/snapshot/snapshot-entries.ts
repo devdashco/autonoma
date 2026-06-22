@@ -1,4 +1,4 @@
-import type { AffectedTest, ExecutedTest, QuarantinedTest, SnapshotChange } from "./diffs-timeline-types";
+import type { AffectedTest, CreatedTest, ExecutedTest, QuarantinedTest, SnapshotChange } from "./diffs-timeline-types";
 
 export type EntryCategory = "added" | "modified" | "checked" | "removed" | "newly-quarantined";
 
@@ -39,16 +39,19 @@ export const CATEGORY: Record<
 export function buildSections({
     changes,
     affectedTests,
+    createdTests,
     quarantinedTests,
     executedTests,
 }: {
     changes: SnapshotChange[];
     affectedTests: AffectedTest[];
+    createdTests: CreatedTest[];
     quarantinedTests: QuarantinedTest[];
     executedTests: ExecutedTest[];
 }): Section[] {
     const affectedByTestCaseId = new Map(affectedTests.map((t) => [t.testCase.id, t]));
     const executedByTestCaseId = new Map(executedTests.map((e) => [e.testCase.id, e]));
+    const createdByTestCaseId = new Map(createdTests.map((t) => [t.testCase.id, t]));
     const quarantineByTestCaseId = new Map(quarantinedTests.map((q) => [q.testCase.id, q]));
 
     const added: TestEntry[] = [];
@@ -61,15 +64,18 @@ export function buildSections({
 
     for (const change of changes) {
         if (change.type === "added") {
-            // Added tests are authored by the diffs agent (or onboarding) and run through
-            // the refinement loop; surface their latest executed run.
+            // Fall back to the change's plan + latest executed run when no created-test
+            // record exists (legacy snapshots).
+            const created = createdByTestCaseId.get(change.testCaseId);
             added.push({
                 urlId: change.testCaseId,
                 category: "added",
                 testName: change.testCaseName,
                 testSlug: change.testCaseSlug,
-                plan: change.plan,
-                run: executedRun(executedByTestCaseId.get(change.testCaseId)),
+                reasoning: created?.coverageJustification,
+                plan: created?.plan ?? change.plan,
+                generation: createdGeneration(created),
+                run: createdRun(created) ?? executedRun(executedByTestCaseId.get(change.testCaseId)),
                 quarantine: quarantineByTestCaseId.get(change.testCaseId),
             });
             surfaced.add(change.testCaseId);
@@ -142,6 +148,25 @@ export function buildSections({
         { title: "Removed", entries: removed },
         { title: "Newly quarantined", entries: newlyQuarantined },
     ];
+}
+
+function createdGeneration(created: CreatedTest | undefined): TestEntry["generation"] {
+    if (created?.generation == null) return undefined;
+    return {
+        id: created.generation.id,
+        status: created.generation.status,
+        reviewReasoning: created.generation.reviewReasoning ?? undefined,
+    };
+}
+
+function createdRun(created: CreatedTest | undefined): TestEntry["run"] {
+    if (created?.run == null) return undefined;
+    return {
+        id: created.run.id,
+        status: created.run.status,
+        verdict: created.run.verdict ?? undefined,
+        reviewReasoning: created.run.reviewReasoning ?? undefined,
+    };
 }
 
 /** The latest executed run for a test case in this snapshot, when one exists. */

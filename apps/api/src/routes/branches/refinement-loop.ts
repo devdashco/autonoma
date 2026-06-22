@@ -61,6 +61,10 @@ export interface RefinementActionView {
     createdAt: Date;
     plan?: { id: string; testCaseId: string };
     testCase?: TestCaseLite;
+    // The generation/run whose review drove this action (culls + reports are always
+    // failure-driven and cite the review that surfaced the problem). Resolved from the
+    // action's `reviewLink` so the UI can link straight to the cited generation/run.
+    reviewLink?: { kind: "generation" | "run"; id: string };
 }
 
 export interface RefinementIterationView {
@@ -248,8 +252,29 @@ function buildActionView(row: ActionRow, refs: ActionRefLookups, logger: Logger)
             createdAt: row.createdAt,
             plan,
             testCase,
+            reviewLink: resolveReviewLink(action, refs),
         },
     ];
+}
+
+/**
+ * Resolves an action's `reviewLink` (a generation/run *review* id) to the
+ * generation/run it reviews, so the UI can link to the cited inspector page.
+ * `update_plan` carries no review link; report + remove actions always do.
+ */
+function resolveReviewLink(
+    action: HealingAction,
+    refs: ActionRefLookups,
+): { kind: "generation" | "run"; id: string } | undefined {
+    if (action.kind === "update_plan") return undefined;
+
+    const link = action.reviewLink;
+    if ("generationReviewId" in link) {
+        const generationId = refs.generationByReviewId.get(link.generationReviewId);
+        return generationId != null ? { kind: "generation", id: generationId } : undefined;
+    }
+    const runId = refs.runByReviewId.get(link.runReviewId);
+    return runId != null ? { kind: "run", id: runId } : undefined;
 }
 
 async function loadGenerations(
@@ -289,20 +314,27 @@ async function loadRuns(db: PrismaClient, snapshotId: string, planIds: Set<strin
 interface ActionRefLookups {
     plans: Map<string, { id: string; testCaseId: string }>;
     testCases: Map<string, TestCaseLite>;
+    generationByReviewId: Map<string, string>;
+    runByReviewId: Map<string, string>;
 }
 
 async function resolveActionRefs(db: PrismaClient, iterations: IterationRow[]): Promise<ActionRefLookups> {
     const planIds = new Set<string>();
     const testCaseIds = new Set<string>();
+    const generationReviewIds = new Set<string>();
+    const runReviewIds = new Set<string>();
 
     for (const iter of iterations) {
         for (const action of iter.actions) {
             if (action.planId != null) planIds.add(action.planId);
             if (action.testCaseId != null) testCaseIds.add(action.testCaseId);
+            const reviewLink = extractReviewLink(action.payload);
+            if (reviewLink?.generationReviewId != null) generationReviewIds.add(reviewLink.generationReviewId);
+            if (reviewLink?.runReviewId != null) runReviewIds.add(reviewLink.runReviewId);
         }
     }
 
-    const [planRows, testCaseRows] = await Promise.all([
+    const [planRows, testCaseRows, generationReviewRows, runReviewRows] = await Promise.all([
         planIds.size === 0
             ? Promise.resolve([])
             : db.testPlan.findMany({
@@ -315,12 +347,40 @@ async function resolveActionRefs(db: PrismaClient, iterations: IterationRow[]): 
                   where: { id: { in: [...testCaseIds] } },
                   select: { id: true, name: true, slug: true },
               }),
+        generationReviewIds.size === 0
+            ? Promise.resolve([])
+            : db.generationReview.findMany({
+                  where: { id: { in: [...generationReviewIds] } },
+                  select: { id: true, generationId: true },
+              }),
+        runReviewIds.size === 0
+            ? Promise.resolve([])
+            : db.runReview.findMany({
+                  where: { id: { in: [...runReviewIds] } },
+                  select: { id: true, runId: true },
+              }),
     ]);
 
     return {
         plans: new Map(planRows.map((r) => [r.id, r])),
         testCases: new Map(testCaseRows.map((r) => [r.id, r])),
+        generationByReviewId: new Map(generationReviewRows.map((r) => [r.id, r.generationId])),
+        runByReviewId: new Map(runReviewRows.map((r) => [r.id, r.runId])),
     };
+}
+
+/**
+ * Best-effort extraction of an action payload's `reviewLink` ids without a full
+ * schema parse - used only to know which reviews to batch-load. The full
+ * validated `reviewLink` is read off the parsed action later.
+ */
+function extractReviewLink(payload: unknown): { generationReviewId?: string; runReviewId?: string } | undefined {
+    if (!isPlainObject(payload)) return undefined;
+    const link = payload.reviewLink;
+    if (!isPlainObject(link)) return undefined;
+    const generationReviewId = typeof link.generationReviewId === "string" ? link.generationReviewId : undefined;
+    const runReviewId = typeof link.runReviewId === "string" ? link.runReviewId : undefined;
+    return { generationReviewId, runReviewId };
 }
 
 export function computeIterationOutcomes({

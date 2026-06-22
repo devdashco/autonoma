@@ -1,4 +1,5 @@
 import { Badge, cn } from "@autonoma/blacklight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -33,6 +34,7 @@ export function RefinementActionRow({ action }: RefinementActionRowProps) {
         </Badge>
         <ActionTitle action={action} />
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {action.reviewLink != null && <CitedReviewLink reviewLink={action.reviewLink} />}
           {action.appliedAt != null ? (
             <Badge variant="status-passed" className="px-1.5 py-0 text-3xs">
               applied
@@ -61,6 +63,29 @@ export function RefinementActionRow({ action }: RefinementActionRowProps) {
         )}
       </div>
     </div>
+  );
+}
+
+function CitedReviewLink({ reviewLink }: { reviewLink: NonNullable<RefinementAction["reviewLink"]> }) {
+  const className =
+    "inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-secondary transition-colors hover:text-text-primary hover:underline";
+  if (reviewLink.kind === "generation") {
+    return (
+      <AppLink
+        to="/app/$appSlug/generations/$generationId"
+        params={{ generationId: reviewLink.id }}
+        className={className}
+      >
+        <ArrowSquareOutIcon size={11} />
+        cited review
+      </AppLink>
+    );
+  }
+  return (
+    <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: reviewLink.id }} className={className}>
+      <ArrowSquareOutIcon size={11} />
+      cited review
+    </AppLink>
   );
 }
 

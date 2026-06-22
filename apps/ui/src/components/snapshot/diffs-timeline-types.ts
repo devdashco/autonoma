@@ -4,11 +4,12 @@ export type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
 export type DiffsJob = NonNullable<SnapshotDetail["diffsJob"]>;
 export type DiffsJobStatus = DiffsJob["status"];
 export type AffectedTest = DiffsJob["affectedTests"][number];
+export type CreatedTest = SnapshotDetail["createdTests"][number];
 export type SnapshotChange = SnapshotDetail["changes"][number];
 export type QuarantinedTest = SnapshotDetail["quarantinedTests"][number];
 export type ExecutedTest = SnapshotDetail["executedTests"][number];
 
-export const STAGE_KEYS = ["analysis", "replay", "resolution", "generation", "finalization"] as const;
+export const STAGE_KEYS = ["analysis", "replay", "generation", "finalization"] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
 
 export type StageStatus = "upcoming" | "current" | "done" | "failed";
@@ -16,7 +17,6 @@ export type StageStatus = "upcoming" | "current" | "done" | "failed";
 const ACTIVE_STAGE_OF_STATUS: Partial<Record<DiffsJobStatus, StageKey>> = {
     analyzing: "analysis",
     replaying: "replay",
-    resolving: "resolution",
     generating: "generation",
     finalizing: "finalization",
 };
@@ -27,8 +27,6 @@ function stageEvidence(stage: StageKey, job: DiffsJob): boolean {
             return job.analysisReasoning != null || job.affectedTests.length > 0;
         case "replay":
             return job.affectedTests.some((t) => t.run != null);
-        case "resolution":
-            return job.firstIterationReasoning != null;
         case "generation":
             return job.affectedTests.some((t) => t.generation != null);
         case "finalization":
@@ -41,7 +39,6 @@ export function computeStageStatuses(job: DiffsJob): Record<StageKey, StageStatu
         return {
             analysis: "done",
             replay: "done",
-            resolution: "done",
             generation: "done",
             finalization: "done",
         };
@@ -51,7 +48,6 @@ export function computeStageStatuses(job: DiffsJob): Record<StageKey, StageStatu
         return {
             analysis: "upcoming",
             replay: "upcoming",
-            resolution: "upcoming",
             generation: "upcoming",
             finalization: "upcoming",
         };

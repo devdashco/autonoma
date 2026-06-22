@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
-import type { AffectedTest, ExecutedTest, SnapshotChange } from "./diffs-timeline-types";
+import type { AffectedTest, CreatedTest, ExecutedTest, SnapshotChange } from "./diffs-timeline-types";
 import { buildSections, type Section, type TestEntry } from "./snapshot-entries";
 
 const TEST_CASE = { id: "tc-1", name: "Checkout flow", slug: "checkout-flow" };
+
+const NEW_TEST_CASE = { id: "tc-2", name: "Guest checkout", slug: "guest-checkout", folderId: "folder-1" };
+
+function addedChange(): SnapshotChange {
+    return {
+        type: "added",
+        testCaseId: NEW_TEST_CASE.id,
+        testCaseName: NEW_TEST_CASE.name,
+        testCaseSlug: NEW_TEST_CASE.slug,
+        testCaseFolderId: NEW_TEST_CASE.folderId,
+        plan: "change plan",
+    };
+}
+
+function createdTest(): CreatedTest {
+    return {
+        testCase: NEW_TEST_CASE,
+        coverageJustification: "No existing test exercises the guest (unauthenticated) checkout path.",
+        plan: "authored plan",
+        generation: { id: "gen-new", status: "success", verdict: "success", reviewReasoning: "Generated cleanly." },
+        run: { id: "run-new", status: "success", verdict: undefined, reviewReasoning: undefined },
+        quarantine: undefined,
+    };
+}
 
 function updatedChange(): SnapshotChange {
     return {
@@ -68,6 +92,7 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
+            createdTests: [],
             quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });
@@ -81,6 +106,7 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
+            createdTests: [],
             quarantinedTests: [],
             executedTests: [],
         });
@@ -97,6 +123,7 @@ describe("buildSections - modified test run", () => {
         const sections = buildSections({
             changes: [],
             affectedTests: [affectedWithInitialRun()],
+            createdTests: [],
             quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });
@@ -105,5 +132,38 @@ describe("buildSections - modified test run", () => {
         const entry = entryIn(sections, "Checked");
         expect(entry?.category).toBe("checked");
         expect(entry?.run?.id).toBe("run-latest");
+    });
+});
+
+describe("buildSections - created tests", () => {
+    it("surfaces the coverage justification and generation/run inspector for an added test", () => {
+        const sections = buildSections({
+            changes: [addedChange()],
+            affectedTests: [],
+            createdTests: [createdTest()],
+            quarantinedTests: [],
+            executedTests: [],
+        });
+
+        const entry = sections.find((s) => s.title === "Added")?.entries.find((e) => e.urlId === NEW_TEST_CASE.id);
+        expect(entry?.reasoning).toBe("No existing test exercises the guest (unauthenticated) checkout path.");
+        expect(entry?.plan).toBe("authored plan");
+        expect(entry?.generation?.id).toBe("gen-new");
+        expect(entry?.run?.id).toBe("run-new");
+    });
+
+    it("falls back to the change plan when no created-test record exists (legacy snapshot)", () => {
+        const sections = buildSections({
+            changes: [addedChange()],
+            affectedTests: [],
+            createdTests: [],
+            quarantinedTests: [],
+            executedTests: [],
+        });
+
+        const entry = sections.find((s) => s.title === "Added")?.entries.find((e) => e.urlId === NEW_TEST_CASE.id);
+        expect(entry?.plan).toBe("change plan");
+        expect(entry?.reasoning).toBeUndefined();
+        expect(entry?.generation).toBeUndefined();
     });
 });
