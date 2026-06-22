@@ -1,4 +1,5 @@
 import type { PreviewkitAddonStatus, PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
+import { previewConfigSchema } from "@autonoma/types";
 
 type PreviewEnvironmentStatus =
     | "ready"
@@ -421,28 +422,25 @@ export function mapBuildStatus(status: PreviewkitStatus): "ready" | "building" |
     return "unknown";
 }
 
-export function parseManifest(value: Prisma.JsonValue): PreviewkitManifest {
-    if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
-    const record = value as Record<string, unknown>;
+/**
+ * Projects the manifest-shaped subset the summary + readiness views need from a
+ * stored resolved config. The merged config is the single source of truth -
+ * there is no separate manifest column - so this parses it at read time.
+ * Returns an empty projection when the config is absent or unparseable (e.g. a
+ * deploy that has not resolved its config yet), matching the previous
+ * best-effort behaviour.
+ */
+export function projectManifest(resolvedConfig: Prisma.JsonValue): PreviewkitManifest {
+    const parsed = previewConfigSchema.safeParse(resolvedConfig);
+    if (!parsed.success) return {};
     return {
-        apps: Array.isArray(record.apps)
-            ? record.apps
-                  .filter(isNamedRecord)
-                  .map((app) => ({ name: app.name, port: toNumber(app.port), primary: toBoolean(app.primary) }))
-            : [],
-        services: Array.isArray(record.services)
-            ? record.services.filter(isNamedRecord).map((service) => ({
-                  name: service.name,
-                  recipe: toStringOrNull(service.recipe),
-                  version: toStringOrNull(service.version),
-              }))
-            : [],
-        addons: Array.isArray(record.addons)
-            ? record.addons.filter(isNamedRecord).map((addon) => ({
-                  name: addon.name,
-                  provider: toStringOrNull(addon.provider),
-              }))
-            : [],
+        apps: parsed.data.apps.map((app) => ({ name: app.name, port: app.port, primary: app.primary ?? null })),
+        services: parsed.data.services.map((service) => ({
+            name: service.name,
+            recipe: service.recipe,
+            version: service.version ?? null,
+        })),
+        addons: parsed.data.addons.map((addon) => ({ name: addon.name, provider: addon.provider })),
     };
 }
 
@@ -705,23 +703,3 @@ function iconKeyFromExactValue(value: string): PreviewServiceIconKey | undefined
     return undefined;
 }
 
-function isNamedRecord(value: unknown): value is Record<string, unknown> & { name: string } {
-    return (
-        value != null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        typeof (value as { name?: unknown }).name === "string"
-    );
-}
-
-function toStringOrNull(value: unknown): string | null {
-    return typeof value === "string" && value !== "" ? value : null;
-}
-
-function toNumber(value: unknown): number | null {
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function toBoolean(value: unknown): boolean | null {
-    return typeof value === "boolean" ? value : null;
-}

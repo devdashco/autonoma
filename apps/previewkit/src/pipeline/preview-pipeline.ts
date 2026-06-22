@@ -36,7 +36,6 @@ import {
     recordAppStates,
     recordBuildFinished,
     recordEnvironmentCreated,
-    recordEnvironmentManifest,
     recordEnvironmentReady,
     recordPhaseChanged,
     recordResolvedConfig,
@@ -325,10 +324,9 @@ export class PreviewPipeline {
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
 
             const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
-            await recordSafe(() => recordEnvironmentManifest(namespace, mergedConfig));
-            // Snapshot the effective (merged) config so a re-deploy of this PR
-            // reproduces the same topology. configRevisionId records which primary
-            // revision fed it.
+            // Snapshot the effective (merged) config. The summary + readiness views
+            // project it for display and failure diagnostics; configRevisionId records
+            // which primary revision fed it. Overwritten on each deploy once resolved.
             await recordSafe(() =>
                 recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId: resolvedRevisionId }),
             );

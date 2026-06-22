@@ -330,7 +330,6 @@ integrationTestSuite({
                     phase: "failed",
                     error: "Build failed before a URL was created",
                     urls: {},
-                    manifest: {},
                 },
             });
 
@@ -376,7 +375,6 @@ integrationTestSuite({
                     status: "ready",
                     phase: "ready",
                     urls: { web: "https://old-preview.example.com" },
-                    manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [], addons: [] },
                 },
             });
 
@@ -424,7 +422,6 @@ integrationTestSuite({
                     status: "ready",
                     phase: "ready",
                     urls: { web: "https://stale-preview.example.com" },
-                    manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [], addons: [] },
                     updatedAt: staleEnvironmentUpdatedAt,
                 },
             });
@@ -475,7 +472,6 @@ integrationTestSuite({
                     status: "building",
                     phase: "building-images",
                     urls: {},
-                    manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [], addons: [] },
                     updatedAt: staleEnvironmentUpdatedAt,
                 },
             });

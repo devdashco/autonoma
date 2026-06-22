@@ -11,8 +11,8 @@ import {
     buildServiceSummaries,
     classifyPreviewFailures,
     derivePreviewStatus,
-    parseManifest,
     parseStringRecord,
+    projectManifest,
     resolvePrimaryUrl,
     toAppBuildOutcomeMap,
     type PreviewFailure,
@@ -63,7 +63,6 @@ const previewkitEnvironmentSelect = {
     phase: true,
     error: true,
     urls: true,
-    manifest: true,
     headSha: true,
     headRef: true,
     deployedAt: true,
@@ -404,7 +403,7 @@ export async function buildPreviewkitReadiness(
     }
 
     const latestBuild = environment.builds[0] ?? null;
-    const manifest = parseManifest(environment.manifest);
+    const manifest = projectManifest(environment.resolvedConfig);
     const urls = parseStringRecord(environment.urls);
     const primaryUrl = resolvePrimaryUrl(manifest, urls);
     const appBuilds = toAppBuildOutcomeMap(latestBuild?.appBuilds ?? []);

@@ -47,9 +47,10 @@ export async function loadConfigRevision(applicationId: string, revisionId: stri
  * through the upgrade + validation pipeline in `resolveConfig`.
  *
  * Returns undefined when the Application has no active revision (the normal "this repo
- * hasn't adopted server-side config" signal) or when the active id dangles / points at
- * a revision outside this Application. Unexpected DB errors propagate so the caller's
- * deploy-level error handling marks the deploy failed rather than silently skipping it.
+ * hasn't adopted server-side config" signal) or when the active id points at a revision
+ * owned by a different Application (the FK on `activeConfigRevisionId` makes a truly
+ * dangling id impossible). Unexpected DB errors propagate so the caller's deploy-level
+ * error handling marks the deploy failed rather than silently skipping it.
  */
 export async function loadActiveConfig(applicationId: string): Promise<ActiveConfig | undefined> {
     const logger = rootLogger.child({ name: "loadActiveConfig" });
@@ -67,7 +68,10 @@ export async function loadActiveConfig(applicationId: string): Promise<ActiveCon
 
     const loaded = await loadConfigRevision(applicationId, revisionId);
     if (loaded == null) {
-        logger.warn("Active config revision id points at a missing or foreign revision", { applicationId, revisionId });
+        logger.warn("Active config revision id points at a revision owned by another application", {
+            applicationId,
+            revisionId,
+        });
     }
     return loaded;
 }

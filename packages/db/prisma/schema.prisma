@@ -1721,17 +1721,15 @@ model PreviewkitEnvironment {
 
   bypassToken String? @map("bypass_token")
 
-  // Fully-resolved config used for this deploy (the primary config merged with
-  // any multirepo dependencies, validated by previewConfigSchema). Immutable
-  // snapshot so a re-deploy of this PR reproduces the same topology even if
-  // the Application's active revision changes later. `configRevisionId` records
-  // which revision fed it.
+  // The effective (merged) config for the latest deploy attempt: the primary
+  // app's active config revision merged with any multirepo dependencies. The
+  // summary + readiness views project it for display and failure diagnostics -
+  // there is no separate manifest column. Overwritten on each deploy once the
+  // config resolves; `configRevisionId` records which primary revision fed it.
+  // Not read on redeploy - that re-resolves from the pinned revision.
   /// ![object]
   resolvedConfig   Json?   @map("resolved_config")
   configRevisionId String? @map("config_revision_id")
-
-  /// [PreviewkitManifest]
-  manifest Json @default("{}")
 
   deployedAt DateTime? @map("deployed_at")
   tornDownAt DateTime? @map("torn_down_at")

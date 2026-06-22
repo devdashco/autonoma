@@ -11,7 +11,7 @@ import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { Service } from "../service";
 import { derivePreviewSdkUrl } from "./preview-sdk-url";
-import { parseManifest, parseStringRecord, resolvePrimaryUrl } from "./preview-summary";
+import { parseStringRecord, projectManifest, resolvePrimaryUrl } from "./preview-summary";
 
 export interface EnvFactoryOptions {
     applicationId: string | undefined;
@@ -90,14 +90,14 @@ export class PreviewkitEnvFactoryService extends Service {
 
         const environment = await this.db.previewkitEnvironment.findUnique({
             where: { id: environmentId },
-            select: { id: true, organizationId: true, githubRepositoryId: true, urls: true, manifest: true },
+            select: { id: true, organizationId: true, githubRepositoryId: true, urls: true, resolvedConfig: true },
         });
         if (environment == null) {
             throw new NotFoundError("Preview environment not found");
         }
 
         const urls = parseStringRecord(environment.urls);
-        const manifest = parseManifest(environment.manifest);
+        const manifest = projectManifest(environment.resolvedConfig);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
         const appUrls = Object.entries(urls).map(([appName, url]) => ({ appName, url }));
 

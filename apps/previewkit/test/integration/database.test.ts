@@ -44,7 +44,7 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
         });
 
-        test("recordEnvironmentCreated is idempotent on namespace (resets error, tornDownAt, config snapshot)", async ({
+        test("recordEnvironmentCreated is idempotent on namespace (resets error + tornDownAt, preserves config snapshot)", async ({
             harness,
         }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
@@ -91,10 +91,11 @@ integrationTestSuite({
             expect(env!.phase).toBe("initializing");
             expect(env!.error).toBeNull();
             expect(env!.tornDownAt).toBeNull();
-            // A fresh attempt clears the prior config snapshot; it is rewritten once
-            // this attempt resolves its config.
-            expect(env!.resolvedConfig).toBeNull();
-            expect(env!.configRevisionId).toBeNull();
+            // A fresh attempt preserves the prior config snapshot so the summary +
+            // readiness views stay populated during the in-flight redeploy;
+            // recordResolvedConfig overwrites it once this attempt resolves.
+            expect(env!.resolvedConfig).toEqual({ version: 1, apps: [{ name: "web", port: 3000 }] });
+            expect(env!.configRevisionId).toBe("rev_prior");
         });
 
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {

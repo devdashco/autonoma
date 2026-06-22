@@ -1,7 +1,7 @@
-import { db, Prisma } from "@autonoma/db";
+import { db } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
-import type { AddonConfig, AppConfig, PreviewConfig, ServiceConfig } from "../config/schema";
+import type { PreviewConfig } from "../config/schema";
 import { env } from "../env";
 import { logger as rootLogger } from "../logger";
 
@@ -44,12 +44,6 @@ export interface EnvironmentCreatedInput {
     organizationId: string;
     githubRepositoryId?: number;
     commentId?: string;
-}
-
-export interface PreviewkitManifest {
-    apps: Array<Pick<AppConfig, "name" | "port" | "primary">>;
-    services: Array<Pick<ServiceConfig, "name" | "recipe" | "version">>;
-    addons: Array<Pick<AddonConfig, "name" | "provider">>;
 }
 
 export interface PhaseChangedInput {
@@ -123,11 +117,10 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             phase: "initializing",
             error: null,
             tornDownAt: null,
-            // Clear the previous attempt's config snapshot; recordResolvedConfig rewrites it
-            // once this attempt resolves its config. Without this, a deploy that fails before
-            // that write leaves the row describing the new head/status but the prior config.
-            resolvedConfig: Prisma.DbNull,
-            configRevisionId: null,
+            // Keep the prior attempt's resolvedConfig + configRevisionId in place: the
+            // summary/readiness views project resolvedConfig for display, so leaving the
+            // last-known topology lets them stay populated during an in-flight redeploy.
+            // recordResolvedConfig overwrites both atomically once this attempt resolves.
         },
     });
 }
@@ -168,38 +161,6 @@ export async function recordResolvedConfig(input: ResolvedConfigSnapshotInput): 
             resolvedConfig,
             configRevisionId: configRevisionId ?? null,
         },
-    });
-}
-
-export async function recordEnvironmentManifest(namespace: string, config: PreviewConfig): Promise<void> {
-    const logger = rootLogger.child({ name: "recordEnvironmentManifest" });
-    const manifest: PreviewkitManifest = {
-        apps: config.apps.map((app) => ({
-            name: app.name,
-            port: app.port,
-            primary: app.primary,
-        })),
-        services: config.services.map((service) => ({
-            name: service.name,
-            recipe: service.recipe,
-            version: service.version,
-        })),
-        addons: config.addons.map((addon) => ({
-            name: addon.name,
-            provider: addon.provider,
-        })),
-    };
-
-    logger.info("Recording environment manifest", {
-        namespace,
-        apps: manifest.apps.length,
-        services: manifest.services.length,
-        addons: manifest.addons.length,
-    });
-
-    await db.previewkitEnvironment.update({
-        where: { namespace },
-        data: { manifest },
     });
 }
 

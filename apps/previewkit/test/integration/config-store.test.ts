@@ -12,10 +12,10 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
     return application.id;
 }
 
-// Seeds a config revision directly and points the Application at it, standing
-// in for the authoring API in apps/api (previewkit itself only reads config
-// revisions, never writes them).
-async function seedActiveRevision(
+// Seeds a config revision for an application WITHOUT pointing the Application's
+// active pointer at it. Used to set up the cross-application case: a revision
+// owned by one app that another app then (illegally) references.
+async function seedRevision(
     harness: PreviewkitTestHarness,
     applicationId: string,
     document: object,
@@ -23,11 +23,23 @@ async function seedActiveRevision(
     const revision = await harness.db.previewkitConfigRevision.create({
         data: { applicationId, revision: 1, schemaVersion: 1, source: "api", document },
     });
+    return revision.id;
+}
+
+// Seeds a config revision and points the Application's active pointer at it,
+// standing in for the authoring API in apps/api (previewkit itself only reads
+// config revisions, never writes them).
+async function seedActiveRevision(
+    harness: PreviewkitTestHarness,
+    applicationId: string,
+    document: object,
+): Promise<string> {
+    const revisionId = await seedRevision(harness, applicationId, document);
     await harness.db.application.update({
         where: { id: applicationId },
-        data: { activeConfigRevisionId: revision.id },
+        data: { activeConfigRevisionId: revisionId },
     });
-    return revision.id;
+    return revisionId;
 }
 
 const baseConfig = resolveConfig({
@@ -40,18 +52,6 @@ integrationTestSuite({
     cases: (test) => {
         test("loadActiveConfig returns undefined when the application has no active revision", async ({ harness }) => {
             const applicationId = await createApplication(harness);
-
-            const active = await loadActiveConfig(applicationId);
-
-            expect(active).toBeUndefined();
-        });
-
-        test("loadActiveConfig returns undefined when the active revision id dangles", async ({ harness }) => {
-            const applicationId = await createApplication(harness);
-            await harness.db.application.update({
-                where: { id: applicationId },
-                data: { activeConfigRevisionId: "rev_does_not_exist" },
-            });
 
             const active = await loadActiveConfig(applicationId);
 
@@ -90,13 +90,15 @@ integrationTestSuite({
             });
         });
 
-        test("loadActiveConfig ignores an active revision id that belongs to another application", async ({
+        test("loadActiveConfig ignores an active revision that belongs to another application", async ({
             harness,
         }) => {
             const appA = await createApplication(harness, "app-a");
             const appB = await createApplication(harness, "app-b");
-            const foreignRevisionId = await seedActiveRevision(harness, appB, baseConfig);
-            // Mis-set: point appA's active id at appB's revision. It must not resolve.
+            // appB owns the revision but has NOT activated it, so appA's unique,
+            // FK-backed active pointer can legally reference it. loadActiveConfig
+            // must still reject it by scoping the lookup on applicationId.
+            const foreignRevisionId = await seedRevision(harness, appB, baseConfig);
             await harness.db.application.update({
                 where: { id: appA },
                 data: { activeConfigRevisionId: foreignRevisionId },

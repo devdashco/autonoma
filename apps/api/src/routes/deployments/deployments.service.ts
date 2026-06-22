@@ -11,8 +11,8 @@ import {
     legacyPreviewSummary,
     mapBuildStatus,
     missingPreviewSummary,
-    parseManifest,
     parseStringRecord,
+    projectManifest,
     resolvePrimaryUrl,
     toAppBuildOutcomeMap,
 } from "./preview-summary";
@@ -234,7 +234,7 @@ export class DeploymentsService extends Service {
                 phase: true,
                 error: true,
                 urls: true,
-                manifest: true,
+                resolvedConfig: true,
                 headSha: true,
                 deployedAt: true,
                 tornDownAt: true,
@@ -321,7 +321,7 @@ export class DeploymentsService extends Service {
         }
 
         const latestBuild = environment.builds[0] ?? null;
-        const manifest = parseManifest(environment.manifest);
+        const manifest = projectManifest(environment.resolvedConfig);
         const urls = parseStringRecord(environment.urls);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
         const appBuilds = toAppBuildOutcomeMap(latestBuild?.appBuilds ?? []);

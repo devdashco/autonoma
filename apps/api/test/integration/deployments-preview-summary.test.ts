@@ -467,7 +467,7 @@ async function createPreviewEnvironment(
             status: input.status,
             phase: input.status === "ready" ? "ready" : input.status,
             urls: input.urls,
-            manifest: input.manifest,
+            resolvedConfig: manifestToResolvedConfig(input.manifest),
             deployedAt: input.status === "ready" ? new Date() : null,
         },
     });
@@ -521,4 +521,23 @@ async function createPreviewEnvironment(
             },
         });
     }
+}
+
+/**
+ * The summary projects its topology from the stored resolved config, so tests
+ * persist a full (parseable) PreviewConfig. This widens the manifest-shaped
+ * fixture input: `version` and an `auth_secret` per addon are the only fields
+ * previewConfigSchema requires beyond what the fixtures already provide.
+ */
+function manifestToResolvedConfig(manifest: {
+    apps: Array<{ name: string; port: number; primary?: boolean }>;
+    services: Array<{ name: string; recipe: string; version?: string }>;
+    addons: Array<{ name: string; provider: string }>;
+}) {
+    return {
+        version: 1,
+        apps: manifest.apps,
+        services: manifest.services,
+        addons: manifest.addons.map((addon) => ({ ...addon, auth_secret: "test-secret" })),
+    };
 }

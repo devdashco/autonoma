@@ -320,7 +320,6 @@ integrationTestSuite({
                     status: "failed",
                     phase: "building-images",
                     urls: {},
-                    manifest: { apps: [{ name: "web", primary: true }] },
                     // Merged snapshot includes a dependency-repo app the primary
                     // revision knows nothing about - field paths must still resolve.
                     resolvedConfig: {
