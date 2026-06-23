@@ -12,7 +12,9 @@ function getBaseURL() {
         return env.VITE_API_URL;
     }
     if (host.startsWith("alpha-") || host.endsWith(`.alpha.${internalDomain}`)) {
-        return `https://beta.api.${internalDomain}`;
+        // Alpha previews share beta's auth - point at the beta API host (api.beta.<domain>),
+        // not the nonexistent beta.api.<domain>.
+        return `https://api.beta.${internalDomain}`;
     }
     return undefined;
 }
