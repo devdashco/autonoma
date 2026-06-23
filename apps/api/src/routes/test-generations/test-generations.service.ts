@@ -244,8 +244,10 @@ export class TestGenerationsService extends Service {
         if (generation == null) return;
 
         await this.db.$transaction(async (tx) => {
-            // Delete StepOutputList first - StepOutput.stepInputId has no cascade,
-            // so it must be gone before StepInputs are deleted via the TestCase cascade
+            // The generation only points at its StepOutputList via the
+            // non-cascading outputsId, so the TestCase cascade below won't remove
+            // it - delete it explicitly to avoid orphaning it. (Its StepOutputs
+            // are cleaned up either way, since StepOutput.stepInputId cascades.)
             if (generation.outputsId != null) {
                 await tx.stepOutputList.delete({ where: { id: generation.outputsId } });
             }

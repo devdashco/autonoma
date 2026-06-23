@@ -1121,7 +1121,7 @@ model StepOutput {
   output Json
 
   stepInputId String    @map("step_input_id")
-  stepInput   StepInput @relation(fields: [stepInputId], references: [id])
+  stepInput   StepInput @relation(fields: [stepInputId], references: [id], onDelete: Cascade)
 
   screenshotBefore String? @map("screenshot_before")
   screenshotAfter  String? @map("screenshot_after")
