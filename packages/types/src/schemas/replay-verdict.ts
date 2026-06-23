@@ -4,7 +4,17 @@ import { failurePointSchema, reviewEvidenceSchema } from "./generation-verdict";
 export const replayVerdictKindSchema = z.enum(["engine_error", "application_bug"]);
 export type ReplayVerdictKind = z.infer<typeof replayVerdictKindSchema>;
 
-export const replayVerdictSchema = z.object({
+/**
+ * The flat wire shape of a replay verdict - the schema the reviewer's
+ * `submit_verdict` tool actually exposes to the model.
+ *
+ * Kept flat (not a discriminated union) on purpose: Gemini function-calling
+ * requires tool `parameters` to be a root OBJECT schema and rejects the `oneOf`
+ * that a discriminated union compiles to. {@link replayVerdictSchema} pipes this
+ * flat shape into the discriminated union below, so the model sees an object
+ * while consumers get per-kind narrowing.
+ */
+const replayVerdictBaseSchema = z.object({
     verdict: replayVerdictKindSchema.describe(
         "Root cause of the replay failure. 'engine_error' means the recorded steps no longer match the application UI; 'application_bug' means the steps are correct but the app misbehaved.",
     ),
@@ -13,5 +23,21 @@ export const replayVerdictSchema = z.object({
     failurePoint: failurePointSchema.describe("Where the failure occurred"),
     evidence: z.array(reviewEvidenceSchema).describe("Supporting evidence from the analysis"),
 });
+
+const engineErrorVerdictSchema = replayVerdictBaseSchema.extend({ verdict: z.literal("engine_error") });
+const applicationBugVerdictSchema = replayVerdictBaseSchema.extend({ verdict: z.literal("application_bug") });
+
+const replayVerdictUnionSchema = z.discriminatedUnion("verdict", [
+    engineErrorVerdictSchema,
+    applicationBugVerdictSchema,
+]);
+
+/**
+ * A reviewer's replay verdict. The wire schema sent to the model is the flat
+ * {@link replayVerdictBaseSchema} (Gemini-compatible); parsing pipes it into a
+ * discriminated union on `verdict`, so the inferred type narrows per kind for
+ * consumers and future slices can attach per-kind required fields.
+ */
+export const replayVerdictSchema = replayVerdictBaseSchema.pipe(replayVerdictUnionSchema);
 
 export type ReplayVerdict = z.infer<typeof replayVerdictSchema>;

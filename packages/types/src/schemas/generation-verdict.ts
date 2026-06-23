@@ -22,7 +22,19 @@ export const failurePointSchema = z.object({
 });
 export type FailurePoint = z.infer<typeof failurePointSchema>;
 
-export const generationVerdictSchema = z.object({
+/**
+ * The flat wire shape of a generation verdict - the schema the reviewer's
+ * `submit_verdict` tool actually exposes to the model.
+ *
+ * It stays a flat object (not a discriminated union) on purpose: Gemini
+ * function-calling requires tool `parameters` to be a root OBJECT schema and
+ * rejects the `oneOf` that a discriminated union compiles to. {@link
+ * generationVerdictSchema} pipes this flat shape into the discriminated union
+ * below, so the model sees an object while consumers get per-kind narrowing.
+ * Per-kind required fields (added in later slices) live here as optional fields
+ * and are enforced by the union pipe.
+ */
+const generationVerdictBaseSchema = z.object({
     verdict: generationVerdictKindSchema.describe(
         "Reviewer's authoritative classification of this generation. Use 'success' when the generation truly completed the test plan; otherwise pick the failure cause.",
     ),
@@ -35,5 +47,25 @@ export const generationVerdictSchema = z.object({
     ),
     evidence: z.array(reviewEvidenceSchema).describe("Supporting evidence from the analysis"),
 });
+
+const successVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("success") });
+const agentLimitationVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("agent_limitation") });
+const applicationBugVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("application_bug") });
+const planMismatchVerdictSchema = generationVerdictBaseSchema.extend({ verdict: z.literal("plan_mismatch") });
+
+const generationVerdictUnionSchema = z.discriminatedUnion("verdict", [
+    successVerdictSchema,
+    agentLimitationVerdictSchema,
+    applicationBugVerdictSchema,
+    planMismatchVerdictSchema,
+]);
+
+/**
+ * A reviewer's generation verdict. The wire schema sent to the model is the
+ * flat {@link generationVerdictBaseSchema} (Gemini-compatible); parsing pipes it
+ * into a discriminated union on `verdict`, so the inferred type narrows per kind
+ * for consumers and future slices can attach per-kind required fields.
+ */
+export const generationVerdictSchema = generationVerdictBaseSchema.pipe(generationVerdictUnionSchema);
 
 export type GenerationVerdict = z.infer<typeof generationVerdictSchema>;
