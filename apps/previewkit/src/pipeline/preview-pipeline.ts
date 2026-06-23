@@ -52,6 +52,7 @@ import { enrichDependencyShas } from "../multirepo/enrich-dependency-shas";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
 import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
+import { StatusWriter } from "./status-writer";
 
 /**
  * Shared input to every per-app build. Computed once at the top of
@@ -124,6 +125,7 @@ export class PreviewPipeline {
     private readonly dockerHubMirror: string;
     private readonly storage: StorageProvider;
     private readonly logSink?: BuildLogSink;
+    private readonly statusWriter: StatusWriter;
 
     constructor(options: PreviewPipelineOptions) {
         this.provider = options.provider;
@@ -135,6 +137,7 @@ export class PreviewPipeline {
         this.dockerHubMirror = options.dockerHubMirror;
         this.storage = options.storage;
         this.logSink = options.logSink;
+        this.statusWriter = new StatusWriter(this.deployer, this.logSink);
     }
 
     /**
@@ -374,7 +377,7 @@ export class PreviewPipeline {
         let dependencyEntries: DependencyEntry[] = [];
 
         try {
-            await this.updatePhase(repoFullName, prNumber, "pending", "cloning");
+            await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
             logger.info("Build step 3/7 cloning primary + dependency repos", {
                 repo: repoFullName,
@@ -446,7 +449,7 @@ export class PreviewPipeline {
             let addonOutcomes: AddonProvisionOutcome[] = [];
             let addonOutputs: AddonOutputs = {};
             if (mergedConfig.addons.length > 0) {
-                await this.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
+                await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
                 logger.info("Build step 5/7 provisioning addons", {
                     repo: repoFullName,
                     pr: prNumber,
@@ -492,7 +495,7 @@ export class PreviewPipeline {
                 });
             }
 
-            await this.updatePhase(repoFullName, prNumber, "building", "building-images");
+            await this.statusWriter.updatePhase(repoFullName, prNumber, "building", "building-images");
             await recordSafe(() =>
                 recordAppStates(
                     namespace,
@@ -660,7 +663,7 @@ export class PreviewPipeline {
             builtImages: Object.keys(imageTags),
         });
 
-        await this.checkpoint(signal, repoFullName, prNumber, "deploying-services");
+        await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "deploying-services");
         logger.info("Deploy step 1/7 deploying infra (namespace, services, gatekeeper)", {
             repo: repoFullName,
             pr: prNumber,
@@ -672,7 +675,7 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
         });
 
-        await this.checkpoint(signal, repoFullName, prNumber, "pre-deploy-hooks");
+        await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "pre-deploy-hooks");
         logger.info("Deploy step 2/7 running pre-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -693,7 +696,7 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
         });
 
-        await this.checkpoint(signal, repoFullName, prNumber, "deploying-apps");
+        await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "deploying-apps");
         // Mark the apps that built (have an image) as `deploying`. Apps whose
         // build failed have no imageTag and stay `build_failed`.
         const deployingStates: AppStateUpdate[] = mergedConfig.apps
@@ -725,7 +728,7 @@ export class PreviewPipeline {
                 .map(([n]) => n),
         );
 
-        await this.checkpoint(signal, repoFullName, prNumber, "post-deploy-hooks");
+        await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "post-deploy-hooks");
         logger.info("Deploy step 4/7 running post-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -1313,35 +1316,6 @@ export class PreviewPipeline {
             logger.error("App build failed", err, { app: app.name });
             return { status: "failed", durationMs: Date.now() - start, error: message };
         }
-    }
-
-    /**
-     * Advance to the next deploy phase, bailing first if a newer commit
-     * superseded this run, so we stop sinking work into an environment the
-     * successor now owns. Every long deploy step opens by advancing the phase,
-     * so the cancellation check and the phase write are paired here. Writes that
-     * finalize the environment (`ready`) keep their own explicit checks.
-     */
-    private async checkpoint(
-        signal: AbortSignal | undefined,
-        repoFullName: string,
-        prNumber: number,
-        phase: string,
-    ): Promise<void> {
-        signal?.throwIfAborted();
-        await this.updatePhase(repoFullName, prNumber, "deploying", phase);
-    }
-
-    private async updatePhase(
-        repoFullName: string,
-        prNumber: number,
-        status: "pending" | "building" | "deploying",
-        phase: string,
-    ): Promise<void> {
-        await this.deployer.updateStatus(repoFullName, prNumber, { status, phase });
-        const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);
-        await recordSafe(() => recordPhaseChanged({ namespace, status, phase }));
-        void this.logSink?.append(namespace, { kind: "phase", message: phase });
     }
 
     private async runPreDeployHooks(
