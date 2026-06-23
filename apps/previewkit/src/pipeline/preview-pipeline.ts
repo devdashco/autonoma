@@ -14,8 +14,6 @@ import type {
     BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
-    PreviewAddonResult,
-    PreviewBuildOutcome,
     PreviewServiceResult,
 } from "@autonoma/workflow/activities";
 import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
@@ -40,7 +38,7 @@ import {
     recordPhaseChanged,
     recordResolvedConfig,
 } from "../db";
-import type { AppDeployOutcome, DeployResult, Deployer } from "../deployer/deployer";
+import type { DeployResult, Deployer } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
 import { execInDeploymentPod } from "../deployer/pod-exec";
@@ -52,17 +50,7 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
-
-/**
- * Combined per-app outcome rendered in the PR comment. Bundles the build and
- * deploy phases so the comment can show one row per app with the final status.
- */
-interface AppFinalOutcome {
-    name: string;
-    status: "ok" | "failed";
-    url?: string;
-    error?: string;
-}
+import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
 
 /**
  * Shared input to every per-app build. Computed once at the top of
@@ -579,7 +567,7 @@ export class PreviewPipeline {
 
             // Transition each app's lifecycle row to `built` (with its imageTag)
             // or `build_failed` (with the error) - the per-app build verdict.
-            await recordSafe(() => recordAppStates(namespace, this.toBuildStates(mergedConfig, appBuilds)));
+            await recordSafe(() => recordAppStates(namespace, toBuildStates(mergedConfig, appBuilds)));
             logger.info("Build step 7/7 recorded build outcomes", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -609,7 +597,7 @@ export class PreviewPipeline {
                 imageTags,
                 addonOutputs,
                 buildOutcomes: appBuilds,
-                addons: this.toAddonResults(mergedConfig, addonOutcomes),
+                addons: toAddonResults(mergedConfig, addonOutcomes),
                 warnings,
                 primaryAppNames: primaryConfig.apps.map((a) => a.name),
             };
@@ -797,7 +785,7 @@ export class PreviewPipeline {
             pr: prNumber,
             namespace: result.namespace,
         });
-        const finalOutcomes = this.computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes);
+        const finalOutcomes = computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes);
         const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
         const readyCount = readyAppNames.size;
         const totalCount = finalOutcomes.length;
@@ -808,7 +796,7 @@ export class PreviewPipeline {
         await recordSafe(() =>
             recordAppStates(
                 result.namespace,
-                this.toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags),
+                toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags),
             ),
         );
         logger.info("Deploy step 6/7 recorded per-app states", {
@@ -1068,19 +1056,6 @@ export class PreviewPipeline {
         }
 
         logger.info("Preview deployment failure finalizer complete", { repo: repoFullName, pr: prNumber, namespace });
-    }
-
-    private toAddonResults(config: PreviewConfig, addonOutcomes: AddonProvisionOutcome[]): PreviewAddonResult[] {
-        return addonOutcomes.map((outcome) => {
-            const addon = config.addons.find((candidate) => candidate.name === outcome.name);
-            const row: PreviewAddonResult = {
-                name: outcome.name,
-                provider: addon?.provider ?? "unknown",
-                status: outcome.status === "ok" ? "ready" : "failed",
-            };
-            if (outcome.status === "failed") row.error = outcome.error;
-            return row;
-        });
     }
 
     // Resolves the target branch, resolves the dependency's config from its
@@ -1502,120 +1477,6 @@ export class PreviewPipeline {
             }
         }
         logger.info("Finished running post-deploy hooks", { namespace: result.namespace, hooks: runnable.length });
-    }
-
-    /**
-     * Combines per-app build and deploy outcomes into a single status row per
-     * app, used for both the PR comment table and the commit-status rollup.
-     *
-     * Stage A keeps this binary: an app is `ok` only if both build and deploy
-     * succeeded; everything else is `failed`. The `error` field surfaces the
-     * earliest failure (build error wins over deploy error, since a failed
-     * build implies a skipped deploy).
-     */
-    private computeFinalOutcomes(
-        config: PreviewConfig,
-        appBuilds: Record<string, PreviewBuildOutcome>,
-        deployOutcomes: Record<string, AppDeployOutcome>,
-    ): AppFinalOutcome[] {
-        return config.apps.map((app) => {
-            const build = appBuilds[app.name];
-            const deploy = deployOutcomes[app.name];
-
-            if (build == null) {
-                // Defensive: every config app should have been built. Treat
-                // a missing entry as a failure rather than silently dropping.
-                return { name: app.name, status: "failed", error: "No build outcome recorded" };
-            }
-
-            if (build.status === "failed") {
-                return { name: app.name, status: "failed", error: build.error };
-            }
-
-            if (deploy == null) {
-                return { name: app.name, status: "failed", error: "No deploy outcome recorded" };
-            }
-
-            if (deploy.status === "ok") {
-                return { name: app.name, status: "ok", url: deploy.url };
-            }
-
-            if (deploy.status === "skipped") {
-                return { name: app.name, status: "failed", error: `Deploy skipped: ${deploy.reason}` };
-            }
-
-            return { name: app.name, status: "failed", url: deploy.url, error: deploy.error };
-        });
-    }
-
-    /**
-     * Maps per-app build outcomes to lifecycle-row transitions: `built` (with
-     * imageTag) on success, `build_failed` (with the error) otherwise. Written
-     * right after the build phase so each app's build verdict is persisted
-     * before any deploy work begins.
-     */
-    private toBuildStates(config: PreviewConfig, appBuilds: Record<string, AppBuildOutcome>): AppStateUpdate[] {
-        return config.apps.map((app) => {
-            const outcome = appBuilds[app.name];
-            if (outcome == null) {
-                return {
-                    appName: app.name,
-                    status: "build_failed",
-                    port: app.port,
-                    error: "No build outcome recorded",
-                };
-            }
-            if (outcome.status === "success") {
-                return { appName: app.name, status: "built", port: app.port, imageTag: outcome.imageTag };
-            }
-            return { appName: app.name, status: "build_failed", port: app.port, error: outcome.error };
-        });
-    }
-
-    /**
-     * Maps the combined build + deploy outcomes to the terminal lifecycle state
-     * for every app: `build_failed`, `skipped` (built upstream-failed so deploy
-     * was never attempted), `deploy_failed` (with the reason), or `ready`. This
-     * is what makes "A and B are ready but C failed to deploy" a set of distinct
-     * persisted rows rather than an inferred absence.
-     */
-    private toFinalAppStates(
-        config: PreviewConfig,
-        buildOutcomes: Record<string, PreviewBuildOutcome>,
-        deployOutcomes: Record<string, AppDeployOutcome>,
-        imageTags: Record<string, string>,
-    ): AppStateUpdate[] {
-        return config.apps.map((app) => {
-            const port = app.port;
-            const build = buildOutcomes[app.name];
-            const deploy = deployOutcomes[app.name];
-            const imageTag = imageTags[app.name];
-
-            if (build == null || build.status === "failed") {
-                return {
-                    appName: app.name,
-                    status: "build_failed",
-                    port,
-                    error: build?.error ?? "No build outcome recorded",
-                };
-            }
-            if (deploy == null) {
-                return {
-                    appName: app.name,
-                    status: "deploy_failed",
-                    port,
-                    imageTag,
-                    error: "No deploy outcome recorded",
-                };
-            }
-            if (deploy.status === "ok") {
-                return { appName: app.name, status: "ready", port, imageTag, url: deploy.url };
-            }
-            if (deploy.status === "skipped") {
-                return { appName: app.name, status: "skipped", port, error: `Deploy skipped: ${deploy.reason}` };
-            }
-            return { appName: app.name, status: "deploy_failed", port, imageTag, url: deploy.url, error: deploy.error };
-        });
     }
 
     /** Builds the PR comment payload from the flat deploy result. */
