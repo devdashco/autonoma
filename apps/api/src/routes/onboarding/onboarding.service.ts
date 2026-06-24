@@ -46,10 +46,9 @@ export class OnboardingService extends Service {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        userId: string,
         dependencyDocuments?: Array<{ repo: string; document: unknown }>,
     ) {
-        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, userId, dependencyDocuments);
+        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, dependencyDocuments);
     }
 
     async getDeploymentSignalStatus(applicationId: string, organizationId: string) {

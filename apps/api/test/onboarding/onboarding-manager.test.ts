@@ -241,7 +241,7 @@ integrationTestSuite({
                 update: { step: "preview_environment" },
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
-            await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig(), "user_1");
+            await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
 
             const readiness = await manager.triggerPreviewkitMainDeploy(appId, orgId);
 
@@ -506,7 +506,7 @@ integrationTestSuite({
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            const saved = await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig(), "user_1");
+            const saved = await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
 
             expect(saved.saved).toBe(true);
             expect(saved.revision).toBe(1);
@@ -515,12 +515,6 @@ integrationTestSuite({
                 select: { activeConfigRevisionId: true },
             });
             expect(app.activeConfigRevisionId).toBe(saved.revisionId);
-            const revision = await harness.db.previewkitConfigRevision.findUniqueOrThrow({
-                where: { id: saved.revisionId },
-                select: { source: true, createdBy: true },
-            });
-            expect(revision.source).toBe("dashboard");
-            expect(revision.createdBy).toBe("user_1");
         });
 
         test("triggerPreviewkitMainDeploy requires an active valid config", async ({
@@ -561,7 +555,7 @@ integrationTestSuite({
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
             await expect(
-                manager.savePreviewkitConfig(appId, orgId, { version: 1, apps: [] }, "user_1"),
+                manager.savePreviewkitConfig(appId, orgId, { version: 1, apps: [] }),
             ).rejects.toThrow("Invalid PreviewKit config");
         });
 
@@ -595,7 +589,6 @@ integrationTestSuite({
                         { name: "api", path: "./apps/api", port: 4000 },
                     ],
                 },
-                "user_1",
             );
 
             await manager.listPreviewkitSecrets(appId, orgId, "api");

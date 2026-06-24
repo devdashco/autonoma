@@ -156,7 +156,7 @@ integrationTestSuite({
             await setStep(harness, appId, "preview_environment");
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            const saved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), "user_1", [
+            const saved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
                 {
                     repo: "acme/api",
                     document: {
@@ -193,7 +193,6 @@ integrationTestSuite({
                 appId,
                 orgId,
                 primaryDocumentWithDependency(),
-                "user_1",
                 [
                     {
                         repo: "acme/api",
@@ -225,7 +224,6 @@ integrationTestSuite({
                     appId,
                     orgId,
                     { version: 1, apps: [{ name: "web", path: ".", port: 3000, primary: true }] },
-                    "user_1",
                     [
                         {
                             repo: "acme/api",
@@ -236,7 +234,7 @@ integrationTestSuite({
             ).rejects.toThrow("is not declared in the primary config's multirepo.repos");
 
             await expect(
-                manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), "user_1", [
+                manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
                     {
                         repo: "acme/api",
                         document: { version: 1, apps: [{ name: "web", path: ".", port: 4000 }] },
@@ -266,7 +264,6 @@ integrationTestSuite({
                     applicationId: appId,
                     revision: 1,
                     schemaVersion: 1,
-                    source: "dashboard",
                     document: {
                         version: 1,
                         apps: [{ name: "web", path: ".", port: 3000, primary: true, depends_on: ["ghost"] }],
@@ -302,7 +299,6 @@ integrationTestSuite({
                     apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
                     services: [],
                 },
-                "user_1",
             );
             await harness.db.onboardingState.update({
                 where: { applicationId: appId },

@@ -90,7 +90,6 @@ export const onboardingRouter = router({
                 input.applicationId,
                 ctx.organizationId,
                 input.document,
-                ctx.user.id,
                 input.dependencyDocuments,
             ),
         ),

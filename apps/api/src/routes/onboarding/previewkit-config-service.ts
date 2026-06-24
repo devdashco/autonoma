@@ -206,7 +206,6 @@ export class PreviewkitConfigService {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        userId: string,
         dependencyDocuments: PreviewkitDependencyDocument[] = [],
     ): Promise<OnboardingPreviewkitConfig> {
         this.logger.info("Saving onboarding PreviewKit config", {
@@ -239,11 +238,11 @@ export class PreviewkitConfigService {
         // One transaction for every revision so a multi-repo save can never
         // activate the primary topology while a dependency's half is missing.
         const created = await this.db.$transaction(async (tx) => {
-            const primary = await createAndActivateRevision(tx, applicationId, config, userId);
+            const primary = await createAndActivateRevision(tx, applicationId, config);
             const dependencyRows = await Promise.all(
                 dependencies.map(async (dependency) => ({
                     dependency,
-                    row: await createAndActivateRevision(tx, dependency.applicationId, dependency.config, userId),
+                    row: await createAndActivateRevision(tx, dependency.applicationId, dependency.config),
                 })),
             );
             return { primary, dependencyRows };

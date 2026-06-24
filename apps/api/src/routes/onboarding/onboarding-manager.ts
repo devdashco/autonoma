@@ -235,13 +235,12 @@ export class OnboardingManager {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        userId: string,
         dependencyDocuments: PreviewkitDependencyDocument[] = [],
     ): Promise<OnboardingPreviewkitConfig> {
         this.logger.info("Saving onboarding PreviewKit config", { applicationId, organizationId });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
-        return this.previewkitConfig.save(applicationId, organizationId, document, userId, dependencyDocuments);
+        return this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
     }
 
     async validatePreviewkitConfig(

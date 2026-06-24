@@ -1864,14 +1864,6 @@ model PreviewkitOrgSecret {
   @@map("previewkit_org_secret")
 }
 
-enum PreviewkitConfigSource {
-  dashboard
-  api
-  imported_yaml
-
-  @@map("previewkit_config_source")
-}
-
 // Immutable, versioned snapshots of an Application's preview config document.
 // `document` is a preview config document validated against
 // `previewConfigSchema`; it is stored as opaque JSON and validated on read by
@@ -1889,14 +1881,12 @@ model PreviewkitConfigRevision {
 
   // Monotonically increasing per application. (applicationId, revision) unique.
   revision      Int
-  schemaVersion Int                    @default(1) @map("schema_version")
-  source        PreviewkitConfigSource @default(api)
+  schemaVersion Int @default(1) @map("schema_version")
 
   // Opaque config document; validated by previewConfigSchema on read.
   /// ![object]
   document Json
 
-  createdBy String?  @map("created_by")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([applicationId, revision])

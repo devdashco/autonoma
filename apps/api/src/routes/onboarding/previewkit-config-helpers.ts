@@ -1,4 +1,4 @@
-import { PreviewkitConfigSource, type Prisma } from "@autonoma/db";
+import type { Prisma } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
@@ -54,7 +54,6 @@ export async function createAndActivateRevision(
     tx: Prisma.TransactionClient,
     applicationId: string,
     config: PreviewConfig,
-    userId: string,
 ): Promise<{ id: string; revision: number }> {
     const savedDocument = JSON.parse(JSON.stringify(config));
     const last = await tx.previewkitConfigRevision.findFirst({
@@ -69,9 +68,7 @@ export async function createAndActivateRevision(
             applicationId,
             revision,
             schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
-            source: PreviewkitConfigSource.dashboard,
             document: savedDocument,
-            createdBy: userId,
         },
         select: { id: true, revision: true },
     });
