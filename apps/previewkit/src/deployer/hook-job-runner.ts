@@ -11,6 +11,17 @@ const POLL_INTERVAL_MS = 3_000;
  * push — before app Deployments start, so services never boot against a
  * missing schema.
  */
+export interface RunHookJobOptions {
+    timeoutMs?: number;
+    maxAttempts?: number;
+    /**
+     * Called for each line of the Job pod's output once it finishes (whether it
+     * succeeded or failed). Job pods merge stdout and stderr into a single log,
+     * so lines are relayed after completion rather than streamed live.
+     */
+    onLog?: (line: string) => void;
+}
+
 export async function runHookJob(
     kc: k8s.KubeConfig,
     namespace: string,
@@ -18,10 +29,11 @@ export async function runHookJob(
     image: string,
     command: string,
     env: Record<string, string>,
-    timeoutMs = 300_000,
-    maxAttempts = 3,
+    options?: RunHookJobOptions,
 ): Promise<void> {
     const logger = rootLogger.child({ name: "runHookJob", namespace, app: appName });
+    const timeoutMs = options?.timeoutMs ?? 300_000;
+    const maxAttempts = options?.maxAttempts ?? 3;
 
     let lastError: Error | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -31,7 +43,7 @@ export async function runHookJob(
             await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
         }
         try {
-            await runHookJobOnce(kc, namespace, appName, image, command, env, logger, timeoutMs);
+            await runHookJobOnce(kc, namespace, appName, image, command, env, logger, timeoutMs, options?.onLog);
             return;
         } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
@@ -50,6 +62,7 @@ async function runHookJobOnce(
     env: Record<string, string>,
     logger: ReturnType<typeof rootLogger.child>,
     timeoutMs: number,
+    onLog?: (line: string) => void,
 ): Promise<void> {
     const suffix = Math.random().toString(36).slice(2, 8);
     const jobName = `${appName.slice(0, 48)}-hook-${suffix}`;
@@ -113,13 +126,15 @@ async function runHookJobOnce(
         const succeeded = conditions.find((c) => c.type === "Complete" && c.status === "True");
         if (succeeded != null) {
             logger.info("Hook Job succeeded", { jobName });
+            if (onLog != null) await relayJobLogs(coreApi, namespace, jobName, onLog, logger);
             return;
         }
 
         const failed = conditions.find((c) => c.type === "Failed" && c.status === "True");
         if (failed != null) {
             const logs = await captureJobLogs(coreApi, namespace, jobName);
-            logger.error("Hook Job failed", { jobName, logs });
+            if (onLog != null) relayLines(logs, onLog);
+            logger.error("Hook Job failed", { jobName });
             throw new Error(`Hook Job "${jobName}" failed.\n${logs}`);
         }
 
@@ -127,6 +142,39 @@ async function runHookJobOnce(
     }
 
     throw new Error(`Hook Job "${jobName}" timed out after ${timeoutMs}ms`);
+}
+
+/**
+ * Reads the finished Job pod's logs and relays them line-by-line to `onLog` so
+ * a successful hook's output still reaches the build-log viewer. Best-effort:
+ * a failure to read logs is logged and swallowed, never propagated.
+ */
+async function relayJobLogs(
+    coreApi: k8s.CoreV1Api,
+    namespace: string,
+    jobName: string,
+    onLog: (line: string) => void,
+    logger: ReturnType<typeof rootLogger.child>,
+): Promise<void> {
+    const pod = await findJobPod(coreApi, namespace, jobName);
+    const podName = pod?.metadata?.name;
+    if (podName == null) {
+        logger.warn("Hook Job pod not found, cannot relay logs", { jobName });
+        return;
+    }
+    try {
+        const logs = await coreApi.readNamespacedPodLog({ name: podName, namespace, container: "hook" });
+        relayLines(logs, onLog);
+    } catch (err) {
+        logger.warn("Failed to read hook Job pod logs for relay", { jobName, podName, err });
+    }
+}
+
+/** Emit each line of `text` to `onLog`, dropping a single trailing newline. */
+function relayLines(text: string, onLog: (line: string) => void): void {
+    if (text === "") return;
+    const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
+    for (const line of trimmed.split("\n")) onLog(line);
 }
 
 async function captureJobLogs(coreApi: k8s.CoreV1Api, namespace: string, jobName: string): Promise<string> {

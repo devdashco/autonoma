@@ -1318,6 +1318,17 @@ export class PreviewPipeline {
         }
     }
 
+    /**
+     * Relay one line of pre/post-deploy hook output to the customer-facing
+     * build-log stream, scoped to the hook's app so it surfaces in that app's
+     * logs. Deliberately bypasses the Sentry/console logger: hook output may
+     * echo secrets, which must never reach the telemetry plane (see
+     * BuildLogEvent). Fire-and-forget, mirroring the sink's other call sites.
+     */
+    private appendHookLog(namespace: string, app: string, message: string, stream?: "stdout" | "stderr"): void {
+        void this.logSink?.append(namespace, { kind: "log", app, stream, message });
+    }
+
     private async runPreDeployHooks(
         config: PreviewConfig,
         namespace: string,
@@ -1364,13 +1375,17 @@ export class PreviewPipeline {
                         addonOutputs,
                     );
                 logger.info("Executing pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
-                await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv);
+                this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
+                await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv, {
+                    onLog: (line) => this.appendHookLog(namespace, hook.app, line),
+                });
                 logger.info("Finished pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
             } else {
                 logger.info("Executing pre-deploy hook", { namespace, app: hook.app, command: hook.command });
-                const { stdout, stderr } = await execInDeploymentPod(kc, namespace, hook.app, hook.command);
-                if (stdout) logger.info("Pre-deploy hook stdout", { app: hook.app, stdout });
-                if (stderr) logger.warn("Pre-deploy hook stderr", { app: hook.app, stderr });
+                this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
+                await execInDeploymentPod(kc, namespace, hook.app, hook.command, {
+                    onLine: (stream, line) => this.appendHookLog(namespace, hook.app, line, stream),
+                });
                 logger.info("Finished pre-deploy hook", { namespace, app: hook.app, command: hook.command });
             }
         }
@@ -1406,6 +1421,7 @@ export class PreviewPipeline {
         const kc = this.deployer.getKubeConfig();
         for (const hook of runnable) {
             logger.info("Executing post-deploy hook", { app: hook.app, command: hook.command, type: hook.type });
+            this.appendHookLog(result.namespace, hook.app, `$ ${hook.command}`);
             try {
                 if (hook.type === "job") {
                     const imageTag = imageTags[hook.app];
@@ -1438,11 +1454,13 @@ export class PreviewPipeline {
                             publicUrlInfo,
                             addonOutputs,
                         );
-                    await runHookJob(kc, result.namespace, hook.app, imageTag, hook.command, resolvedEnv);
+                    await runHookJob(kc, result.namespace, hook.app, imageTag, hook.command, resolvedEnv, {
+                        onLog: (line) => this.appendHookLog(result.namespace, hook.app, line),
+                    });
                 } else {
-                    const { stdout, stderr } = await execInDeploymentPod(kc, result.namespace, hook.app, hook.command);
-                    if (stdout) logger.info("Post-deploy hook stdout", { app: hook.app, stdout });
-                    if (stderr) logger.warn("Post-deploy hook stderr", { app: hook.app, stderr });
+                    await execInDeploymentPod(kc, result.namespace, hook.app, hook.command, {
+                        onLine: (stream, line) => this.appendHookLog(result.namespace, hook.app, line, stream),
+                    });
                 }
                 logger.info("Finished post-deploy hook", {
                     namespace: result.namespace,

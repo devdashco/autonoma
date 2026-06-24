@@ -1,10 +1,22 @@
 import { PassThrough } from "node:stream";
 import * as k8s from "@kubernetes/client-node";
 import { logger as rootLogger } from "../logger";
+import { makeLineRelay } from "./line-relay";
 
 export interface ExecResult {
     stdout: string;
     stderr: string;
+}
+
+export interface ExecOptions {
+    /** Data to pipe to the command's stdin. */
+    stdin?: Buffer;
+    /**
+     * Called for each complete line of output as it arrives, before the command
+     * exits. Lines carry their originating stream and have no trailing newline.
+     * The full output is still buffered and returned in {@link ExecResult}.
+     */
+    onLine?: (stream: "stdout" | "stderr", line: string) => void;
 }
 
 /**
@@ -16,7 +28,7 @@ export async function execInDeploymentPod(
     namespace: string,
     appLabel: string,
     command: string,
-    stdinData?: Buffer,
+    options?: ExecOptions,
 ): Promise<ExecResult> {
     const logger = rootLogger.child({ name: "execInDeploymentPod", namespace, appLabel });
 
@@ -35,13 +47,21 @@ export async function execInDeploymentPod(
     const stderr = new PassThrough();
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    const stdoutRelay = makeLineRelay("stdout", options?.onLine);
+    const stderrRelay = makeLineRelay("stderr", options?.onLine);
+    stdout.on("data", (chunk: Buffer) => {
+        stdoutChunks.push(chunk);
+        stdoutRelay.push(chunk);
+    });
+    stderr.on("data", (chunk: Buffer) => {
+        stderrChunks.push(chunk);
+        stderrRelay.push(chunk);
+    });
 
     let stdinStream: PassThrough | null = null;
-    if (stdinData != null) {
+    if (options?.stdin != null) {
         stdinStream = new PassThrough();
-        stdinStream.end(stdinData);
+        stdinStream.end(options.stdin);
     }
 
     // The status callback fires when the command exits, but stdout/stderr bytes
@@ -68,6 +88,8 @@ export async function execInDeploymentPod(
             ws.on("close", () => {
                 stdout.end();
                 stderr.end();
+                stdoutRelay.flush();
+                stderrRelay.flush();
                 if (failedStatus != null) {
                     const exitCode = failedStatus.details?.causes?.find((c) => c.reason === "ExitCode")?.message;
                     const out = Buffer.concat(stdoutChunks).toString("utf-8").trim();

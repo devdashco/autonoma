@@ -49,7 +49,7 @@ export class PostgresRestorer {
         const command =
             `pg_restore -U ${config.dbUser} -d ${config.dbName} ` + `--no-owner --no-acl --clean --if-exists || true`;
 
-        await execInDeploymentPod(this.kc, this.namespace, config.serviceName, command, dump);
+        await execInDeploymentPod(this.kc, this.namespace, config.serviceName, command, { stdin: dump });
 
         this.logger.info("Postgres restore complete", { serviceName: config.serviceName });
     }
