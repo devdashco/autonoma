@@ -15,6 +15,7 @@
         "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
+        "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@octokit/app": "catalog:",
         "@octokit/core": "catalog:",

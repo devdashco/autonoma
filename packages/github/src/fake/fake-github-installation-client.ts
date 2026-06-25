@@ -343,6 +343,16 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         comment.body = body;
     }
 
+    async deleteComment(repoFullName: string, commentId: string): Promise<void> {
+        this.requireRepo(repoFullName);
+        const index = this.comments.findIndex(
+            (candidate) => candidate.id === commentId && candidate.repoFullName === repoFullName,
+        );
+        // Idempotent like the real client: deleting a missing comment is a no-op.
+        if (index === -1) return;
+        this.comments.splice(index, 1);
+    }
+
     private requireRepo(fullName: string): InternalRepo {
         const repo = this.repositories.get(fullName);
         if (repo == null) throw new Error(`Repository ${fullName} not found`);

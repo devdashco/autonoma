@@ -177,6 +177,28 @@ export class GitHubProvider implements GitProvider {
         });
     }
 
+    async deleteComment(repoFullName: string, commentId: string): Promise<void> {
+        const { owner, repo } = parseRepo(repoFullName);
+        const octokit = await this.getInstallationOctokit(repoFullName);
+
+        try {
+            await octokit.request("DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}", {
+                owner,
+                repo,
+                comment_id: Number(commentId),
+            });
+        } catch (error) {
+            // Idempotent per the GitProvider contract: already-deleted is success.
+            if (isNotFoundError(error)) {
+                logger.info("PR comment already deleted (404)", { repoFullName, commentId });
+                return;
+            }
+            throw error;
+        }
+
+        logger.info("Deleted PR comment", { repoFullName, commentId });
+    }
+
     async setCommitStatus(
         repoFullName: string,
         sha: string,

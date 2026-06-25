@@ -190,4 +190,8 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
     async updateComment(repoFullName: string, commentId: string, _body: string): Promise<void> {
         this.logger.info("Skipping local-dev PR comment update", { repoFullName, commentId });
     }
+
+    async deleteComment(repoFullName: string, commentId: string): Promise<void> {
+        this.logger.info("Skipping local-dev PR comment delete", { repoFullName, commentId });
+    }
 }

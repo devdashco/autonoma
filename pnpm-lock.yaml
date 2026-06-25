@@ -1534,6 +1534,9 @@ importers:
 
   packages/github:
     dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger

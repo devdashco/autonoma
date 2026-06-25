@@ -1,4 +1,5 @@
 import { db } from "@autonoma/db";
+import { createGitHubPrCommentStore } from "@autonoma/github/comment";
 import type { AddonManager } from "../addons/addon-manager";
 import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
@@ -118,15 +119,18 @@ export class TeardownPipeline {
         });
         logger.info("Step 4/6 recorded teardown in DB", { repo: repoFullName, pr: prNumber, namespace });
 
-        if (annotations?.commentId) {
+        // The DB row is the source of truth (the comment is reposted with a new id on every
+        // deploy); the namespace annotation is the fallback for pre-GitHubPrComment environments.
+        const commentId = (await this.resolveCommentId(repoFullName, prNumber)) ?? annotations?.commentId;
+        if (commentId != null && commentId !== "") {
             logger.info("Step 5/6 updating PR comment to torn-down state", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
-                commentId: annotations.commentId,
+                commentId,
             });
             await this.provider
-                .updateComment(repoFullName, annotations.commentId, this.buildTeardownComment(prNumber))
+                .updateComment(repoFullName, commentId, this.buildTeardownComment(prNumber))
                 .catch((err) => logger.error("Failed to update teardown comment", err));
             logger.info("Step 5/6 updated PR comment", { repo: repoFullName, pr: prNumber, namespace });
         } else {
@@ -144,6 +148,22 @@ export class TeardownPipeline {
         logger.info("Step 6/6 set teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
 
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber, namespace });
+    }
+
+    // Best-effort lookup of the preview comment id; returns undefined on a missing row or DB
+    // error so teardown falls back to the namespace annotation and never fails on this read.
+    private async resolveCommentId(repoFullName: string, prNumber: number): Promise<string | undefined> {
+        try {
+            const state = await createGitHubPrCommentStore(db, "preview").getState(repoFullName, prNumber);
+            return state?.commentId ?? undefined;
+        } catch (err) {
+            logger.warn("Failed to read preview comment id from DB; falling back to namespace annotation", {
+                repo: repoFullName,
+                pr: prNumber,
+                err,
+            });
+            return undefined;
+        }
     }
 
     private buildTeardownComment(prNumber: number): string {

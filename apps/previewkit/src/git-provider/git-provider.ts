@@ -50,6 +50,12 @@ export interface GitProvider {
 
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
 
+    /**
+     * Delete a PR comment. Must be idempotent: deleting an already-deleted comment
+     * (GitHub 404) resolves rather than throws.
+     */
+    deleteComment(repoFullName: string, commentId: string): Promise<void>;
+
     setCommitStatus(
         repoFullName: string,
         sha: string,

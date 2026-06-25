@@ -22,6 +22,7 @@ export class PreviewkitTestHarness implements IntegrationHarness {
         // Per-test isolation: clear Previewkit tables (cascade handles children)
         // and the installations/orgs we create per test.
         await this.db.previewkitEnvironment.deleteMany({});
+        await this.db.gitHubPrComment.deleteMany({});
         await this.db.gitHubInstallation.deleteMany({});
         await this.db.organization.deleteMany({});
     }

@@ -1,8 +1,8 @@
-import { db, type Prisma, type PrismaClient } from "@autonoma/db";
+import { db, type Prisma } from "@autonoma/db";
 import { type GitHubAppCredentials, OctokitGitHubApp } from "@autonoma/github";
 import {
     type AutonomaCommentState,
-    type GitHubCommentStore,
+    createGitHubPrCommentStore,
     type PayloadBuilderInput,
     payloadBuilder,
     postOrUpdateCommentOnGithub,
@@ -21,6 +21,7 @@ const generationForCommentSelect = {
     snapshot: {
         select: {
             id: true,
+            status: true,
             headSha: true,
             branch: {
                 select: {
@@ -97,6 +98,7 @@ type GenerationForComment = {
     status: string;
     snapshot: {
         id: string;
+        status: string;
         headSha: string | null;
         branch: {
             prInfo: { prNumber: number } | null;
@@ -181,6 +183,16 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
         return;
     }
 
+    // Skip superseded snapshots: an older one finishing out-of-order would otherwise repost
+    // its stale results (the runs comment reposts with allow-new-head, so its sha isn't rejected).
+    if (snapshot.status === "superseded") {
+        log.info("Skipped PR comment update - snapshot superseded by a newer push", {
+            snapshotId: snapshot.id,
+            prNumber,
+        });
+        return;
+    }
+
     const hasIncompleteGenerations = snapshot.testGenerations.some((testGeneration) =>
         INCOMPLETE_GENERATION_STATUSES.has(testGeneration.status),
     );
@@ -226,10 +238,13 @@ export async function updatePrCommentForGeneration(generationId: string): Promis
 
     await postOrUpdateCommentOnGithub({
         client: installationClient,
-        store: createPreviewkitCommentStore(db),
+        store: createGitHubPrCommentStore(db, "runs"),
         repoFullName,
         prNumber,
         lastCommitSha: snapshot.headSha,
+        staleGuard: "allow-new-head",
+        // Repost so the latest results land at the bottom of the PR conversation.
+        mode: "repost",
         payload: payloadBuilder(payloadInput),
     });
 }
@@ -317,24 +332,4 @@ function getGitHubCommentAppConfig(log: Logger): GitHubAppCredentials | null {
     }
 
     return { appId, privateKey, webhookSecret, appSlug };
-}
-
-// This DB adapter is intentionally duplicated in apps/previewkit. The @autonoma/github
-// package stays free of an @autonoma/db dependency, so each caller owns its store.
-function createPreviewkitCommentStore(db: PrismaClient): GitHubCommentStore {
-    return {
-        async getState(repoFullName, prNumber) {
-            const env = await db.previewkitEnvironment.findUnique({
-                where: { repoFullName_prNumber: { repoFullName, prNumber } },
-                select: { commentId: true, headSha: true },
-            });
-            return env ?? null;
-        },
-        async setCommentId(repoFullName, prNumber, commentId) {
-            await db.previewkitEnvironment.updateMany({
-                where: { repoFullName, prNumber },
-                data: { commentId },
-            });
-        },
-    };
 }

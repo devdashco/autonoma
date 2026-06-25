@@ -82,6 +82,41 @@ export function applyMigrations(connectionString: string, verbose = false) {
     });
 }
 
+// Deterministic signed 32-bit hash (int4 range) for a string. Used to turn a
+// human-readable lock name into the two integer keys pg_advisory_xact_lock takes.
+function hash32(input: string): number {
+    let h = 0;
+    for (let i = 0; i < input.length; i++) {
+        h = (Math.imul(31, h) + input.charCodeAt(i)) | 0;
+    }
+    return h;
+}
+
+/**
+ * Run `fn` while holding a Postgres transaction-scoped advisory lock keyed by
+ * `name`. Concurrent callers with the same `name` are serialized: the second
+ * blocks until the first's `fn` resolves and the lock transaction commits. Use
+ * to make a read-modify-write across processes atomic (e.g. "post a PR comment
+ * only if one does not already exist"). The lock is held across `fn`, so keep
+ * `fn` short; the transaction timeout is raised to tolerate a network call.
+ *
+ * The lock is acquired on `client`, so pass the same `PrismaClient` that `fn`'s
+ * queries use. Otherwise the lock and the data writes hit different connection
+ * contexts (or, with a client pointed at another database, different databases
+ * entirely) and the serialization guarantee is lost.
+ */
+export async function withAdvisoryLock<T>(client: PrismaClient, name: string, fn: () => Promise<T>): Promise<T> {
+    const key1 = hash32(name);
+    const key2 = hash32(`salt:${name}`);
+    return client.$transaction(
+        async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key1}, ${key2})`;
+            return fn();
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+    );
+}
+
 export type { PrismaClient } from "./generated/prisma/client";
 export * from "./generated/prisma/client";
 

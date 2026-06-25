@@ -1,9 +1,10 @@
-import { TestWorkflowEnvironment } from "@temporalio/testing";
+import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PreviewDeployEvent, PreviewkitActivities } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
 import { previewDeployWorkflow } from "../src/workflows/previewkit.workflow";
+import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
     let resolve!: () => void;
@@ -83,9 +84,7 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
 let testEnv: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping({
-        server: { executable: { type: "cached-download", version: "v1.27.0" } },
-    });
+    testEnv = await createTimeSkippingTestEnvironment();
 });
 
 afterAll(async () => {

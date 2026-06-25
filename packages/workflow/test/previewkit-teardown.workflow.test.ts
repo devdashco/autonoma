@@ -1,11 +1,12 @@
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
-import { TestWorkflowEnvironment } from "@temporalio/testing";
+import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PreviewDeployEvent, PreviewkitActivities } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
 import { previewTeardownWorkflow } from "../src/workflows/previewkit-teardown.workflow";
 import { previewDeployWorkflow } from "../src/workflows/previewkit.workflow";
+import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
 
 // Bundle both previewkit workflows so the shared-workflowId test can run a
 // deploy and a teardown against the same in-memory worker.
@@ -85,9 +86,7 @@ function makeActivities(calls: string[], overrides: Partial<PreviewkitActivities
 let testEnv: TestWorkflowEnvironment;
 
 beforeAll(async () => {
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping({
-        server: { executable: { type: "cached-download", version: "v1.27.0" } },
-    });
+    testEnv = await createTimeSkippingTestEnvironment();
 });
 
 afterAll(async () => {

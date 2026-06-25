@@ -1,9 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { db, type PrismaClient } from "@autonoma/db";
+import { db } from "@autonoma/db";
 import {
-    type GitHubCommentStore,
+    createGitHubPrCommentStore,
     payloadBuilder,
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
@@ -248,11 +248,14 @@ export class PreviewPipeline {
             logger.info("Prepare step 4/6 posting initial PR comment", { repo: repoFullName, pr: prNumber });
             const result = await postOrUpdateCommentOnGithub({
                 client: this.provider,
-                store: createPreviewkitCommentStore(db),
+                store: createGitHubPrCommentStore(db, "preview"),
                 repoFullName,
                 prNumber,
                 lastCommitSha: headSha,
                 staleGuard: "allow-new-head",
+                // Each deploy reposts a fresh comment at the bottom of the PR; finalize()/fail()
+                // then update that same comment in place.
+                mode: "repost",
                 payload: payloadBuilder({
                     state: "running",
                     prNumber,
@@ -908,7 +911,7 @@ export class PreviewPipeline {
             });
             await postOrUpdateCommentOnGithub({
                 client: this.provider,
-                store: createPreviewkitCommentStore(db),
+                store: createGitHubPrCommentStore(db, "preview"),
                 repoFullName,
                 prNumber,
                 lastCommitSha: headSha,
@@ -1023,7 +1026,7 @@ export class PreviewPipeline {
             });
             await postOrUpdateCommentOnGithub({
                 client: this.provider,
-                store: createPreviewkitCommentStore(db),
+                store: createGitHubPrCommentStore(db, "preview"),
                 repoFullName,
                 prNumber,
                 lastCommitSha: headSha,
@@ -1501,25 +1504,4 @@ async function recordSafe(fn: () => Promise<void>): Promise<void> {
     } catch (err) {
         logger.error("Failed to record Previewkit DB event", err);
     }
-}
-
-// This DB adapter is intentionally duplicated in apps/jobs/run-completion-notification.
-// The @autonoma/github package must stay free of an @autonoma/db dependency, so each
-// caller owns its store.
-function createPreviewkitCommentStore(db: PrismaClient): GitHubCommentStore {
-    return {
-        async getState(repoFullName, prNumber) {
-            const env = await db.previewkitEnvironment.findUnique({
-                where: { repoFullName_prNumber: { repoFullName, prNumber } },
-                select: { commentId: true, headSha: true },
-            });
-            return env ?? null;
-        },
-        async setCommentId(repoFullName, prNumber, commentId) {
-            await db.previewkitEnvironment.updateMany({
-                where: { repoFullName, prNumber },
-                data: { commentId },
-            });
-        },
-    };
 }

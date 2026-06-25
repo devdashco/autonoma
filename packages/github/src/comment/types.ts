@@ -82,6 +82,8 @@ export type PayloadBuilderInput = {
 export type GitHubCommentClient = {
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
+    // Must be idempotent: deleting an already-deleted comment (GitHub 404) resolves, not throws.
+    deleteComment(repoFullName: string, commentId: string): Promise<void>;
 };
 
 export type GitHubCommentStore = {
@@ -89,7 +91,10 @@ export type GitHubCommentStore = {
         repoFullName: string,
         prNumber: number,
     ): Promise<{ commentId: string | null; headSha: string | null } | null>;
-    setCommentId(repoFullName: string, prNumber: number, commentId: string): Promise<void>;
+    setCommentId(repoFullName: string, prNumber: number, commentId: string, headSha: string): Promise<void>;
+    // Optional cross-process mutex for a single PR, wrapping the read-post-persist section so two
+    // concurrent first-time completions cannot both post before either persists its id.
+    runExclusive?<T>(repoFullName: string, prNumber: number, fn: () => Promise<T>): Promise<T>;
 };
 
 export type PostOrUpdateCommentInput = {
@@ -101,6 +106,9 @@ export type PostOrUpdateCommentInput = {
     payload: AutonomaCommentPayload;
     commentId?: string | null;
     staleGuard?: "strict" | "allow-new-head";
+    // "update" (default) edits the existing comment in place; "repost" deletes it and posts a
+    // fresh one at the bottom of the PR. Either way, at most one comment per (repo, pr, kind).
+    mode?: "update" | "repost";
 };
 
 export type PostOrUpdateCommentResult =

@@ -105,6 +105,7 @@ export interface GitHubInstallationClient {
     getFileContent(repoId: number, path: string, ref: string): Promise<string | undefined>;
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
+    deleteComment(repoFullName: string, commentId: string): Promise<void>;
 }
 
 interface RawPullRequestLike {
@@ -456,6 +457,16 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         return error.status === 304;
     }
 
+    /**
+     * True when a request failed with a `404 Not Found`. Lets {@link deleteComment}
+     * treat "comment already gone" as success, keeping deletes idempotent.
+     */
+    private isNotFound(error: unknown): boolean {
+        if (error == null || typeof error !== "object") return false;
+        if (!("status" in error)) return false;
+        return error.status === 404;
+    }
+
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
         this.logger.info("Fetching pull requests associated with commit", { owner, repo, sha });
 
@@ -622,6 +633,29 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         });
 
         this.logger.info("Updated PR comment", { repoFullName, commentId });
+    }
+
+    async deleteComment(repoFullName: string, commentId: string): Promise<void> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Deleting PR comment", { repoFullName, commentId });
+
+        try {
+            await this.octokit.request("DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}", {
+                owner,
+                repo,
+                comment_id: Number(commentId),
+            });
+        } catch (error) {
+            // Deleting an already-deleted comment is success for our purposes - the
+            // GitHubCommentClient contract requires deleteComment to be idempotent.
+            if (this.isNotFound(error)) {
+                this.logger.info("PR comment already deleted (404)", { repoFullName, commentId });
+                return;
+            }
+            throw error;
+        }
+
+        this.logger.info("Deleted PR comment", { repoFullName, commentId });
     }
 
     private async resolveOwnerRepo(repoId: number): Promise<{ owner: string; repo: string }> {

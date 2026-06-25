@@ -1749,6 +1749,28 @@ model PreviewkitEnvironment {
   @@map("previewkit_environment")
 }
 
+enum GitHubPrCommentKind {
+  preview
+  runs
+
+  @@map("github_pr_comment_kind")
+}
+
+model GitHubPrComment {
+  id           String              @id @default(cuid())
+  repoFullName String              @map("repo_full_name")
+  prNumber     Int                 @map("pr_number")
+  kind         GitHubPrCommentKind
+  commentId    String?             @map("comment_id")
+  headSha      String?             @map("head_sha")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([repoFullName, prNumber, kind])
+  @@map("github_pr_comment")
+}
+
 model PreviewkitBuild {
   id String @id @default(cuid())
 
