@@ -131,6 +131,7 @@ model Organization {
   bugs                   Bug[]
   githubInstallation     GitHubInstallation?
   billingPricing         BillingPricing?
+  settings               OrganizationSettings?
   promoRedemptions       BillingPromoRedemption[]
   billingCustomer        BillingCustomer?
   applicationSetups      ApplicationSetup[]
@@ -1593,6 +1594,21 @@ model BillingPricing {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("billing_pricing")
+}
+
+model OrganizationSettings {
+  id             String @id @default(cuid())
+  organizationId String @unique @map("organization_id")
+
+  previewkitBuildDraft   Boolean @default(false) @map("previewkit_build_draft")
+  previewkitFilterBranch String? @map("previewkit_filter_branch")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
 }
 
 model CreditTransaction {
