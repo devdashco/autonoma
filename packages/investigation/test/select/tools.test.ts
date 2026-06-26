@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDiffStatTool, createGetTestPlanTool } from "../../src/select/tools";
+import { createToolBudget } from "../../src/tool-output";
 
 const TOOL_OPTIONS = { toolCallId: "test-call", messages: [] };
 
@@ -9,9 +10,15 @@ describe("selector tools", () => {
             getLatestPlan: async (_applicationId: string, slug: string) =>
                 slug === "login" ? "Setup: on the page\nSteps:\n1. click the button" : undefined,
         };
-        const found = await createGetTestPlanTool(catalog, "app1").execute?.({ slug: "login" }, TOOL_OPTIONS);
+        const found = await createGetTestPlanTool(catalog, "app1", createToolBudget()).execute?.(
+            { slug: "login" },
+            TOOL_OPTIONS,
+        );
         expect(found).toContain("Steps:");
-        const missing = await createGetTestPlanTool(catalog, "app1").execute?.({ slug: "nope" }, TOOL_OPTIONS);
+        const missing = await createGetTestPlanTool(catalog, "app1", createToolBudget()).execute?.(
+            { slug: "nope" },
+            TOOL_OPTIONS,
+        );
         expect(missing).toContain("no plan found");
     });
 
@@ -22,7 +29,7 @@ describe("selector tools", () => {
             diff: async () => "",
             diffStat: async () => "a.ts | 3 +++",
         };
-        const result = await createDiffStatTool(codebase).execute?.({}, TOOL_OPTIONS);
+        const result = await createDiffStatTool(codebase, createToolBudget()).execute?.({}, TOOL_OPTIONS);
         expect(result).toContain("a.ts | 3 +++");
     });
 });

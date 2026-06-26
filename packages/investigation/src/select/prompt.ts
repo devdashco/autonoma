@@ -24,10 +24,32 @@ If the diff REMOVES a feature / route / page / component that an EXISTING test e
 # Output
 Return { affected: [{ slug, reason }], suggested: [{ name, instruction, reasoning }], quarantine: [{ slug, reason }] }. Every \`slug\` MUST be an exact slug from the catalog. Prefer FEWER, well-justified selections over a broad net; most PRs add zero or one suggested test and zero quarantines.`;
 
+/** Per-test description cap + overall catalog cap, so a huge app's catalog can't dominate the base prompt. */
+const MAX_DESCRIPTION_CHARS = 160;
+const MAX_CATALOG_CHARS = 200_000; // ~50k tokens; well within budget for ~1.3k tests, only bites enormous apps
+
+function truncate(text: string, max: number): string {
+    return text.length <= max ? text : `${text.slice(0, max)}...`;
+}
+
 /** One catalog line per test - the progressive-disclosure layer the selector scans first. */
 function formatCatalog(catalog: { slug: string; flow: string; description: string }[]): string {
     if (catalog.length === 0) return "(no existing tests)";
-    return catalog.map((test) => `- ${test.slug}  [${test.flow}]  ${test.description}`).join("\n");
+    const lines = catalog.map(
+        (test) => `- ${test.slug}  [${test.flow}]  ${truncate(test.description, MAX_DESCRIPTION_CHARS)}`,
+    );
+    const joined = lines.join("\n");
+    if (joined.length <= MAX_CATALOG_CHARS) return joined;
+    // Enormous catalog: inline as many as fit, then point the model at the search tools for the remainder so
+    // the base prompt alone can't blow the context window.
+    let kept = 0;
+    let used = 0;
+    for (const line of lines) {
+        if (used + line.length + 1 > MAX_CATALOG_CHARS) break;
+        used += line.length + 1;
+        kept += 1;
+    }
+    return `${lines.slice(0, kept).join("\n")}\n- [... ${lines.length - kept} more tests omitted to fit the context; use grep_code on a locale/route string, or get_test_plan by slug, to reach them ...]`;
 }
 
 /** Build the per-call selection prompt: PR intent + changed files + the FULL test catalog (descriptions). */

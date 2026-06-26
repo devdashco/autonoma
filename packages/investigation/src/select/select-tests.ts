@@ -14,7 +14,10 @@ export interface SelectContext {
     prBody?: string;
 }
 
-const SELECTION_TIMEOUT_MS = 5 * 60_000;
+// The select tool loop (up to maxSteps gpt-5.5 calls) on a large app (1,300+ tests) runs well past 5 min; that
+// cap aborted mid-loop and burned 3 retries (~15 min) without ever finishing. Give it one generous window that
+// still fits the 20-min Temporal activity ceiling (clone + catalog load take ~1.5 min on top of this).
+const SELECTION_TIMEOUT_MS = 12 * 60_000;
 
 /**
  * Select the existing tests a PR's diff affects (and suggest new ones for uncovered behavior). Mirrors the
@@ -45,7 +48,9 @@ export async function selectAffectedTests(context: SelectContext, deps: Selector
                 prompt: buildSelectionPrompt(context, diffStat, catalog),
                 abortSignal: AbortSignal.timeout(SELECTION_TIMEOUT_MS),
             }),
-        { label: "selection" },
+        // tries: 1 - a timeout means the loop is slow, not flaky, and a resend re-runs the whole 12-min loop,
+        // which would blow the 20-min activity ceiling. The per-run output budget keeps each call small.
+        { label: "selection", tries: 1 },
     );
 
     logger.info("Tests selected", {

@@ -32,7 +32,29 @@ const TRANSIENT_PATTERNS = [
 /** AI SDK error classes that mean "the model produced nothing usable" - safe to resend (matched by .name). */
 const TRANSIENT_ERROR_NAMES = ["AI_NoOutputGeneratedError", "AI_NoObjectGeneratedError"];
 
+/**
+ * Errors that are pointless to retry verbatim - the same request will fail the same way. A context-window
+ * overflow is the case that bit us in prod: the per-tool/per-run output budgets (tool-output.ts) should keep
+ * the prompt under the limit, but if one still slips through we must fail FAST, not spend three more attempts
+ * (~15 min) re-sending the same too-large prompt. Checked first so it wins even if the message also happens to
+ * contain a "transient"-looking word.
+ */
+const PERMANENT_PATTERNS = [
+    "context_length_exceeded",
+    "context length",
+    "maximum context",
+    "reduce the length of the messages",
+    "exceed the configured limit",
+    "string too long",
+];
+
+function isPermanent(error: unknown): boolean {
+    const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+    return PERMANENT_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
 function isTransient(error: unknown): boolean {
+    if (isPermanent(error)) return false;
     if (error instanceof Error && TRANSIENT_ERROR_NAMES.includes(error.name)) return true;
     const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
     return TRANSIENT_PATTERNS.some((pattern) => message.includes(pattern));
