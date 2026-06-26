@@ -19,9 +19,15 @@ jobs:
     steps:
       - name: Post to Slack channel
         env:
-          # Bot token (chat:write scope) for a Slack app invited to the channel.
-          # chat.postMessage is used so we can target the channel by ID; incoming
-          # webhooks post to a fixed channel and cannot be aimed at an ID.
+          # Per-author Slack *user* tokens, so the message is posted AS the PR
+          # author (their name/avatar, no "APP" badge). This is a JSON object
+          # mapping lowercased github-login -> "xoxp-" user token (chat:write
+          # user scope). Mint per-engineer tokens with scripts/mint-slack-token.sh.
+          SLACK_USER_TOKENS: ${{ secrets.SLACK_USER_TOKENS }}
+          # Bot token (chat:write scope) for a Slack app invited to the channel,
+          # used as a fallback when the author has no user token. chat.postMessage
+          # is used so we can target the channel by ID; incoming webhooks post to
+          # a fixed channel and cannot be aimed at an ID.
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: C09R1PEH41M
           # Untrusted PR fields are passed via env (never inlined into the shell)
@@ -29,15 +35,22 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_HEAD: ${{ github.event.pull_request.head.ref }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-          BRANCH_URL: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
 
-          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
-            echo "SLACK_BOT_TOKEN is not set, skipping notification."
-            exit 0
+          # Look up a per-author Slack user token so the PR-ready message is
+          # posted AS the author. SLACK_USER_TOKENS keys are lowercased github
+          # logins; the GitHub API returns canonical casing, so we lowercase the
+          # author login before the lookup to avoid case mismatches.
+          user_token=""
+          if [ -n "${SLACK_USER_TOKENS:-}" ]; then
+            if printf '%s' "$SLACK_USER_TOKENS" | jq -e . >/dev/null 2>&1; then
+              login_lc=$(printf '%s' "$PR_AUTHOR" | tr '[:upper:]' '[:lower:]')
+              user_token=$(printf '%s' "$SLACK_USER_TOKENS" | jq -r --arg login "$login_lc" '.[$login] // ""')
+            else
+              echo "SLACK_USER_TOKENS is set but is not valid JSON; ignoring it and using the bot fallback." >&2
+            fi
           fi
 
           fallback="PR ready for review: #${PR_NUMBER} ${PR_TITLE}"
@@ -48,47 +61,50 @@ jobs:
             --arg channel "$SLACK_CHANNEL_ID" \
             --arg title "$PR_TITLE" \
             --arg number "$PR_NUMBER" \
-            --arg author "$PR_AUTHOR" \
-            --arg head "$PR_HEAD" \
             --arg pr_url "$PR_URL" \
-            --arg branch_url "$BRANCH_URL" \
             --arg fallback "$fallback" \
             '{
               channel: $channel,
               text: $fallback,
               blocks: [
-                { "type": "markdown", "text": ("### " + $title + " | # " + $number) },
-                { "type": "markdown", "text": ("Author: " + $author) },
-                { "type": "markdown", "text": ("Branch: `" + $head + "`") },
-                { "type": "divider" },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": { "type": "plain_text", "text": ":github: Pull Request", "emoji": true },
-                      "url": $pr_url
-                    },
-                    {
-                      "type": "button",
-                      "text": { "type": "plain_text", "text": ":github: Branch", "emoji": true },
-                      "url": $branch_url
-                    }
-                  ]
-                }
+                { "type": "markdown", "text": ($title + " | # " + $number) },
+                { "type": "markdown", "text": $pr_url }
               ]
             }')
 
-          response=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
-            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data "$payload")
+          post_to_slack() {
+            curl -sS -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${1}" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              --data "$payload"
+          }
 
           # chat.postMessage returns HTTP 200 even on logical errors, so the only
           # reliable success signal is the "ok" field in the JSON response.
-          if [ "$(printf '%s' "$response" | jq -r '.ok')" != "true" ]; then
+          slack_ok() { [ "$(printf '%s' "$1" | jq -r '.ok')" = "true" ]; }
+
+          # 1) Try posting as the PR author. A user token only works when the
+          #    author is a member of the channel; on any failure (not_in_channel,
+          #    token_revoked, invalid_auth, ...) we fall through to the bot token.
+          if [ -n "$user_token" ]; then
+            response=$(post_to_slack "$user_token")
+            if slack_ok "$response"; then
+              echo "Posted PR review notification as @${PR_AUTHOR} to ${SLACK_CHANNEL_ID}."
+              exit 0
+            fi
+            echo "User-token post failed for @${PR_AUTHOR}: $(printf '%s' "$response" | jq -r '.error // "unknown"'). Falling back to bot token." >&2
+          fi
+
+          # 2) Fall back to the bot token (posts as the app).
+          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+            echo "No user token for @${PR_AUTHOR} and SLACK_BOT_TOKEN is unset, skipping notification." >&2
+            exit 0
+          fi
+
+          response=$(post_to_slack "$SLACK_BOT_TOKEN")
+          if ! slack_ok "$response"; then
             echo "Slack API call failed: $response" >&2
             exit 1
           fi
 
-          echo "Sent PR review notification to Slack channel ${SLACK_CHANNEL_ID}."
+          echo "Sent PR review notification to Slack channel ${SLACK_CHANNEL_ID} (bot fallback)."
