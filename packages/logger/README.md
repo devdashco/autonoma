@@ -76,6 +76,13 @@ function processResult(result: Result, logger: Logger) {
 
 PreviewKit build and app logs use Grafana Loki as the customer-facing log data plane. Build output is pushed through `LokiBuildLogSink`, app stdout/stderr is collected by the preview cluster logging stack, and the API reads both sources with `LokiLogStore` before relaying entries to the browser over SSE.
 
+All of a PR's logs share one append-only Loki stream per source (keyed by `namespace`, which is stable per PR), so both sources scope a fresh viewer to the latest run with a `kind="start"` sentinel:
+
+- **Build:** each build attempt calls `LokiBuildLogSink.markStart` at its start (pushed with `source="build"`). A fresh build-source viewer replays only from the latest marker, so a rerun's output overwrites prior attempts.
+- **App:** each deployment calls `LokiBuildLogSink.markDeploymentStart` as the new app pods roll out (pushed with `source="app"`). A fresh app-source viewer replays forward from the latest marker, so a redeploy's runtime output supersedes the prior deployment's lines.
+
+In both cases `LokiLogStore` falls back to the per-source window default when no marker exists (build: full retention replay; app: tail the newest lines), and the markers themselves are excluded from the relayed timeline. Reconnects resume from a real nanosecond cursor, so they are unaffected.
+
 This path is intentionally separate from telemetry logging: customer build output may echo secrets, so it must not flow into Sentry. The sink only uses the root logger to observe delivery failures.
 
 ### Running a job with Sentry

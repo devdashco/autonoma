@@ -48,22 +48,53 @@ export class LokiBuildLogSink implements BuildLogSink {
         this.timer.unref();
     }
 
-    /**
-     * Buffer one event. Timestamps are assigned monotonically (now, bumped by
-     * 1ns on same-millisecond appends) so per-build ordering survives Loki's
-     * timestamp-based reads.
-     */
+    /** Buffer one event (raw output chunk, phase transition, or terminal status). */
     append(environmentId: string, event: BuildLogEvent): Promise<void> {
-        const nowNs = BigInt(Date.now()) * 1_000_000n;
-        this.lastTsNs = nowNs > this.lastTsNs ? nowNs : this.lastTsNs + 1n;
-
         const labels: Record<string, string> = { namespace: environmentId, source: "build", kind: event.kind };
         if (event.app != null) labels["app"] = event.app;
         if (event.stream != null) labels["stream"] = event.stream;
 
-        this.buffer.push({ labels, tsNs: this.lastTsNs.toString(), line: event.message });
+        this.bufferLine(labels, event.message);
         if (this.buffer.length >= MAX_BUFFERED_LINES) void this.flush();
         return Promise.resolve();
+    }
+
+    /**
+     * Push a `kind="start"` sentinel marking a new build attempt, then flush
+     * immediately so a viewer connecting at build start resolves the new replay
+     * floor without waiting out the batch interval. The marker carries a kind
+     * outside the display set (`log`/`phase`/`status`), so the read side uses it
+     * purely as a boundary and never surfaces it as a log line.
+     */
+    async markStart(environmentId: string): Promise<void> {
+        this.bufferLine({ namespace: environmentId, source: "build", kind: "start" }, "");
+        await this.flush();
+    }
+
+    /**
+     * Push a `kind="start"` sentinel into the environment's app-log stream
+     * (`source="app"`) marking a new deployment, then flush immediately so a
+     * viewer connecting as the deploy starts resolves the new replay floor
+     * without waiting out the batch interval. Mirrors {@link markStart} but
+     * targets the runtime app stream (scraped from pods by the Alloy DaemonSet)
+     * instead of the build stream. The marker's kind sits outside the display set
+     * (`log`/`phase`/`status`), so the read side uses it purely as a boundary and
+     * never surfaces it as a log line.
+     */
+    async markDeploymentStart(environmentId: string): Promise<void> {
+        this.bufferLine({ namespace: environmentId, source: "app", kind: "start" }, "");
+        await this.flush();
+    }
+
+    /**
+     * Buffer one line with a monotonic nanosecond timestamp (now, bumped by 1ns
+     * on same-millisecond appends) so per-build ordering survives Loki's
+     * timestamp-based reads.
+     */
+    private bufferLine(labels: Record<string, string>, line: string): void {
+        const nowNs = BigInt(Date.now()) * 1_000_000n;
+        this.lastTsNs = nowNs > this.lastTsNs ? nowNs : this.lastTsNs + 1n;
+        this.buffer.push({ labels, tsNs: this.lastTsNs.toString(), line });
     }
 
     /**

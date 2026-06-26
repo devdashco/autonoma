@@ -158,7 +158,18 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 
 All paths run `buildctl` against a per-build BuildKit Job and push to `REGISTRY_URL` (ECR). Build logs
-stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload.
+stream to Grafana Loki via `LokiBuildLogSink` (see env vars below) - there is no S3 log upload. Every
+attempt for a (repo, PR) shares one Loki stream (keyed by the stable `namespace`), so `PreviewPipeline.build`
+calls `logSink.markStart(namespace)` at the top of each attempt to push a `kind="start"` boundary; the
+API-side `LokiLogStore` replays a fresh build-log viewer only from the latest marker, so a rerun's output
+overwrites prior attempts in the viewer instead of concatenating (Loki itself stays append-only).
+
+The app-log stream gets the same treatment for deployments: `PreviewPipeline.deployEnvironment` calls
+`logSink.markDeploymentStart(namespace)` (pushed with `source="app"`) as the new app pods roll out, so a
+fresh app-log viewer replays forward from the latest deployment and a redeploy's runtime output supersedes
+the prior deployment's lines. App lines themselves are still scraped by the Alloy DaemonSet, not pushed by
+the sink; the sink writes only the marker. With no marker `LokiLogStore` falls back to tailing the newest
+app lines in a recent window.
 
 ## Data model (`packages/db/prisma/schema.prisma`, `Previewkit*`)
 

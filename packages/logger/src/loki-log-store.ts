@@ -85,23 +85,22 @@ export class LokiLogStore implements LogStore {
 
         const nowNs = BigInt(Date.now()) * 1_000_000n;
         const isInitial = afterCursor === "0" || !CURSOR_PATTERN.test(afterCursor);
-        const lookbackMs = this.source === "app" ? TAIL_LOOKBACK_MS : REPLAY_LOOKBACK_MS;
-        const startNs = isInitial ? nowNs - BigInt(lookbackMs) * 1_000_000n : BigInt(afterCursor) + 1n;
+        const initial = isInitial ? await this.initialRead(environmentId, nowNs) : undefined;
+        const startNs = initial?.startNs ?? BigInt(afterCursor) + 1n;
 
         // An optional `app` narrows the stream to one app's lines (both sources carry the per-app
-        // `app` label); without it the whole environment streams.
-        const selector =
-            app == null
-                ? `{namespace="${environmentId}", source="${this.source}"}`
-                : `{namespace="${environmentId}", source="${this.source}", app="${app}"}`;
+        // `app` label); without it the whole environment streams. Both sources also exclude the
+        // `kind="start"` markers - they are replay boundaries, not displayable lines.
+        const selector = this.buildSelector(environmentId, app);
         const params = new URLSearchParams({
             query: selector,
             start: startNs.toString(),
             end: nowNs.toString(),
-            // App initial: backward + limit = the newest lines in the window
-            // (tail). Everything else reads forward - build replays from the
-            // start, and any non-initial poll resumes in order from the cursor.
-            direction: isInitial && this.source === "app" ? "backward" : "forward",
+            // `initialRead` chooses the fresh-viewer direction: forward to replay
+            // from a start marker (latest build attempt / latest deployment),
+            // backward to tail an unmarked app stream's newest lines. Any
+            // non-initial poll resumes forward in order from the cursor.
+            direction: initial?.direction ?? "forward",
             limit: String(READ_LIMIT),
         });
 
@@ -138,6 +137,96 @@ export class LokiLogStore implements LogStore {
         // timeline (this also flips the backward initial query into order).
         entries.sort(byEntryId);
         return entries;
+    }
+
+    /**
+     * Where a fresh viewer (cursor "0") starts reading, and in which direction.
+     * Both sources scope to the latest `kind="start"` marker when one exists -
+     * build to its latest attempt, app to its latest deployment - and replay
+     * forward from there, so a rerun/redeploy's output overwrites the prior run
+     * retained in this namespace's (retention-bounded) shared stream.
+     *
+     * With no marker (a stream that predates this feature, or is still mid-flight
+     * before its marker lands) each source falls back to its window default:
+     * build replays the whole bounded build forward; app tails the newest lines
+     * backward, since its stream is long-lived and a full-window forward replay
+     * could be days of output.
+     */
+    private async initialRead(
+        environmentId: string,
+        nowNs: bigint,
+    ): Promise<{ startNs: bigint; direction: "forward" | "backward" }> {
+        const lookbackMs = this.source === "app" ? TAIL_LOOKBACK_MS : REPLAY_LOOKBACK_MS;
+        const windowStart = nowNs - BigInt(lookbackMs) * 1_000_000n;
+
+        const markerNs = await this.latestStartMarkerNs(environmentId, windowStart, nowNs);
+        if (markerNs != null) return { startNs: markerNs, direction: "forward" };
+
+        return { startNs: windowStart, direction: this.source === "app" ? "backward" : "forward" };
+    }
+
+    /**
+     * Timestamp of the newest start marker for this source in the window, or
+     * undefined when none exists. A marker-query failure is non-fatal: it logs
+     * and returns undefined so the caller falls back to the window default
+     * rather than failing the whole read.
+     */
+    private async latestStartMarkerNs(
+        environmentId: string,
+        startNs: bigint,
+        endNs: bigint,
+    ): Promise<bigint | undefined> {
+        const params = new URLSearchParams({
+            query: `{namespace="${environmentId}", source="${this.source}", kind="start"}`,
+            start: startNs.toString(),
+            end: endNs.toString(),
+            direction: "backward",
+            limit: "1",
+        });
+        try {
+            const response = await fetch(`${this.baseUrl}/loki/api/v1/query_range?${params.toString()}`);
+            if (!response.ok) {
+                const body = await response.text();
+                this.logger.warn("Loki start-marker query failed; falling back to window default", {
+                    environmentId,
+                    source: this.source,
+                    status: response.status,
+                    body,
+                });
+                return undefined;
+            }
+            const parsed = queryRangeResponseSchema.parse(await response.json());
+            let latest: bigint | undefined;
+            for (const lokiStream of parsed.data.result) {
+                for (const [timestampNs] of lokiStream.values) {
+                    const ts = BigInt(timestampNs);
+                    if (latest == null || ts > latest) latest = ts;
+                }
+            }
+            return latest;
+        } catch (err) {
+            this.logger.warn("Loki start-marker query errored; falling back to window default", {
+                environmentId,
+                source: this.source,
+                err,
+            });
+            return undefined;
+        }
+    }
+
+    /**
+     * Build the LogQL selector. An optional `app` narrows to one app's lines.
+     * Both sources exclude the `kind="start"` markers (`initialRead` already
+     * consumed the latest as the replay floor) so they never reach the viewer or
+     * inflate the malformed-line drop count. The `!=` matcher still selects
+     * streams with no `kind` label (Alloy-scraped app lines), since a missing
+     * label reads as empty - only the explicit `start` markers are dropped.
+     */
+    private buildSelector(environmentId: string, app?: string): string {
+        const matchers = [`namespace="${environmentId}"`, `source="${this.source}"`];
+        if (app != null) matchers.push(`app="${app}"`);
+        matchers.push(`kind!="start"`);
+        return `{${matchers.join(", ")}}`;
     }
 }
 

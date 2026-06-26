@@ -74,11 +74,85 @@ describe("LokiBuildLogSink (integration)", () => {
         expect(entries.map((entry) => entry.event.message)).toEqual(["tail line\n"]);
     });
 
+    it("markStart overwrites a prior attempt's lines for a fresh viewer", async () => {
+        const sink = new LokiBuildLogSink(baseUrl);
+        const namespace = "preview-acme-api-pr-4";
+
+        // First attempt.
+        await sink.markStart(namespace);
+        await sink.append(namespace, { kind: "log", app: "api", message: "attempt 1 line\n" });
+        await sink.seal(namespace);
+        await readUntil(namespace, 1);
+
+        // Second attempt - markStart resets the replay floor.
+        await sink.markStart(namespace);
+        await sink.append(namespace, { kind: "log", app: "api", message: "attempt 2 line\n" });
+        await sink.seal(namespace);
+
+        const deadline = Date.now() + 10_000;
+        let entries = await buildStore.readBatch(namespace, "0");
+        while ((entries.length !== 1 || entries[0]?.event.message !== "attempt 2 line\n") && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            entries = await buildStore.readBatch(namespace, "0");
+        }
+        expect(entries.map((entry) => entry.event.message)).toEqual(["attempt 2 line\n"]);
+
+        await sink.close();
+    });
+
+    it("markDeploymentStart scopes a fresh app-log viewer to the latest deployment", async () => {
+        const sink = new LokiBuildLogSink(baseUrl);
+        const appStore = new LokiLogStore(baseUrl, "app");
+        const namespace = "preview-acme-api-pr-5";
+
+        // Runtime app lines are scraped from pods (here pushed directly, the way
+        // the Alloy DaemonSet does); the sink only writes the deployment marker.
+        const pushAppLine = async (tsNs: string, message: string): Promise<void> => {
+            const response = await fetch(`${baseUrl}/loki/api/v1/push`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    streams: [
+                        {
+                            stream: { namespace, source: "app", app: "api", stream: "stdout", kind: "log" },
+                            values: [[tsNs, message]],
+                        },
+                    ],
+                }),
+            });
+            if (!response.ok) throw new Error(`app push failed: ${response.status} ${await response.text()}`);
+        };
+
+        // A line from the prior deployment (an hour ago), then this deployment's
+        // marker, then a line from the new deployment - the new line's timestamp
+        // is taken after markDeploymentStart, so it never precedes the marker.
+        await pushAppLine(((BigInt(Date.now()) - 3_600_000n) * 1_000_000n).toString(), "old deployment line\n");
+        await sink.markDeploymentStart(namespace);
+        await pushAppLine((BigInt(Date.now()) * 1_000_000n).toString(), "new deployment line\n");
+
+        // The marker resets the replay floor, so a fresh viewer sees only the new
+        // deployment's line - the prior deployment's output is superseded.
+        const deadline = Date.now() + 10_000;
+        let entries = await appStore.readBatch(namespace, "0");
+        while (
+            (entries.length !== 1 || entries[0]?.event.message !== "new deployment line\n") &&
+            Date.now() < deadline
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            entries = await appStore.readBatch(namespace, "0");
+        }
+        expect(entries.map((entry) => entry.event.message)).toEqual(["new deployment line\n"]);
+
+        await sink.close();
+    });
+
     it("never throws when Loki is unreachable - the build must survive a sink outage", async () => {
         const sink = new LokiBuildLogSink("http://127.0.0.1:9");
         const namespace = "preview-acme-api-pr-3";
 
         await expect(sink.append(namespace, { kind: "log", message: "x\n" })).resolves.toBeUndefined();
+        await expect(sink.markStart(namespace)).resolves.toBeUndefined();
+        await expect(sink.markDeploymentStart(namespace)).resolves.toBeUndefined();
         await expect(sink.seal(namespace)).resolves.toBeUndefined();
         await expect(sink.close()).resolves.toBeUndefined();
     });

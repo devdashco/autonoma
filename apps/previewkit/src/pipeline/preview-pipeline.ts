@@ -353,6 +353,11 @@ export class PreviewPipeline {
             scopedApp: isScoped ? appName : undefined,
         });
 
+        // Mark the start of this attempt so the log viewer replays only from
+        // here - a rerun's output overwrites any prior attempt retained in this
+        // namespace's shared Loki stream. Best-effort; never blocks the build.
+        void this.logSink?.markStart(namespace);
+
         logger.info("Build step 1/7 resolving linked Application", {
             repo: repoFullName,
             pr: prNumber,
@@ -745,6 +750,12 @@ export class PreviewPipeline {
         });
 
         await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "deploying-apps");
+        // Mark the start of this deployment in the app-log stream so a fresh
+        // app-log viewer replays only from here - a redeploy's runtime output
+        // supersedes the prior deployment's logs retained in this namespace's
+        // shared Loki stream. Emitted as the new app pods are about to roll out.
+        // Best-effort; never blocks the deploy.
+        void this.logSink?.markDeploymentStart(infraResult.namespace);
         // Mark the apps that built (have an image) as `deploying`. Apps whose
         // build failed have no imageTag and stay `build_failed`.
         const deployingStates: AppStateUpdate[] = mergedConfig.apps

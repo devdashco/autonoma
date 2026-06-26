@@ -174,6 +174,69 @@ describe("LokiLogStore (integration)", () => {
         expect(buildBatch[499]?.event.message).toBe("build line 499");
     });
 
+    it("replays a build only from the latest start marker, overwriting prior attempts", async () => {
+        const namespace = "preview-acme-api-pr-10";
+        const buildStore = new LokiLogStore(baseUrl, "build");
+
+        // Attempt 1: a start marker then one log line.
+        await push({ namespace, source: "build", kind: "start" }, [[nextNs(), ""]]);
+        await push({ namespace, source: "build", app: "api", kind: "log" }, [[nextNs(), "attempt 1\n"]]);
+        // Ensure attempt 1 is ingested before attempt 2's marker is written.
+        await readUntil(buildStore, namespace, "0", 1);
+
+        // Attempt 2: a newer marker resets the replay floor past attempt 1.
+        await push({ namespace, source: "build", kind: "start" }, [[nextNs(), ""]]);
+        await push({ namespace, source: "build", app: "api", kind: "log" }, [[nextNs(), "attempt 2\n"]]);
+
+        // A fresh viewer sees only attempt 2 - the marker excludes attempt 1's
+        // line, and the marker lines themselves never surface.
+        const deadline = Date.now() + 10_000;
+        let entries = await buildStore.readBatch(namespace, "0");
+        while ((entries.length !== 1 || entries[0]?.event.message !== "attempt 2\n") && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            entries = await buildStore.readBatch(namespace, "0");
+        }
+        expect(entries.map((entry) => entry.event.message)).toEqual(["attempt 2\n"]);
+    });
+
+    it("replays an app stream only from the latest deployment marker, superseding prior deployments", async () => {
+        const namespace = "preview-acme-api-pr-12";
+
+        // Deployment 1: a start marker then one runtime line.
+        await push({ namespace, source: "app", kind: "start" }, [[nextNs(), ""]]);
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [
+            [nextNs(), "deploy 1 line"],
+        ]);
+        // Ensure deployment 1 is ingested before deployment 2's marker is written.
+        await readUntil(appStore, namespace, "0", 1);
+
+        // Deployment 2: a newer marker resets the replay floor past deployment 1.
+        await push({ namespace, source: "app", kind: "start" }, [[nextNs(), ""]]);
+        await push({ namespace, source: "app", app: "api", stream: "stdout", kind: "log" }, [
+            [nextNs(), "deploy 2 line"],
+        ]);
+
+        // A fresh viewer sees only deployment 2 - the marker excludes deployment
+        // 1's line, and the marker lines themselves never surface.
+        const deadline = Date.now() + 10_000;
+        let entries = await appStore.readBatch(namespace, "0");
+        while ((entries.length !== 1 || entries[0]?.event.message !== "deploy 2 line") && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            entries = await appStore.readBatch(namespace, "0");
+        }
+        expect(entries.map((entry) => entry.event.message)).toEqual(["deploy 2 line"]);
+    });
+
+    it("replays the full window for a build with no start marker (back-compat)", async () => {
+        const namespace = "preview-acme-api-pr-11";
+        const buildStore = new LokiLogStore(baseUrl, "build");
+
+        await push({ namespace, source: "build", app: "api", kind: "log" }, [[nextNs(), "unmarked line\n"]]);
+
+        const entries = await readUntil(buildStore, namespace, "0", 1);
+        expect(entries.map((entry) => entry.event.message)).toEqual(["unmarked line\n"]);
+    });
+
     it("treats a foreign-format cursor (e.g. a Redis Stream entry id) as a fresh viewer", async () => {
         const namespace = "preview-acme-api-pr-6";
 
