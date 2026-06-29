@@ -19,6 +19,8 @@ jobs:
   review:
     name: Review PR with OpenCode
     runs-on: ubuntu-latest
+    # Cap the run so a stalled OpenRouter request can't hang the job for hours.
+    timeout-minutes: 15
     # Skip drafts and bot-authored PRs (dependabot, release-please, ...).
     # Fork PRs are skipped because secrets (OPENROUTER_API_KEY) and a writable
     # GITHUB_TOKEN are not exposed to pull_request runs from forks, so the

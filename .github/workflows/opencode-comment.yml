@@ -36,6 +36,14 @@ jobs:
           # push commits back to it.
           fetch-depth: 0
 
+      # The build agent runs `git commit`, which fails on a bare runner with
+      # "empty ident name". Configure the github-actions bot identity so its
+      # commits are attributed correctly.
+      - name: Configure git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Run OpenCode
         # Pinned to a commit SHA (not a moving tag) - the action runs with write
         # tokens, so a force-updated tag would be a supply-chain risk. Bump
