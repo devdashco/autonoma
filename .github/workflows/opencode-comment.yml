@@ -22,6 +22,8 @@ jobs:
   opencode:
     name: Run OpenCode from comment
     runs-on: ubuntu-latest
+    # Cap the run so a stalled OpenRouter request can't hang the job for hours.
+    timeout-minutes: 15
     # Only fire on an explicit /oc or /opencode mention, and only when the
     # commenter has write access (author_association). Anyone able to comment
     # could otherwise push code and spend OpenRouter credits.
