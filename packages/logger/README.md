@@ -113,6 +113,19 @@ Sentry.init(createSentryConfig({
 }));
 ```
 
+Pass an optional `beforeSend` to drop service-specific noise. It runs only after the
+shared filters (dev short-circuit, `ChunkLoadError`, `AbortError`) let the event
+through; return the event to keep it or `null` to drop it. The API uses this to drop
+expected client-error tRPC responses (4xx) so they don't page on-call:
+
+```ts
+Sentry.init(createSentryConfig({
+    contextType: "service",
+    contextName: "api",
+    beforeSend: dropExpectedClientErrors,
+}));
+```
+
 ## Canonical observability context
 
 Every log line, Sentry tag, and PostHog event property emitted from the backend

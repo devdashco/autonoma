@@ -5,10 +5,18 @@ export interface SentryInitialScopeConfig {
     contextType: string;
     contextName?: string;
     tags?: Record<string, string>;
+    /**
+     * Optional app-specific `beforeSend` filter, run only after the shared filters
+     * (dev short-circuit, ChunkLoadError, AbortError) have let the event through.
+     * Return the event to keep it or `null` to drop it. Use this to drop noise that
+     * only a given service can recognize - e.g. the API dropping expected client-error
+     * tRPC responses (4xx) so they don't page as production errors.
+     */
+    beforeSend?: NonNullable<NodeOptions["beforeSend"]>;
 }
 
 export function createSentryConfig(scopeConfig: SentryInitialScopeConfig, dsn?: string): NodeOptions {
-    const { contextType, contextName, tags } = scopeConfig;
+    const { contextType, contextName, tags, beforeSend: appBeforeSend } = scopeConfig;
     const release = env.SENTRY_RELEASE;
     const prodDSN = dsn ?? env.SENTRY_DSN;
     const sentryEnvironment = env.SENTRY_ENV;
@@ -58,10 +66,12 @@ export function createSentryConfig(scopeConfig: SentryInitialScopeConfig, dsn?: 
             }
 
             // Skip cancelled requests
-            const error = hint.originalException as Error;
-            if (error?.name === "AbortError") {
+            const error = hint.originalException;
+            if (error instanceof Error && error.name === "AbortError") {
                 return null;
             }
+
+            if (appBeforeSend != null) return appBeforeSend(event, hint);
 
             return event;
         },

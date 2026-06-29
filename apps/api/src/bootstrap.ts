@@ -2,13 +2,16 @@ import { analytics } from "@autonoma/analytics";
 import { createSentryConfig } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { env } from "./env";
+import { dropExpectedClientErrors } from "./sentry-before-send";
 
 let bootstrapped = false;
 
 export function bootstrapApiRuntime() {
     if (bootstrapped) return;
 
-    Sentry.init(createSentryConfig({ contextType: "service", contextName: "api" }));
+    Sentry.init(
+        createSentryConfig({ contextType: "service", contextName: "api", beforeSend: dropExpectedClientErrors }),
+    );
 
     if (env.POSTHOG_KEY != null) {
         analytics.init(env.POSTHOG_KEY, env.POSTHOG_HOST);
