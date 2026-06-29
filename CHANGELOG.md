@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.8.7](https://github.com/Autonoma-AI/agent/compare/v1.8.6...v1.8.7) (2026-06-29)
+
+
+### Features
+
+* **ai:** non-Google video uploaders for reviewers + minimax-m3 (+ OpenRouter provider bump) ([#1142](https://github.com/Autonoma-AI/agent/issues/1142)) ([ace77d7](https://github.com/Autonoma-AI/agent/commit/ace77d7bbf354d393d3d3e7ac6b6912397149ae2))
+* **investigation:** embed the run trace in reports so findings are self-auditable ([#1170](https://github.com/Autonoma-AI/agent/issues/1170)) ([0716ce1](https://github.com/Autonoma-AI/agent/commit/0716ce1e941fb62ff86d9f7eec0c4006237cc29d))
+* **investigation:** in-app investigation report UI ([#1134](https://github.com/Autonoma-AI/agent/issues/1134)) ([15d7df4](https://github.com/Autonoma-AI/agent/commit/15d7df4e97eefe9c2579fe1c19e87eb4a381e083))
+
+
+### Bug Fixes
+
+* bump number of worker-diffs replicas ([#1169](https://github.com/Autonoma-AI/agent/issues/1169)) ([ee7b797](https://github.com/Autonoma-AI/agent/commit/ee7b797c6cf59c3050bff0e22f273f3b863d22ba))
+* **engine-web:** handle native browser dialogs (alert/confirm/prompt) ([#1171](https://github.com/Autonoma-AI/agent/issues/1171)) ([485655f](https://github.com/Autonoma-AI/agent/commit/485655f91bbc0fd7c2978d83f4ff52f3e804d6ae))
+* **engine-web:** make run recording videos seekable in the browser ([#1136](https://github.com/Autonoma-AI/agent/issues/1136)) ([db47464](https://github.com/Autonoma-AI/agent/commit/db4746494067a72115ade9940ac85a880d3134c9))
+* **investigation:** render code-evidence snippet text (was blank) ([#1167](https://github.com/Autonoma-AI/agent/issues/1167)) ([70eabf1](https://github.com/Autonoma-AI/agent/commit/70eabf10e5e0f92741f7d036e5a5ad6a13dc9186))
+* **investigation:** stop the classifier fabricating bugs from automation artifacts ([#1172](https://github.com/Autonoma-AI/agent/issues/1172)) ([05f8895](https://github.com/Autonoma-AI/agent/commit/05f8895b59b2561c128d1a2b8c0034e01e258bd1))
+* stop sentry alerts for 4xx API errors ([#1150](https://github.com/Autonoma-AI/agent/issues/1150)) ([d6173d9](https://github.com/Autonoma-AI/agent/commit/d6173d9a824d51c6e118588a62cf908fd7de1982))
+
 ## [1.8.6](https://github.com/Autonoma-AI/agent/compare/v1.8.5...v1.8.6) (2026-06-29)
 
 
