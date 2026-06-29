@@ -21,6 +21,20 @@ export function useInvestigationReport(snapshotId: string) {
     });
 }
 
+/**
+ * The structured investigation report (findings + signed media) for the in-app "View investigation" page.
+ * Internal-only and enforced by the API procedure. A plain (non-suspense) query because the value is legitimately
+ * undefined when no rich report exists for the snapshot (not yet backfilled / a parse failure) - the page renders
+ * a graceful fallback for that, which useSuspenseQuery cannot express (it throws on undefined data).
+ */
+export function useInvestigationReportData(snapshotId: string) {
+    return useQuery(trpc.branches.investigationReportData.queryOptions({ snapshotId }));
+}
+
+export async function ensureInvestigationReportData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.investigationReportData.queryOptions({ snapshotId }));
+}
+
 export function useBranches(state: PullRequestStateFilter = "open") {
     const currentApp = useCurrentApplication();
     return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));

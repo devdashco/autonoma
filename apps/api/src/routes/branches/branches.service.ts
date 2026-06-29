@@ -8,7 +8,13 @@ import {
     fetchTestSuiteInfo,
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
-import type { CheckpointPresentationSummary, SnapshotReport } from "@autonoma/types";
+import type {
+    CheckpointPresentationSummary,
+    InvestigationFinding,
+    InvestigationReportData,
+    SnapshotReport,
+} from "@autonoma/types";
+import { investigationReportDataSchema } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
@@ -35,6 +41,8 @@ export type { TestSuiteChangeRow } from "./test-suite-changes";
 
 /** Signed-URL lifetime for an investigation report - short, since it's re-signed on every read. */
 const INVESTIGATION_REPORT_TTL_SECONDS = 60 * 60;
+/** Signed-URL lifetime for a finding's screenshot/video - short, re-signed on every page load. */
+const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
 
 export class BranchesService extends Service {
     constructor(
@@ -75,6 +83,52 @@ export class BranchesService extends Service {
             });
             return undefined;
         }
+    }
+
+    /**
+     * The structured investigation report for the in-app "View investigation" page. Reads the JSON the worker
+     * persists next to the markdown, validates it, and re-signs each finding's s3:// media into browser-openable
+     * URLs. Internal/@autonoma.app only and degrades to undefined (no rich report) on any failure - the caller
+     * then keeps the raw-markdown link. Org-scoped like getInvestigationReport.
+     */
+    async getInvestigationReportData(
+        snapshotId: string,
+        organizationId: string,
+    ): Promise<InvestigationReportData | undefined> {
+        this.logger.info("Getting investigation report data", { extra: { snapshotId } });
+        try {
+            const report = await this.db.investigationReport.findFirst({
+                where: { snapshotId, organizationId },
+                select: { s3Key: true },
+            });
+            if (report == null) return undefined;
+            const jsonKey = report.s3Key.replace(/\.md$/, ".json");
+            const raw = await this.storageProvider.download(jsonKey);
+            const data = investigationReportDataSchema.parse(JSON.parse(raw.toString("utf8")));
+            const findings = await Promise.all(data.findings.map((finding) => this.signFindingMedia(finding)));
+            return { ...data, findings };
+        } catch (error) {
+            // The rich JSON may be absent (legacy report not yet backfilled) or unreadable - never error the
+            // page; the UI falls back to the raw-markdown link from getInvestigationReport.
+            this.logger.warn("Could not load structured investigation report; treating as absent", {
+                extra: { snapshotId },
+                err: error,
+            });
+            return undefined;
+        }
+    }
+
+    /** Re-sign a finding's stored s3:// screenshot/video keys into browser-openable HTTPS URLs. */
+    private async signFindingMedia(finding: InvestigationFinding): Promise<InvestigationFinding> {
+        const finalScreenshotUrl =
+            finding.finalScreenshotUrl != null
+                ? await this.storageProvider.getSignedUrl(finding.finalScreenshotUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
+                : undefined;
+        const videoUrl =
+            finding.videoUrl != null
+                ? await this.storageProvider.getSignedUrl(finding.videoUrl, INVESTIGATION_MEDIA_TTL_SECONDS)
+                : undefined;
+        return { ...finding, finalScreenshotUrl, videoUrl };
     }
 
     async listBranches(applicationId: string, organizationId: string, state: PullRequestStateFilter = "open") {

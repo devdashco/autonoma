@@ -70,6 +70,10 @@ export interface InvestigationReportInput {
     prNumber: number;
     prTitle?: string;
     prBody?: string;
+    /** owner/repo for the app's GitHub repository (for code permalinks in the UI; not rendered into markdown). */
+    repoFullName?: string;
+    /** The PR head commit the run tested (the permalink ref; not rendered into markdown). */
+    commitSha?: string;
     tests: TestReport[];
     suggested: ReportableNewTest[];
     quarantine: ReportableQuarantine[];

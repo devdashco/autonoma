@@ -69,6 +69,14 @@ export const branchesRouter = router({
             services.branches.getInvestigationReport(input.snapshotId, organizationId),
         ),
 
+    // The structured investigation report (findings + signed media) for the in-app "View investigation" page.
+    // Internal-only, gated to @autonoma.app users; returns undefined when no rich report exists for the snapshot.
+    investigationReportData: internalEmailProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getInvestigationReportData(input.snapshotId, organizationId),
+        ),
+
     activeSnapshot: protectedProcedure
         .input(z.object({ branchId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>

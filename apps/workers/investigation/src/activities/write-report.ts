@@ -2,8 +2,10 @@ import { db } from "@autonoma/db";
 import {
     type DeployedAgentComparison,
     DeployedComparison,
+    type InvestigationReportInput,
     type ModelVerdict,
     type TestReport,
+    buildReportData,
     buildReportMarkdown,
 } from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -35,21 +37,27 @@ export async function writeInvestigationReport(
     // migration not yet applied to the env, or a transient query error).
     const deployed = await loadDeployedComparison(meta.headSha, logger);
 
-    const markdown = buildReportMarkdown({
+    const reportInput: InvestigationReportInput = {
         client: meta.clientName,
         appSlug: meta.appSlug,
         prNumber: prMeta.prNumber,
         prTitle: prMeta.prTitle,
         prBody: prMeta.prBody,
+        repoFullName: meta.repoFullName,
+        commitSha: meta.headSha,
         tests: results.map(toTestReport),
         suggested: input.suggested,
         quarantine: input.quarantine,
         deployed,
-    });
+    };
 
     const key = `investigation/${meta.appSlug}/${snapshotId}.md`;
+    // The structured JSON the in-app view consumes - the precise source-of-truth path (the markdown is the
+    // human-readable mirror, and the API can still parse it as a fallback for reports written before this).
+    const jsonKey = `investigation/${meta.appSlug}/${snapshotId}.json`;
     const storage = getStorage();
-    await storage.upload(key, Buffer.from(markdown, "utf8"));
+    await storage.upload(key, Buffer.from(buildReportMarkdown(reportInput), "utf8"));
+    await storage.upload(jsonKey, Buffer.from(JSON.stringify(buildReportData(reportInput)), "utf8"));
 
     // Persist the S3 KEY (the API signs a fresh URL on read, so the PR-view link never expires), plus quick
     // counts so the PR view can show "N tests, M bugs" without parsing the markdown. Best-effort: the report's

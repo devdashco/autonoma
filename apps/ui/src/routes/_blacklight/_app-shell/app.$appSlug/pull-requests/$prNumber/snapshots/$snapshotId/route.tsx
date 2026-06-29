@@ -75,8 +75,12 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
+  // The investigation pages own the full screen (their own header + back link), so render only their Outlet.
+  const showingInvestigation = location.pathname.includes("/investigation");
   const [pipelineOpen, setPipelineOpen] = useState(false);
   const { changes, createdTests, diffsJob, refinementLoop } = detail;
+
+  if (showingInvestigation) return <Outlet />;
 
   return (
     <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
@@ -111,12 +115,11 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
                 {report.health}
               </Badge>
             )}
-            {investigation?.url != null && (
-              <a
-                href={investigation.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open the shadow investigation agent report"
+            {investigation != null && (
+              <AppLink
+                to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
+                params={{ prNumber, snapshotId }}
+                aria-label="View the shadow investigation agent report"
               >
                 <Button variant="outline" size="sm">
                   <MagnifyingGlassIcon size={14} />
@@ -125,7 +128,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
                     ? ` · ${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
                     : ""}
                 </Button>
-              </a>
+              </AppLink>
             )}
             {isAdmin && (
               <div className="flex items-center gap-2">

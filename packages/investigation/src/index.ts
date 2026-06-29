@@ -20,6 +20,8 @@ export { buildClassifierTools } from "./classify/tools";
 export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts } from "./classify/dependencies";
 export { withRetry } from "./retry";
 export { buildReportMarkdown } from "./report/markdown";
+export { buildReportData } from "./report/report-data";
+export { parseReportMarkdown } from "./report/parse-markdown";
 export type {
     InvestigationReportInput,
     TestReport,
