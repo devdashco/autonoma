@@ -49,6 +49,11 @@ export const env = createEnv({
         // self-host without preview infrastructure - webhooks silently skip and
         // the lifecycle routes return 503.
         PREVIEWKIT_ENABLED: z.stringbool().default(false),
+        // The API's own Kubernetes namespace (production / beta / alpha). The
+        // previewkit launcher reads the per-env `previewkit-runner-image` ConfigMap
+        // from here to pin the runner image, then creates the runner Job in the
+        // shared `previewkit` namespace. Required when PREVIEWKIT_ENABLED is on.
+        NAMESPACE: z.string().min(1).optional(),
         // Shared secret for incoming service-to-service calls: authenticates the
         // native /v1/previewkit/* routes (requireApiKeyOrService) and
         // /v1/diffs/internal/trigger (Authorization: Bearer <secret>).

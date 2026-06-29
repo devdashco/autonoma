@@ -5,6 +5,7 @@ import type {
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
 import { BatchV1Api, CoreV1Api, KubeConfig } from "@kubernetes/client-node";
+import { env } from "../env";
 import { PreviewkitJobLauncher } from "./previewkit-job-launcher";
 
 /**
@@ -20,10 +21,10 @@ export interface PreviewkitTriggers {
     redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
-// All previewkit resources (runner Jobs + their SA / secret / ConfigMaps, and
-// the buildkitd Jobs) live in this dedicated control-cluster namespace - the
-// API creates runner Jobs here cross-namespace (see deployment/apps/previewkit.yaml).
-const PREVIEWKIT_NAMESPACE = "previewkit";
+// The runner Jobs (plus the shared previewkit SA / env secret / runner-env
+// ConfigMap they mount) live in this dedicated control-cluster namespace; the
+// API creates Jobs here cross-namespace (see deployment/apps/previewkit.yaml).
+const PREVIEWKIT_JOB_NAMESPACE = "previewkit";
 
 let launcher: PreviewkitJobLauncher | undefined;
 
@@ -35,17 +36,24 @@ let launcher: PreviewkitJobLauncher | undefined;
  */
 function getLauncher(): PreviewkitJobLauncher {
     if (launcher != null) return launcher;
+    if (env.NAMESPACE == null) {
+        throw new Error("NAMESPACE is required to launch previewkit Jobs");
+    }
     const kc = new KubeConfig();
     kc.loadFromCluster();
-    // The runner image is read at launch from the previewkit-runner-image
-    // ConfigMap (written by the previewkit deploy), so it is SHA-pinned to the
-    // currently-deployed previewkit image - no image is wired through the API env.
+    // The runner image is read at launch from the per-env previewkit-runner-image
+    // ConfigMap in the API's own namespace (env.NAMESPACE), so each environment
+    // pins its own runner image; the Job is then created in the shared previewkit
+    // namespace with that image. No image is wired through the API env directly.
     launcher = new PreviewkitJobLauncher({
         batchApi: kc.makeApiClient(BatchV1Api),
         coreApi: kc.makeApiClient(CoreV1Api),
-        namespace: PREVIEWKIT_NAMESPACE,
+        jobNamespace: PREVIEWKIT_JOB_NAMESPACE,
+        imageNamespace: env.NAMESPACE,
     });
-    logger.info("Previewkit launcher initialized", { extra: { namespace: PREVIEWKIT_NAMESPACE } });
+    logger.info("Previewkit launcher initialized", {
+        extra: { jobNamespace: PREVIEWKIT_JOB_NAMESPACE, imageNamespace: env.NAMESPACE },
+    });
     return launcher;
 }
 

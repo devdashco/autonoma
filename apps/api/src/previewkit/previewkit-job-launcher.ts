@@ -76,8 +76,19 @@ type PreviewJobInput =
 export interface PreviewkitJobLauncherOptions {
     batchApi: PreviewJobsApi;
     coreApi: ConfigMapReader;
-    /** Namespace the runner Jobs are created in (the API's own namespace). */
-    namespace: string;
+    /**
+     * Namespace the runner Jobs are created in - the shared, dedicated
+     * `previewkit` namespace that holds the previewkit SA, env secret, and
+     * runner-env ConfigMap the Jobs mount.
+     */
+    jobNamespace: string;
+    /**
+     * Namespace the per-env `previewkit-runner-image` ConfigMap is read from -
+     * the API's own namespace (production / beta / alpha). Each environment pins
+     * its own runner image there; the resolved image is baked into the Job spec,
+     * so the Job (created in `jobNamespace`) runs the launching env's image.
+     */
+    imageNamespace: string;
     /**
      * Hard upper bound on a deploy Job (seconds). A generous backstop *above*
      * the runner's own BUILD_TIMEOUT_MS / readiness timeouts, so a real build
@@ -97,9 +108,11 @@ export interface PreviewkitJobLauncherOptions {
  * self-drains (aborts buildctl, writes the superseded build row); the new pod
  * owns the environment row.
  *
- * The runner image is SHA-pinned: it is read from the `previewkit-runner-image`
- * ConfigMap that the previewkit deploy writes, so Jobs always run the exact
- * currently-deployed previewkit image regardless of the API's own deploy SHA.
+ * The runner image is SHA-pinned and per-environment: it is read from the
+ * `previewkit-runner-image` ConfigMap in the API's own namespace (`imageNamespace`),
+ * which each env's previewkit deploy writes. The Job itself is created in the
+ * shared `previewkit` namespace (`jobNamespace`) with that image baked in, so
+ * each environment launches its own runner image into the one preview workload.
  *
  * `launchDeploy` / `launchTeardown` / `launchRedeployApp` are the
  * `PreviewkitTriggers` seam consumed by `PreviewkitTriggerService`.
@@ -184,14 +197,14 @@ export class PreviewkitJobLauncher {
      * creating an unschedulable Job.
      */
     private async resolveRunnerImage(): Promise<string> {
-        const { namespace } = this.options;
+        const { imageNamespace } = this.options;
         let cm: { data?: Record<string, string> };
         try {
-            cm = await this.coreApi.readNamespacedConfigMap({ name: RUNNER_IMAGE_CONFIGMAP, namespace });
+            cm = await this.coreApi.readNamespacedConfigMap({ name: RUNNER_IMAGE_CONFIGMAP, namespace: imageNamespace });
         } catch (err) {
             if (isNotFound(err)) {
                 throw new Error(
-                    `ConfigMap ${RUNNER_IMAGE_CONFIGMAP} not found in ${namespace} - deploy worker-previewkit before enabling jobs mode`,
+                    `ConfigMap ${RUNNER_IMAGE_CONFIGMAP} not found in ${imageNamespace} - deploy worker-previewkit before enabling jobs mode`,
                 );
             }
             throw err;
@@ -211,11 +224,11 @@ export class PreviewkitJobLauncher {
      * tolerates a brief overlap.
      */
     private async supersedeDeployFamily(envKey: string): Promise<void> {
-        const { namespace } = this.options;
+        const { jobNamespace } = this.options;
         const labelSelector = `${LABEL_ENV}=${envKey},${DEPLOY_FAMILY_SELECTOR}`;
         let jobs;
         try {
-            jobs = await this.batchApi.listNamespacedJob({ namespace, labelSelector });
+            jobs = await this.batchApi.listNamespacedJob({ namespace: jobNamespace, labelSelector });
         } catch (err) {
             this.logger.warn("Failed to list in-flight preview jobs to supersede; proceeding to create the new one", {
                 extra: { envKey, err },
@@ -226,7 +239,7 @@ export class PreviewkitJobLauncher {
             const name = job.metadata?.name;
             if (name == null) continue;
             try {
-                await this.batchApi.deleteNamespacedJob({ name, namespace, propagationPolicy: "Background" });
+                await this.batchApi.deleteNamespacedJob({ name, namespace: jobNamespace, propagationPolicy: "Background" });
                 this.logger.info("Superseded in-flight preview deploy job", { extra: { envKey, supersededJob: name } });
             } catch (err) {
                 if (isNotFound(err)) continue;
@@ -246,9 +259,9 @@ export class PreviewkitJobLauncher {
         deadlineSeconds: number,
         graceSeconds: number,
     ): Promise<void> {
-        const { namespace } = this.options;
+        const { jobNamespace } = this.options;
         const created = await this.batchApi.createNamespacedJob({
-            namespace,
+            namespace: jobNamespace,
             body: this.jobSpec(type, envKey, event, spec, image, deadlineSeconds, graceSeconds),
         });
         this.logger.info("Created preview job", { extra: { envKey, type, image, job: created.metadata?.name } });

@@ -8,8 +8,11 @@ import {
     previewEnvKey,
 } from "../../src/previewkit/previewkit-job-launcher";
 
-const NAMESPACE = "apps";
-const RUNNER_IMAGE = "registry/alpha/worker-previewkit:abc123def";
+// The Job is created in the shared previewkit namespace; the runner-image
+// ConfigMap is read from the API's own (per-env) namespace.
+const JOB_NAMESPACE = "previewkit";
+const IMAGE_NAMESPACE = "beta";
+const RUNNER_IMAGE = "registry/beta/worker-previewkit:abc123def";
 
 const event: PreviewDeployEvent = {
     action: "synchronize",
@@ -30,12 +33,14 @@ class FakeJobsApi implements PreviewJobsApi {
     readonly listCalls: Array<{ namespace: string; labelSelector?: string }> = [];
     readonly deleteCalls: Array<{ name: string; namespace: string; propagationPolicy?: string }> = [];
     readonly createdJobs: V1Job[] = [];
+    readonly createNamespaces: string[] = [];
 
     async listNamespacedJob(params: { namespace: string; labelSelector?: string }): Promise<{ items: V1Job[] }> {
         this.listCalls.push(params);
         return { items: this.existingJobs };
     }
     async createNamespacedJob(params: { namespace: string; body: V1Job }): Promise<V1Job> {
+        this.createNamespaces.push(params.namespace);
         this.createdJobs.push(params.body);
         return params.body;
     }
@@ -51,14 +56,21 @@ class FakeJobsApi implements PreviewJobsApi {
 
 /** Returns the runner-image ConfigMap; `image` undefined simulates a missing key. */
 class FakeConfigMaps implements ConfigMapReader {
+    readonly readNamespaces: string[] = [];
     constructor(private readonly image: string | undefined) {}
-    async readNamespacedConfigMap(_params: { name: string; namespace: string }): Promise<{ data?: Record<string, string> }> {
+    async readNamespacedConfigMap(params: { name: string; namespace: string }): Promise<{ data?: Record<string, string> }> {
+        this.readNamespaces.push(params.namespace);
         return { data: this.image != null ? { image: this.image } : {} };
     }
 }
 
 function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RUNNER_IMAGE)): PreviewkitJobLauncher {
-    return new PreviewkitJobLauncher({ batchApi: api, coreApi: cms, namespace: NAMESPACE });
+    return new PreviewkitJobLauncher({
+        batchApi: api,
+        coreApi: cms,
+        jobNamespace: JOB_NAMESPACE,
+        imageNamespace: IMAGE_NAMESPACE,
+    });
 }
 
 function container(job: V1Job) {
@@ -125,9 +137,21 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
             `previewkit.dev/env=${envKey},previewkit.dev/type in (deploy,redeploy-app)`,
         );
         expect(api.deleteCalls).toEqual([
-            { name: "pk-deploy-acme-widgets-42-oldid", namespace: NAMESPACE, propagationPolicy: "Background" },
+            { name: "pk-deploy-acme-widgets-42-oldid", namespace: JOB_NAMESPACE, propagationPolicy: "Background" },
         ]);
         expect(api.createdJobs).toHaveLength(1);
+    });
+
+    it("reads the runner image from imageNamespace but creates the Job in jobNamespace", async () => {
+        const api = new FakeJobsApi();
+        const cms = new FakeConfigMaps(RUNNER_IMAGE);
+        await launcher(api, cms).launchDeploy({ event });
+
+        // Per-env image pin is read from the API's own namespace...
+        expect(cms.readNamespaces).toEqual([IMAGE_NAMESPACE]);
+        // ...while the Job runs in the shared previewkit namespace.
+        expect(api.createNamespaces).toEqual([JOB_NAMESPACE]);
+        expect(container(api.createdJobs[0] ?? ({} as V1Job)).image).toBe(RUNNER_IMAGE);
     });
 
     it("passes the pinned configRevisionId through to the runner spec", async () => {
