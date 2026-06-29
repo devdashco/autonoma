@@ -96,7 +96,11 @@ export function CodeBlock({
                 <div key={i} className={lineProps.className} style={lineProps.style}>
                   {line.map((token, k) => {
                     const tokenProps = getTokenProps({ token });
-                    return <span key={k} className={tokenProps.className} style={tokenProps.style} />;
+                    return (
+                      <span key={k} className={tokenProps.className} style={tokenProps.style}>
+                        {token.content}
+                      </span>
+                    );
                   })}
                 </div>
               );
