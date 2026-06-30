@@ -68,11 +68,13 @@ export interface PreviewkitConfigPageProps {
 
 type ConfigStepId = "apps" | "hooks" | "secrets";
 
-const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string }> = [
+const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string; optional?: boolean }> = [
   { id: "apps", label: "Apps & services", description: "Apps, services + dependency repos" },
-  { id: "hooks", label: "Hooks", description: "Pre/post-deploy commands" },
+  { id: "hooks", label: "Hooks", description: "Pre/post-deploy commands", optional: true },
   { id: "secrets", label: "Secrets", description: "Runtime values + deploy" },
 ];
+
+const REQUIRED_STEP_COUNT = CONFIG_STEPS.filter((step) => step.optional !== true).length;
 
 export function PreviewkitConfigPage({ appId, focusApp, focusField, focusSection }: PreviewkitConfigPageProps) {
   if (appId == null) {
@@ -164,7 +166,7 @@ function PreviewkitConfigContent({
     canDeploy,
     hooksValid: hookErrors.size === 0,
   });
-  const completedStepCount = CONFIG_STEPS.filter((step) => stepCompletion[step.id]).length;
+  const completedStepCount = CONFIG_STEPS.filter((step) => step.optional !== true && stepCompletion[step.id]).length;
 
   useEffect(() => {
     if (focusSection === "secrets") setActiveStep(configReadyForSecrets ? "secrets" : "apps");
@@ -530,7 +532,7 @@ function ConfigStepper({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-dim bg-surface-raised px-5 py-3">
         <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">PreviewKit config</h2>
         <span className="font-mono text-2xs uppercase tracking-widest text-primary-ink">
-          {completedStepCount}/{CONFIG_STEPS.length} complete
+          {completedStepCount}/{REQUIRED_STEP_COUNT} complete
         </span>
       </div>
       <div className="grid gap-px bg-border-dim md:grid-cols-3">
@@ -538,6 +540,10 @@ function ConfigStepper({
           const active = step.id === activeStep;
           const complete = completion[step.id];
           const enabled = isConfigStepEnabled(step.id, configReadyForSecrets);
+          // An optional step the user has not configured is skippable, not a pending
+          // required todo - show a neutral dash rather than a step number so it never
+          // reads as unfinished work.
+          const showOptionalPlaceholder = step.optional === true && !complete && !active;
           return (
             <button
               key={step.id}
@@ -560,11 +566,20 @@ function ConfigStepper({
                       : "border-border-mid text-text-secondary",
                 )}
               >
-                {complete ? <CheckIcon size={12} weight="bold" /> : index + 1}
+                {complete ? <CheckIcon size={12} weight="bold" /> : showOptionalPlaceholder ? "-" : index + 1}
               </span>
               <span className="min-w-0">
-                <span className={cn("block text-sm font-medium", active ? "text-text-primary" : "text-text-secondary")}>
-                  {step.label}
+                <span className="flex items-center gap-2">
+                  <span
+                    className={cn("block text-sm font-medium", active ? "text-text-primary" : "text-text-secondary")}
+                  >
+                    {step.label}
+                  </span>
+                  {step.optional === true ? (
+                    <Badge variant="outline" className="text-3xs uppercase tracking-widest">
+                      Optional
+                    </Badge>
+                  ) : undefined}
                 </span>
                 <span className="mt-1 block font-mono text-3xs uppercase tracking-widest text-text-secondary">
                   {step.description}
@@ -946,11 +961,18 @@ function getConfigStepCompletion({
       draft.services.every((service) => service.name.trim() !== "" && service.recipe.trim() !== "")) &&
     noBlockingDocumentErrors;
 
+  // Hooks are optional. The step only reads as "complete" (checked) once the user
+  // has actually configured at least one valid hook - an untouched/empty step is
+  // not a completed step, it is a skipped one. A row counts as configured when its
+  // `app` or `command` is non-blank (matches the compile/save filter); blank rows
+  // are dropped on save and never mark the step done.
+  const hasConfiguredHooks =
+    draft.hooks.pre_deploy.some((step) => step.app.trim() !== "" || step.command.trim() !== "") ||
+    draft.hooks.post_deploy.some((step) => step.app.trim() !== "" || step.command.trim() !== "");
+
   return {
     apps: appsComplete && servicesComplete,
-    // Hooks are optional, so the step is complete unless a row is invalid
-    // (missing/unknown app or missing command). Empty rows are dropped on save.
-    hooks: hooksValid,
+    hooks: hasConfiguredHooks && hooksValid,
     secrets: canDeploy,
   };
 }

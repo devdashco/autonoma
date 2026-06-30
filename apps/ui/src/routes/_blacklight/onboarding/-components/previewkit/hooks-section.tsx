@@ -1,4 +1,4 @@
-import { Button, Input, Label } from "@autonoma/blacklight";
+import { Badge, Button, Input, Label } from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
@@ -31,8 +31,15 @@ export function HooksSection({ hooks, appNames, errors, onChange }: HooksSection
   return (
     <section className="border border-border-dim bg-surface-base">
       <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
-        <h3 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Deploy hooks</h3>
-        <span className="font-mono text-2xs text-text-secondary">commands run around each deploy</span>
+        <div className="flex items-center gap-2">
+          <h3 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Deploy hooks</h3>
+          <Badge variant="outline" className="text-3xs uppercase tracking-widest">
+            Optional
+          </Badge>
+        </div>
+        <span className="font-mono text-2xs text-text-secondary">
+          skip this step or add commands to run around each deploy
+        </span>
       </div>
       <datalist id="pk-hook-app-options">
         {appNames.map((name) => (
