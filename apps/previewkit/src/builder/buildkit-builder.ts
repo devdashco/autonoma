@@ -191,6 +191,7 @@ export class BuildKitBuilder implements Builder {
                 if (request.namespace != null) {
                     void this.logSink?.markFinished?.(request.namespace, {
                         app: request.appName,
+                        builder: this.warmHost != null ? "warm" : "ephemeral",
                         durationMs,
                         host: acquired.host,
                     });

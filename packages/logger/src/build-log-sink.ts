@@ -2,14 +2,19 @@ import type { BuildLogEvent } from "./build-log-event";
 
 /** Structured per-build summary recorded by {@link BuildLogSink.markFinished}. */
 export interface BuildFinishSummary {
-    /** The app that finished building. */
+    /** The app that finished building - recorded as a low-cardinality Loki label for filtering. */
     app: string;
-    /** Total build duration in milliseconds (provision + dispatch). */
+    /**
+     * Which builder served the build - a low-cardinality Loki label so
+     * dashboards can split warm-pool vs ephemeral-Job timings with one filter.
+     */
+    builder: "warm" | "ephemeral";
+    /** Total build duration in milliseconds (provision + dispatch); the unwrapped metric value. */
     durationMs: number;
     /**
-     * The buildkit endpoint that served the build - the warm pool's Service
-     * host, or an ephemeral build Job's per-build DNS. Lets build-speed queries
-     * split warm vs ephemeral timings.
+     * The concrete buildkit endpoint that served the build - the warm pool's
+     * Service host, or an ephemeral build Job's per-build DNS. Kept in the line
+     * body (not a label) for detail; `builder` is the label to group by.
      */
     host?: string;
 }

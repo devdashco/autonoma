@@ -93,8 +93,15 @@ export class LokiBuildLogSink implements BuildLogSink {
      * line; build-speed queries read it with `| json | unwrap durationMs`.
      */
     async markFinished(environmentId: string, summary: BuildFinishSummary): Promise<void> {
-        const line = JSON.stringify({ durationMs: summary.durationMs, app: summary.app, host: summary.host });
-        this.bufferLine({ namespace: environmentId, source: "build", kind: "finish" }, line);
+        const labels = {
+            namespace: environmentId,
+            source: "build",
+            kind: "finish",
+            app: summary.app,
+            builder: summary.builder,
+        };
+        const line = JSON.stringify({ durationMs: summary.durationMs, host: summary.host });
+        this.bufferLine(labels, line);
         await this.flush();
     }
 
