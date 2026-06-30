@@ -31,6 +31,7 @@ jobs:
       reviewer: ${{ steps.filter.outputs.reviewer }}
       notifier: ${{ steps.filter.outputs.notifier }}
       db: ${{ steps.filter.outputs.db }}
+      cli: ${{ steps.filter.outputs.cli }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -62,6 +63,12 @@ jobs:
               - 'package.json'
             db:
               - 'packages/db/prisma/**'
+            cli:
+              # The CLI has no workspace dependencies, so only its own files
+              # (and dependency/lockfile changes) can affect it.
+              - 'apps/cli/**'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
 
   check-migrations:
     name: Check Prisma Migrations
@@ -200,6 +207,39 @@ jobs:
           done
           pnpm --filter @autonoma/api test:integration
 
+  check-cli:
+    name: Check CLI
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm turbo run lint --filter @autonoma-ai/planner
+
+      - name: Typecheck
+        run: pnpm turbo run typecheck --filter @autonoma-ai/planner
+
+      - name: Test
+        run: pnpm turbo run test --filter @autonoma-ai/planner
+
+      - name: Build
+        run: pnpm turbo run build --filter @autonoma-ai/planner
+
   build-apps:
     name: Build Apps
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -221,7 +261,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build apps
-        run: pnpm turbo run build --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
+        # apps/cli is excluded here: it builds conditionally in check-cli (which
+        # only runs when apps/cli changes) instead of on every PR.
+        run: pnpm turbo run build --filter "./apps/*" --filter "!@autonoma-ai/planner" --filter "./apps/jobs/*" --filter "./apps/workers/*"
 
   typecheck-apps:
     name: Typecheck Apps
@@ -244,4 +286,5 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck apps
-        run: pnpm turbo run typecheck --filter "./apps/*" --filter "./apps/jobs/*" --filter "./apps/workers/*"
+        # apps/cli is excluded here: it typechecks conditionally in check-cli.
+        run: pnpm turbo run typecheck --filter "./apps/*" --filter "!@autonoma-ai/planner" --filter "./apps/jobs/*" --filter "./apps/workers/*"

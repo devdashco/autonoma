@@ -11,13 +11,31 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Creates/updates a release PR with changelog
 - When the release PR is merged, creates a GitHub release
 - Uses conventional commits to determine version bump
+- **Multi-component**: tracks two independently-versioned packages
+  - root (`.`) -> tags like `v1.8.9`, drives the production k8s deploy below
+  - CLI (`apps/cli`, `@autonoma-ai/planner`) -> tags like `cli-v0.1.14`, drives the npm publish below
+- `separate-pull-requests: true`, so the root and the CLI each get their own release PR
 
 ### 2. **Production Build** (`production-build.yml`)
 - Triggers when a GitHub release is published
+- **Guarded to root `v*` releases only** - `cli-v*` releases skip the deploy entirely
 - Builds and deploys all services to production
 - Tags Docker images with the release version (e.g., `v1.2.3`)
 - Captures deployed image versions
 - Attaches deployment manifest to the release
+
+### 2b. **Publish CLI to npm** (`cli-publish.yml`)
+- Triggers when a GitHub release is published
+- **Guarded to `cli-v*` releases only** - root `v*` releases never publish to npm
+- Verifies the tag is on `main`, then typechecks/tests/builds `@autonoma-ai/planner`
+- Idempotently publishes to npm (skips if the version is already published)
+- Requires the `NPM_TOKEN` repo secret (publish rights to the `@autonoma-ai` scope)
+
+### 2c. **Publish CLI canary to npm** (`cli-canary.yml`)
+- Triggers on push to the `cli-canary` branch (apps/cli changes), a daily schedule, or manual dispatch
+- Publishes `@autonoma-ai/planner` under the `canary` dist-tag as `<next-patch>-canary.<sha>`
+- Never touches release-please tags/manifest; the stable `@latest` channel is untouched
+- Scoped to the CLI only - bumps and publishes `apps/cli` and nothing else; also uses `NPM_TOKEN`
 
 ### 3. **Production Rollback** (`production-rollback.yml`)
 - Manual workflow to rollback to a previous version

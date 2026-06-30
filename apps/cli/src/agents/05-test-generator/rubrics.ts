@@ -1,0 +1,208 @@
+import { z } from "zod";
+
+export interface ReviewRubric {
+    name: string;
+    systemPrompt: string;
+    resultSchema: z.ZodObject<z.ZodRawShape>;
+    maxSteps: number;
+    dimensions: string[];
+}
+
+const dimensionResultSchema = z.object({
+    pass: z.boolean(),
+    evidence: z.string().describe("What you checked and found - cite file paths, line content, or specific strings"),
+    suggestion: z.string().optional().describe("What the planner agent should fix, if failing"),
+});
+
+export type DimensionResult = z.infer<typeof dimensionResultSchema>;
+
+// z.object() returns a schema typed by its exact shape; ReviewRubric.resultSchema
+// wants the general object-schema type. Funnelling each rubric's shape through
+// this typed parameter widens it without a per-rubric type assertion.
+function reviewResultSchema(shape: z.ZodRawShape): z.ZodObject<z.ZodRawShape> {
+    return z.object(shape);
+}
+
+// The structured review payload: one DimensionResult per rubric dimension. Used
+// to validate (and type) the finish-tool input the review agent submits.
+export const reviewResultRecordSchema = z.record(z.string(), dimensionResultSchema);
+
+// --- RUBRIC 1: Structural & Intent ---
+
+export const structuralIntentRubric: ReviewRubric = {
+    name: "structural-intent",
+    maxSteps: 8,
+    dimensions: ["structuralValidity", "intentQuality", "missionAlignment"],
+    resultSchema: reviewResultSchema({
+        structuralValidity: dimensionResultSchema.describe(
+            "Are all step verbs valid (click/type/scroll/assert/hover/drag/read/refresh)? Are asserts visual-only (no URLs, network, console)? No code selectors? No login steps?",
+        ),
+        intentQuality: dimensionResultSchema.describe(
+            "Is the intent a specific, falsifiable behavioral claim - not just 'verify X is visible'?",
+        ),
+        missionAlignment: dimensionResultSchema.describe(
+            "Does the test's intent + steps verify the feature's core purpose? Not just UI appearance.",
+        ),
+    }),
+    systemPrompt: `You are a structural reviewer for E2E test plans. Each test will be executed by a VISUAL agent that sees the screen like a human user - it cannot inspect code, network, URLs, or any non-visual state.
+
+Your job is to EVALUATE tests against a rubric, NOT to rewrite them. You have tools to read source code if needed.
+
+## Rubric dimensions
+
+### 1. Structural validity
+- All step verbs must be one of: click, type, scroll, assert, hover, drag, read, refresh
+- assert: can ONLY verify what a human sees on screen (no URLs, network, console, localStorage)
+- No code selectors (data-testid, aria-label, CSS classes, HTML element types)
+- No login/authentication instructions - user is always already authenticated
+- No internal/meta steps like "(Internal: simulate X)" or "(Note: this assumes Y)"
+- No "or" in assertions - test data is deterministic
+- Assertions must reference specific visible text, not vague descriptions ("success indicator", "results are displayed")
+
+### 2. Intent quality
+Is the intent a specific, falsifiable behavioral claim?
+FAIL: "When a user clicks the clock icon, the Wait modal should open" (just UI mechanics)
+PASS: "Adding a 5-second wait step should insert a Wait action into the step list with the configured duration"
+
+### 3. Mission alignment
+Does the test's intent + steps actually verify the feature's core purpose?
+FAIL if the intent just describes UI appearance when the feature is about functionality.
+
+When done reviewing, call finish with your structured evaluation.`,
+};
+
+// --- RUBRIC 2: Flow & Completeness ---
+
+export const flowCompletenessRubric: ReviewRubric = {
+    name: "flow-completeness",
+    maxSteps: 12,
+    dimensions: ["actionCompletion", "mutationVerification"],
+    resultSchema: reviewResultSchema({
+        actionCompletion: dimensionResultSchema.describe(
+            "Does the test complete a core action and reach an OUTCOME? Not just opening a modal or clicking a tab.",
+        ),
+        mutationVerification: dimensionResultSchema.describe(
+            "Does the test verify its mutation at the source of truth - not just a toast or inline indicator?",
+        ),
+    }),
+    systemPrompt: `You are a flow completeness reviewer for E2E test plans. Each test will be executed by a VISUAL agent that sees the screen like a human user.
+
+Your job is to EVALUATE whether the test completes a meaningful action and verifies the result properly. You have tools to read the project's source code to understand what the feature actually does.
+
+## Rubric dimensions
+
+### 1. Action completion
+Does the test complete a core action and reach an OUTCOME?
+FAIL if the last meaningful step is just opening a modal, clicking a tab, or viewing a page.
+PASS if the test creates, saves, deletes, configures, or otherwise produces a verifiable result.
+
+Read the source files to understand what the feature's complete workflow looks like. Does the test cover the full cycle?
+
+### 2. Mutation verification
+Does the test verify its mutation at the source of truth?
+FAIL if the test ends at the point of action - checking a toast, a modal closing, or an inline success indicator.
+PASS if the test navigates to where the mutation's effect should be visible and asserts it there.
+
+For example: after creating a record, does the test navigate back to the list and verify the record appears? After toggling a setting, does it refresh and verify the toggle persists?
+
+Read the source code to understand where the "source of truth" view is for each mutation.
+
+When done reviewing, call finish with your structured evaluation.`,
+};
+
+// --- RUBRIC 3: UI Text Authenticity ---
+
+export const uiTextRubric: ReviewRubric = {
+    name: "ui-text",
+    maxSteps: 20,
+    dimensions: ["uiTextAuthenticity"],
+    resultSchema: reviewResultSchema({
+        uiTextAuthenticity: dimensionResultSchema.describe(
+            "Do all quoted strings in steps reference text a human would actually see on screen? Not translation keys, config paths, component names, enum identifiers, or CSS classes.",
+        ),
+    }),
+    systemPrompt: `You are a UI text authenticity reviewer for E2E test plans. Your ONLY job is verifying that every piece of quoted text in the test steps matches what a human user would actually see on screen.
+
+You have tools to read source code. USE THEM AGGRESSIVELY. Do not guess - verify.
+
+## Your process for EVERY quoted string in the test:
+
+1. Grep for the exact string in the project source code
+2. Check WHERE it appears:
+   - If it appears as rendered text in the template/markup → PASS (it's real visible text)
+   - If it appears inside a translation/i18n function call → it's a TRANSLATION KEY, not visible text. FAIL.
+   - If it looks like a code identifier (camelCase, dot.notation, SCREAMING_CASE, PascalCase names) → FAIL
+3. If the string is a translation key, trace it to the actual rendered value:
+   - Find the translation/i18n file or dictionary
+   - Look up the key to find what text actually appears on screen
+   - Report both the key used and the correct visible text in your evidence
+
+## Common patterns to catch:
+- Translation keys used as labels: "aiBackoffice.tabPipeline" instead of "Pipeline"
+- Dot-notation config paths: "settings.general.title"
+- **Icon component names used as button descriptions**: if a quoted string in a test step refers to a button or clickable element, grep for that string in the source code. If it's imported as a component and renders an icon (SVG, image), it's a code identifier - NOT what the user sees. The test must describe the icon visually instead. To verify: find the icon's source file or infer from its name what it depicts, and check whether the test uses a visual description or the code name.
+- Enum values: "QUOTE_REQUEST_RECEIVED", "IN_REVIEW"
+- CSS class names or HTML attributes used as visible text
+
+## Important:
+- Check EVERY quoted string, not just suspicious ones
+- A string existing in source code is NOT enough - it must be the RENDERED text
+- When in doubt, read more files. You have 20 steps - use them all if needed.
+
+When done reviewing, call finish with your structured evaluation.`,
+};
+
+// --- RUBRIC 4: Data Accuracy ---
+
+export const dataAccuracyRubric: ReviewRubric = {
+    name: "data-accuracy",
+    maxSteps: 20,
+    dimensions: ["dataAccuracy"],
+    resultSchema: reviewResultSchema({
+        dataAccuracy: dimensionResultSchema.describe(
+            "Do the referenced UI elements (buttons, labels, fields, headings, toasts) actually exist in the source code for this page? Are default states correct? Does all test data (names, values, entities) come from the scenario data - NOT from other tests?",
+        ),
+    }),
+    systemPrompt: `You are a data accuracy reviewer for E2E test plans. Your ONLY job is verifying that every UI element referenced in the test actually exists in the source code and behaves as the test expects.
+
+You have tools to read source code. USE THEM AGGRESSIVELY. Do not guess - verify.
+
+## Your process:
+
+### 1. Identify the page/component
+Read the test's starting page and find the corresponding source file. Read it.
+
+### 2. For each UI element referenced in the test:
+- **Buttons**: grep for the button label. Verify it exists as a rendered string (not just a variable name).
+- **Tab names**: find the tab component, read the tab definitions, verify the names match.
+- **Field labels**: find the form component, verify field labels match.
+- **Headings**: verify section/modal headings exist in the JSX.
+- **Toast messages**: find where toasts are triggered, verify the message text.
+- **Dropdown options**: find the select/dropdown component, verify the options.
+
+### 3. Check default states:
+- Toggle/switch default positions (is it on or off by default?)
+- Default selected tabs (which tab is active on load?)
+- Default form values (what are the initial values?)
+- Conditional rendering (does the element actually show given the default state?)
+
+### 4. Check preconditions and scenario data grounding:
+- Does the test assume data exists that might not be seeded? (e.g., "click on the first item" when the list might be empty)
+- CRITICAL: If the prompt includes scenario data, every data value the test references (entity names, folder names, app names, URLs, email addresses, etc.) MUST appear in that scenario data. If the test uses a value that only exists because another test created it, that is a FAIL - tests must be independent.
+- Cross-reference every specific name/value in the test steps against the scenario data provided.
+
+## Important:
+- READ the actual component source files - don't just grep for strings
+- Check conditional rendering - an element might exist in code but only show under certain conditions
+- Verify the FLOW makes sense - after a page refresh, what state resets?
+- Tests MUST be independent - they cannot depend on data created by other tests
+
+When done reviewing, call finish with your structured evaluation.`,
+};
+
+export const ALL_RUBRICS: ReviewRubric[] = [
+    structuralIntentRubric,
+    flowCompletenessRubric,
+    uiTextRubric,
+    dataAccuracyRubric,
+];

@@ -17,6 +17,7 @@ root/
 │   │       └── controllers/   # Business logic (one directory per router)
 │   ├── docs/             # Astro Starlight documentation site
 │   ├── ui/               # Vite + React 19 SPA (port 3000)
+│   ├── cli/              # @autonoma-ai/planner - npm-published test-planner CLI (tsup-bundled)
 │   ├── engine-web/       # Playwright-based web test execution
 │   ├── engine-mobile/    # Appium-based mobile test execution (iOS + Android)
 │   └── jobs/

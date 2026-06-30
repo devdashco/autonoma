@@ -1,0 +1,660 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as p from "@clack/prompts";
+import { loadConfig } from "./config";
+import type { AgentResult } from "./core/agent";
+import { track, trackError, flushAnalytics } from "./core/analytics";
+import { type ProjectContext, saveContext, loadContext } from "./core/context";
+import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
+import { setGlobalEnv, getGlobalEnvPath } from "./core/global-env";
+import { installInterruptHandler, restoreTerminal } from "./core/interrupt";
+import { DEFAULT_MODEL } from "./core/model";
+import { ensureOutputDir } from "./core/output";
+import { readEnv } from "./env";
+
+// tsup emits source maps; ask Node to apply them so any stack that does reach
+// our own code points at src/* instead of the bundled dist/index.js.
+process.setSourceMapsEnabled(true);
+import { loadGitInfo, readGitInfo, saveGitInfo } from "./core/git";
+import { notify } from "./core/notify";
+import { loadState, markStep, nextPendingStep, type StepName, type PipelineState } from "./core/state";
+import { uploadArtifacts } from "./core/upload";
+
+const PAGES_FILE = "pages.json";
+
+async function savePages(
+    outputDir: string,
+    pages: Map<string, { route: string; path: string; description: string }>,
+): Promise<void> {
+    const obj = Object.fromEntries(pages);
+    await writeFile(join(outputDir, PAGES_FILE), JSON.stringify(obj, null, 2), "utf-8");
+}
+
+async function loadPages(
+    outputDir: string,
+): Promise<Map<string, { route: string; path: string; description: string }>> {
+    try {
+        const raw = await readFile(join(outputDir, PAGES_FILE), "utf-8");
+        const obj = JSON.parse(raw);
+        return new Map(Object.entries(obj));
+    } catch {
+        return new Map();
+    }
+}
+
+function parseArgs(argv: string[]) {
+    const args: Record<string, string | boolean> = {};
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i]!;
+        if (arg.startsWith("--")) {
+            const key = arg.slice(2);
+            const next = argv[i + 1];
+            if (next && !next.startsWith("--")) {
+                args[key] = next;
+                i++;
+            } else {
+                args[key] = true;
+            }
+        }
+    }
+    return args;
+}
+
+// Pull a flag's value only when it was given as `--key value` (a string), not
+// as a bare boolean flag or absent. Keeps callers from having to narrow the
+// `string | boolean | undefined` index type by hand.
+function strArg(args: Record<string, string | boolean>, key: string): string | undefined {
+    const value = args[key];
+    return typeof value === "string" ? value : undefined;
+}
+
+const STEP_LABELS: Record<StepName, string> = {
+    pagesFinder: "Find your pages",
+    kb: "Build a knowledge base",
+    entityAudit: "Map your data models",
+    scenarioRecipe: "Design test scenarios",
+    recipeBuilder: "Set up test data",
+    testGenerator: "Generate the tests",
+};
+
+function isStepName(value: string): value is StepName {
+    return value in STEP_LABELS;
+}
+
+// One-line plain-language summary per step, used in the upfront overview and the
+// "continue?" prompts so it's always clear what's coming before it runs.
+const STEP_SUMMARIES: Record<StepName, string> = {
+    pagesFinder: "Map every page and route in your app.",
+    kb: "Learn your app's features, flows, and UI patterns.",
+    entityAudit: "Find what your app stores (users, orgs, ...) and how each one is created.",
+    scenarioRecipe: "Decide the realistic data each test will run against.",
+    recipeBuilder: "Wire up small helpers that create and clean up that data in your database.",
+    testGenerator: "Write the end-to-end tests, covering every page and feature.",
+};
+
+const STEP_INTROS: Record<StepName, string> = {
+    pagesFinder:
+        "Scanning your codebase to find every page and route, so we know the full surface area that needs test coverage.",
+    kb: "Reading those pages to learn your app's features, flows, and UI patterns - the context everything after this builds on.",
+    entityAudit:
+        "Finding the things your app stores (users, organizations, orders, ...) and how each one gets created, so we can generate realistic test data for them.",
+    scenarioRecipe:
+        "Designing the data each test will run against - concrete, realistic values that match how your app actually uses them.",
+    recipeBuilder:
+        "Helping you wire up small helpers that create and clean up test data in your own database. We give you a copy-paste guide for each one and test it live against your app running locally - you deploy later, once everything passes.",
+    testGenerator:
+        "Writing the actual end-to-end tests, covering every page and feature with depth proportional to its complexity.",
+};
+
+async function runStep(
+    step: StepName,
+    outputDir: string,
+    state: PipelineState,
+    config: ReturnType<typeof loadConfig>,
+    projectContext?: ProjectContext,
+    nonInteractive?: boolean,
+    retryGuidance?: string,
+): Promise<PipelineState> {
+    const label = STEP_LABELS[step];
+    p.note(STEP_INTROS[step], `Step: ${label}`);
+
+    const stepStartedAt = Date.now();
+    track("cli_step_started", { step });
+
+    state = await markStep(outputDir, state, step, "running");
+
+    if (step !== "pagesFinder" && projectContext && !projectContext.pages) {
+        const pages = await loadPages(outputDir);
+        if (pages.size > 0) {
+            projectContext = { ...projectContext, pages: [...pages.values()] };
+        }
+    }
+
+    try {
+        let result: AgentResult | undefined;
+
+        switch (step) {
+            case "pagesFinder": {
+                const { runPageFinder } = await import("./agents/00-pages-finder/index");
+                const pages = await runPageFinder({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    nonInteractive,
+                });
+                await savePages(outputDir, pages);
+                break;
+            }
+            case "kb": {
+                const { runKBGenerator } = await import("./agents/01-kb-generator/index");
+                result = await runKBGenerator({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    projectContext,
+                    nonInteractive,
+                    retryGuidance,
+                });
+                break;
+            }
+            case "entityAudit": {
+                const { runEntityAudit } = await import("./agents/02-entity-audit/index");
+                result = await runEntityAudit({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    projectContext,
+                    nonInteractive,
+                    retryGuidance,
+                });
+                break;
+            }
+            case "scenarioRecipe": {
+                const { runScenarioRecipe } = await import("./agents/03-scenario-recipe/index");
+                result = await runScenarioRecipe({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    config,
+                    projectContext,
+                    nonInteractive,
+                    retryGuidance,
+                });
+                break;
+            }
+            case "recipeBuilder": {
+                const { runRecipeBuilder } = await import("./agents/04-recipe-builder/index");
+                result = await runRecipeBuilder({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    config,
+                    projectContext,
+                    nonInteractive,
+                    retryGuidance,
+                });
+                break;
+            }
+            case "testGenerator": {
+                const { runTestGenerator } = await import("./agents/05-test-generator/index");
+                const pages = await loadPages(outputDir);
+                result = await runTestGenerator({
+                    projectRoot: config.projectRoot,
+                    outputDir,
+                    modelId: config.modelId,
+                    config,
+                    projectContext,
+                    nonInteractive,
+                    pages,
+                    retryGuidance,
+                });
+                break;
+            }
+        }
+
+        if (result && !result.success) {
+            if (result.paused) {
+                state = await markStep(outputDir, state, step, "paused");
+                p.log.info(`Paused: ${label} - ${result.summary}`);
+            } else {
+                state = await markStep(outputDir, state, step, "failed");
+                p.log.error(`Failed: ${label} - ${result.summary}`);
+                trackError(new Error(result.summary), { step, source: "step_result" });
+            }
+        } else {
+            state = await markStep(outputDir, state, step, "done");
+            p.log.success(`Completed: ${label}`);
+        }
+    } catch (err) {
+        // The user deliberately stopped (Ctrl+C / "cancel" at a prompt). That's not
+        // a failure: let the run-level handler save progress and exit quietly, and
+        // don't report it to error tracking, where it would look like a bug.
+        if (isUserCancellation(err)) throw err;
+        state = await markStep(outputDir, state, step, "failed");
+        const known = describeKnownError(err);
+        if (known) {
+            // A recognized, actionable failure - the raw stack is library-internal
+            // noise here, so we show the fix instead.
+            p.log.error(`Failed: ${label} - ${known.title}`);
+            p.log.info(known.hint);
+        } else {
+            const message = err instanceof Error ? err.message : String(err);
+            p.log.error(`Failed: ${label} - ${message}`);
+            // Full stack so users can copy-paste it when reporting the issue.
+            console.error(`\x1b[2m${formatException(err)}\x1b[0m`);
+            // One short line that maps this failure to its analytics event(s).
+            console.error(`\x1b[2m${supportReference({ step })}\x1b[0m`);
+            p.log.info("If you report this, please include the error output above.");
+        }
+        trackError(err, { step, source: "step_exception" });
+    }
+
+    track("cli_step_completed", {
+        step,
+        status: state.steps[step],
+        duration_ms: Date.now() - stepStartedAt,
+    });
+
+    return state;
+}
+
+type FailureAction = { kind: "retry"; guidance?: string } | { kind: "exit" };
+
+async function promptStepFailure(label: string): Promise<FailureAction> {
+    notify("Autonoma", `${label} failed - action needed`);
+
+    const action = await p.select({
+        message: "This step failed. What would you like to do?",
+        options: [
+            { value: "retry", label: "Retry this step", hint: "Run it again from the top" },
+            {
+                value: "guidance",
+                label: "Retry with guidance",
+                hint: "Tell the agent what went wrong or what to focus on",
+            },
+            { value: "exit", label: "Stop here (progress saved)", hint: "Resume later with --resume" },
+        ],
+    });
+
+    if (p.isCancel(action) || action === "exit") return { kind: "exit" };
+    if (action === "retry") return { kind: "retry" };
+
+    const guidance = await p.text({
+        message: "What should the agent do differently?",
+        placeholder: "e.g. the part that failed, or what to focus on",
+    });
+    if (p.isCancel(guidance)) return { kind: "exit" };
+
+    const trimmed = guidance.trim();
+    return { kind: "retry", guidance: trimmed || undefined };
+}
+
+// A failed step should never hard-stop an interactive run - the user gets to
+// retry (optionally steering the agent) until it passes or they bail out.
+async function runStepWithRecovery(
+    step: StepName,
+    outputDir: string,
+    state: PipelineState,
+    config: ReturnType<typeof loadConfig>,
+    projectContext?: ProjectContext,
+    nonInteractive?: boolean,
+): Promise<PipelineState> {
+    let guidance: string | undefined;
+
+    while (true) {
+        state = await runStep(step, outputDir, state, config, projectContext, nonInteractive, guidance);
+
+        if (state.steps[step] !== "failed" || nonInteractive) return state;
+
+        const action = await promptStepFailure(STEP_LABELS[step]);
+        if (action.kind === "exit") return state;
+
+        guidance = action.guidance;
+        track("cli_step_retried", { step, with_guidance: guidance != null });
+    }
+}
+
+async function showStatus(outputDir: string) {
+    const state = await loadState(outputDir);
+    console.log("\nPipeline Status:");
+    for (const [step, status] of Object.entries(state.steps)) {
+        const icon =
+            status === "done"
+                ? "+"
+                : status === "running"
+                  ? "~"
+                  : status === "paused"
+                    ? "‖"
+                    : status === "failed"
+                      ? "x"
+                      : " ";
+        const label = isStepName(step) ? STEP_LABELS[step] : step;
+        console.log(`  [${icon}] ${label}: ${status}`);
+    }
+}
+
+const BANNER = `
+\x1b[36m\x1b[1m █████╗ ██╗   ██╗████████╗ ██████╗ ███╗   ██╗ ██████╗ ███╗   ███╗ █████╗
+██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗████╗  ██║██╔═══██╗████╗ ████║██╔══██╗
+███████║██║   ██║   ██║   ██║   ██║██╔██╗ ██║██║   ██║██╔████╔██║███████║
+██╔══██║██║   ██║   ██║   ██║   ██║██║╚██╗██║██║   ██║██║╚██╔╝██║██╔══██║
+██║  ██║╚██████╔╝   ██║   ╚██████╔╝██║ ╚████║╚██████╔╝██║ ╚═╝ ██║██║  ██║
+╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝
+\x1b[0m
+\x1b[2m  E2E Test Planner - Generate exhaustive test suites from your codebase\x1b[0m
+`;
+
+/**
+ * Make sure an OpenRouter API key is available before we ask anything else.
+ * If it's already in the environment (shell, project .env, or global
+ * ~/.autonoma/.env) we use it silently. Otherwise we prompt for it as the very
+ * first input and persist it to the global env so it's reused on future runs.
+ * Returns false if the user cancels.
+ */
+async function ensureOpenRouterKey(nonInteractive?: boolean): Promise<boolean> {
+    if (readEnv().OPENROUTER_API_KEY) return true;
+
+    if (nonInteractive) {
+        p.log.error("OPENROUTER_API_KEY is not set. Set it in your environment or run interactively once to save it.");
+        return false;
+    }
+
+    p.log.info("You'll need an OpenRouter API key to run the planner. Get one at https://openrouter.ai/keys");
+
+    const key = await p.password({
+        message: "Paste your OpenRouter API key",
+        validate: (value) => ((value ?? "").trim().length === 0 ? "API key cannot be empty" : undefined),
+    });
+
+    if (p.isCancel(key)) return false;
+
+    setGlobalEnv("OPENROUTER_API_KEY", key.trim());
+    p.log.success(`Saved your API key to ${getGlobalEnvPath()} - you won't be asked again.`);
+    return true;
+}
+
+async function gatherProjectContext(): Promise<ProjectContext | undefined> {
+    const description = await p.text({
+        message: "What is this project? (a short description so the agent knows what it's looking at)",
+        placeholder: "e.g. An insurance underwriting platform with a Next.js frontend and Express API",
+    });
+    if (p.isCancel(description)) return undefined;
+
+    const testingGoal = await p.text({
+        message: "Why do you want E2E tests? (what are you trying to catch or protect?)",
+        placeholder: "e.g. We're about to refactor the claims flow and want regression coverage",
+    });
+    if (p.isCancel(testingGoal)) return undefined;
+
+    const criticalFlows = await p.text({
+        message: "What are the most critical flows? (the ones that absolutely cannot break)",
+        placeholder: "e.g. User signup, creating a policy, submitting a claim, payment processing",
+    });
+    if (p.isCancel(criticalFlows)) return undefined;
+
+    return {
+        description,
+        testingGoal,
+        criticalFlows,
+    };
+}
+
+async function main() {
+    const args = parseArgs(process.argv.slice(2));
+    const command = process.argv[2];
+
+    if (command === "status") {
+        const config = loadConfig({
+            project: strArg(args, "project"),
+            slug: strArg(args, "slug"),
+        });
+        if (!args.project) {
+            console.log(`No --project flag passed; using current working directory: ${config.projectRoot}`);
+        }
+        const outputDir = await ensureOutputDir(config.projectSlug);
+        await showStatus(outputDir);
+        return;
+    }
+
+    if (command === "help" || args.help) {
+        console.log("Usage:");
+        console.log(
+            "  test-planner [run] [--project <path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]",
+        );
+        console.log("  test-planner status [--project <path>]");
+        console.log("");
+        console.log("`run` is the default command; it may be omitted.");
+        return;
+    }
+
+    console.log(BANNER);
+    p.intro("Let's generate your test suite");
+
+    // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
+    const resumeCommand = `autonoma-planner --resume` + (args.project ? ` --project ${args.project}` : "");
+    installInterruptHandler({
+        onExit: () => {
+            track("cli_run_exited");
+            restoreTerminal();
+            console.log("");
+            p.log.warn(`Your progress is saved. To resume, run:\n  ${resumeCommand}`);
+            void flushAnalytics().finally(() => process.exit(0));
+        },
+    });
+
+    const config = loadConfig({
+        project: strArg(args, "project"),
+        model: strArg(args, "model"),
+        slug: strArg(args, "slug"),
+    });
+
+    const nonInteractive = !!args["non-interactive"];
+    if (!(await ensureOpenRouterKey(nonInteractive))) {
+        p.log.warn("Cancelled.");
+        return;
+    }
+
+    const modelName = config.modelId ?? readEnv().OPENROUTER_MODEL ?? DEFAULT_MODEL;
+
+    if (!args.project) {
+        p.log.info(`No --project flag passed; using current working directory.`);
+    }
+    p.log.info(`Project: ${config.projectRoot}`);
+
+    track("cli_run_started", { model: modelName, non_interactive: nonInteractive });
+
+    const outputDir = await ensureOutputDir(config.projectSlug);
+    let state = await loadState(outputDir);
+
+    // Record the commit the analysis is based on, once, on the first run - so a
+    // --resume keeps the original commit and the upload can report it to Autonoma.
+    if ((await loadGitInfo(outputDir)) == null) {
+        const gitInfo = await readGitInfo(config.projectRoot);
+        if (gitInfo != null) {
+            await saveGitInfo(outputDir, gitInfo);
+            p.log.info(`Git commit: ${gitInfo.sha.slice(0, 8)}${gitInfo.dirty ? " (working tree dirty)" : ""}`);
+        }
+    }
+
+    let isResuming = !!(args.resume || args.step);
+    let projectContext: ProjectContext | undefined;
+
+    const hasProgress = Object.values(state.steps).some((s) => s === "done" || s === "running");
+
+    if (!isResuming && !nonInteractive && hasProgress) {
+        const completedSteps = Object.entries(state.steps)
+            .filter(([, s]) => s === "done")
+            .map(([name]) => (isStepName(name) ? STEP_LABELS[name] : name))
+            .join(", ");
+
+        const resume = await p.confirm({
+            message: `Found a previous run${completedSteps ? ` (completed: ${completedSteps})` : ""}. Resume from where you left off?`,
+        });
+
+        if (p.isCancel(resume)) {
+            p.log.warn("Cancelled.");
+            return;
+        }
+
+        if (resume) {
+            isResuming = true;
+        }
+    }
+
+    if (isResuming || nonInteractive) {
+        const saved = await loadContext(outputDir);
+        if (saved) {
+            projectContext = saved;
+            p.log.info(`Loaded project context from previous run`);
+        }
+    }
+
+    if (!projectContext && nonInteractive) {
+        p.log.error(
+            "Non-interactive mode requires saved project context. Run interactively first, or create .project-context.json manually.",
+        );
+        return;
+    }
+
+    if (!projectContext) {
+        projectContext = await gatherProjectContext();
+        if (!projectContext) {
+            p.log.warn("Cancelled.");
+            return;
+        }
+        await saveContext(outputDir, projectContext);
+    }
+
+    p.note(
+        `${outputDir}\n\n` +
+            `All generated files (knowledge base, scenarios, recipe, tests) live here.\n` +
+            `It's a hidden folder in your home directory - in Finder/Explorer use "Go to folder"\n` +
+            `or reveal hidden files (macOS: Cmd+Shift+. ) to see it.`,
+        "Output folder",
+    );
+
+    console.log("");
+    p.log.info(`Got it. I'll focus on: ${projectContext.criticalFlows}\n` + `  Starting the pipeline now.`);
+    console.log("");
+
+    const stepArg = strArg(args, "step");
+    const targetStep: StepName | undefined = stepArg != null && isStepName(stepArg) ? stepArg : undefined;
+    if (stepArg != null && targetStep == null) {
+        p.log.error(`Unknown --step "${stepArg}". Valid steps: ${Object.keys(STEP_LABELS).join(", ")}`);
+        return;
+    }
+
+    if (targetStep) {
+        if (targetStep === "testGenerator" && state.steps.scenarioRecipe !== "done") {
+            p.log.error("Cannot run test generation yet - the scenario recipe step must complete first.");
+            return;
+        }
+        state = await runStepWithRecovery(targetStep, outputDir, state, config, projectContext, nonInteractive);
+        if (state.steps[targetStep] === "failed") {
+            const retryCommand =
+                `autonoma-planner --step ${targetStep}` + (args.project ? ` --project ${args.project}` : "");
+            p.log.warn(`Your progress is saved. To retry this step, run:\n  ${retryCommand}`);
+            process.exitCode = 1;
+        }
+        p.outro("Done");
+        return;
+    }
+
+    const startStep = isResuming ? nextPendingStep(state) : "pagesFinder";
+    if (!startStep) {
+        p.log.success("All steps complete.");
+        return;
+    }
+
+    const steps: StepName[] = ["pagesFinder", "kb", "entityAudit", "scenarioRecipe", "recipeBuilder", "testGenerator"];
+    const startIdx = steps.indexOf(startStep);
+
+    // Up-front overview so it's clear what each step does before any of them run.
+    p.note(steps.map((s, idx) => `${idx + 1}. ${STEP_LABELS[s]} - ${STEP_SUMMARIES[s]}`).join("\n"), "Here's the plan");
+
+    try {
+        for (let i = startIdx; i < steps.length; i++) {
+            const step = steps[i]!;
+            state = await runStepWithRecovery(step, outputDir, state, config, projectContext, nonInteractive);
+
+            if (state.steps[step] === "paused") {
+                break;
+            }
+
+            // Only reached when the user chose to stop after a failure, or in
+            // non-interactive mode where there's nobody to ask.
+            if (state.steps[step] === "failed") {
+                p.log.error("Pipeline stopped due to failure.");
+                p.log.warn(`Your progress is saved. To retry this step, run:\n  ${resumeCommand}`);
+                process.exitCode = 1;
+                break;
+            }
+
+            // Pages Finder runs silently and continues on its own - there's nothing
+            // actionable to confirm at that point, so we skip the prompt after it.
+            const skipConfirmAfter: StepName[] = ["pagesFinder"];
+
+            if (i < steps.length - 1 && !nonInteractive && !skipConfirmAfter.includes(step)) {
+                const nextStep = steps[i + 1]!;
+                const shouldContinue = await p.confirm({
+                    message: `Next: ${STEP_LABELS[nextStep]} - ${STEP_SUMMARIES[nextStep]}\nContinue?`,
+                });
+                if (p.isCancel(shouldContinue) || !shouldContinue) {
+                    p.log.info("Pipeline paused. Use --resume to continue.");
+                    break;
+                }
+            }
+        }
+    } catch (err) {
+        if (isUserCancellation(err)) {
+            p.log.warn("Your progress is saved. Run again with --resume to continue from where you left off.");
+            return;
+        }
+        throw err;
+    }
+
+    const stepsDone = Object.values(state.steps).filter((s) => s === "done").length;
+    track("cli_run_completed", { steps_done: stepsDone });
+
+    // Only upload once the whole pipeline finished - a paused/failed run has
+    // incomplete artifacts and would publish a half-built test suite.
+    const allStepsDone = Object.values(state.steps).every((s) => s === "done");
+    if (allStepsDone) {
+        try {
+            await uploadArtifacts(config, outputDir);
+            track("cli_artifacts_uploaded");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            p.log.error(`Failed to upload artifacts: ${message}`);
+            console.error(`\x1b[2m${formatException(err)}\x1b[0m`);
+            console.error(`\x1b[2m${supportReference({ phase: "artifact_upload" })}\x1b[0m`);
+            p.log.info(`Your artifacts are saved in ${outputDir}. Re-run the CLI to retry the upload.`);
+            track("cli_artifacts_upload_failed", { message });
+            trackError(err, { source: "artifact_upload" });
+        }
+    }
+
+    p.outro("Done");
+}
+
+main()
+    .then(() => flushAnalytics())
+    .catch(async (err) => {
+        // A cancellation that bubbled all the way up - exit quietly without a stack
+        // or an error-tracking event; the user chose to stop.
+        if (isUserCancellation(err)) {
+            await flushAnalytics();
+            process.exit(0);
+        }
+        const known = describeKnownError(err);
+        if (known) {
+            console.error(`\x1b[31m${known.title}\x1b[0m`);
+            console.error(known.hint);
+        } else {
+            console.error(err);
+            console.error(`\x1b[2m${supportReference()}\x1b[0m`);
+        }
+        trackError(err, { source: "uncaught" }, false);
+        await flushAnalytics();
+        process.exit(1);
+    });
