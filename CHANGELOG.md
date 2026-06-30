@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.8](https://github.com/Autonoma-AI/agent/compare/v1.8.7...v1.8.8) (2026-06-30)
+
+
+### Bug Fixes
+
+* **investigation:** make remediation higher-level and readable ([#1173](https://github.com/Autonoma-AI/agent/issues/1173)) ([fce8036](https://github.com/Autonoma-AI/agent/commit/fce8036a991e9705574734fa102ea7745bf2b7e0))
+
+
+### Performance Improvements
+
+* **previewkit:** warm-buildkit spike behind BUILDKIT_WARM_HOST ([#1139](https://github.com/Autonoma-AI/agent/issues/1139)) ([dfa199d](https://github.com/Autonoma-AI/agent/commit/dfa199d3dbdc082dcd75d87b5efa5d79f7ff86d8))
+
 ## [1.8.7](https://github.com/Autonoma-AI/agent/compare/v1.8.6...v1.8.7) (2026-06-29)
 
 
