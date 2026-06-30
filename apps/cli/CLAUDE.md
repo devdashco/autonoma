@@ -52,4 +52,9 @@ This package follows the monorepo conventions (see the root `CLAUDE.md`): ESM-on
 
 ## Release
 
-Independent of the monorepo's k8s release. release-please tracks this package as the `cli` component (`cli-v*` tags). On a published `cli-v*` GitHub release, `.github/workflows/cli-publish.yml` publishes to npm. The k8s production deploy (`production-build.yml`) only fires on root `v*` tags and explicitly skips `cli-v*`.
+Independent of the monorepo's k8s release, and driven by its own release-please workflow.
+
+- **`.github/workflows/cli-release-please.yml`** runs release-please in manifest mode against the cli-only files `release-please-config-cli.json` + `.release-please-manifest-cli.json`, tracking this package as the `cli` component (`cli-v*` tags). It is deliberately separate from the root release flow: the root `release-please.yml` runs in single-package mode (top-level `release-type: node`), which ignores any extra packages in the shared `release-please-config.json`. Do not add `apps/cli` back to the shared config/manifest - it would be inert there and is a footgun if the root workflow is ever converted to manifest mode.
+- On a published `cli-v*` GitHub release, **`.github/workflows/cli-publish.yml`** publishes to npm (`@latest`). The k8s production deploy (`production-build.yml`) only fires on root `v*` tags and explicitly skips `cli-v*`.
+- **Canary channel:** `.github/workflows/cli-canary.yml` publishes `<next-patch>-canary.<sha>` to the `canary` dist-tag; it derives the base version from `.release-please-manifest-cli.json`.
+- **npm auth:** the `NPM_TOKEN` secret must be an npm **Automation** token (granular automation tokens bypass 2FA). A classic publish token fails in CI with `ERR_PNPM_OTP_NON_INTERACTIVE` because npm demands an interactive OTP.
