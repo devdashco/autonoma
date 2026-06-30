@@ -510,6 +510,127 @@ testUpdateSuite({
             expect(info.testCases).toHaveLength(0);
         });
 
+        test("removeTestCase: is a no-op when the assignment is already gone", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+
+            const { testCaseId } = await draft.addTestCase({
+                folderId,
+                name: "Remove twice",
+                slug: "remove-twice",
+                description: "Will be removed twice",
+                plan: "Some plan",
+            });
+
+            await draft.removeTestCase(testCaseId);
+            // Second removal must not throw even though the assignment is gone.
+            await expect(draft.removeTestCase(testCaseId)).resolves.toBeUndefined();
+
+            const info = await draft.currentTestSuiteInfo();
+            expect(info.testCases).toHaveLength(0);
+        });
+
+        // -- quarantineTestCase() --
+
+        test("quarantineTestCase: links the issue and clears steps", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+
+            const { testCaseId, planId } = await draft.addTestCase({
+                folderId,
+                name: "Quarantine me",
+                slug: "quarantine-me",
+                description: "Will be quarantined",
+                plan: "Open broken page",
+            });
+            const steps = await harness.db.stepInputList.create({
+                data: { planId, organizationId },
+                select: { id: true },
+            });
+            await harness.db.testCaseAssignment.update({
+                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId } },
+                data: { stepsId: steps.id },
+            });
+
+            const issue = await harness.db.issue.create({
+                data: {
+                    kind: "engine_limitation",
+                    severity: "medium",
+                    title: "Unsupported gesture",
+                    description: "...",
+                    snapshotId: draft.snapshotId,
+                    organizationId,
+                },
+                select: { id: true },
+            });
+
+            await draft.quarantineTestCase(testCaseId, issue.id);
+
+            const assignment = await harness.db.testCaseAssignment.findUniqueOrThrow({
+                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId } },
+                select: { quarantineIssueId: true, stepsId: true },
+            });
+            expect(assignment.quarantineIssueId).toBe(issue.id);
+            expect(assignment.stepsId).toBeNull();
+        });
+
+        test("quarantineTestCase: is a no-op when no assignment exists on the snapshot", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+
+            // A surviving test case whose assignment must be untouched.
+            const { testCaseId: survivorId } = await draft.addTestCase({
+                folderId,
+                name: "Survivor",
+                slug: "survivor",
+                description: "Stays assigned",
+                plan: "Open homepage",
+            });
+
+            // A test case whose assignment is removed before we quarantine it,
+            // mirroring a healing batch that emits remove_test + report_* for one test.
+            const { testCaseId: orphanId } = await draft.addTestCase({
+                folderId,
+                name: "Orphan",
+                slug: "orphan",
+                description: "Assignment removed before quarantine",
+                plan: "Open broken page",
+            });
+            await draft.removeTestCase(orphanId);
+
+            const issue = await harness.db.issue.create({
+                data: {
+                    kind: "engine_limitation",
+                    severity: "medium",
+                    title: "Unsupported gesture",
+                    description: "...",
+                    snapshotId: draft.snapshotId,
+                    organizationId,
+                },
+                select: { id: true },
+            });
+
+            // Must not throw P2025 even though the orphan has no assignment.
+            await expect(draft.quarantineTestCase(orphanId, issue.id)).resolves.toBeUndefined();
+
+            // The surviving assignment is untouched and no orphan row was created.
+            const info = await draft.currentTestSuiteInfo();
+            expect(info.testCases).toHaveLength(1);
+            expect(findTestCase(info, "survivor").id).toBe(survivorId);
+
+            const orphanAssignment = await harness.db.testCaseAssignment.findUnique({
+                where: { snapshotId_testCaseId: { snapshotId: draft.snapshotId, testCaseId: orphanId } },
+                select: { testCaseId: true },
+            });
+            expect(orphanAssignment).toBeNull();
+        });
+
         // -- updateManySteps() --
 
         test("updateManySteps: updates steps for multiple test cases", async ({
