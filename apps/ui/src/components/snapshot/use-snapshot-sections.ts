@@ -8,17 +8,16 @@ import { buildSections, type Section, type TestEntry } from "./snapshot-entries"
 // shared via react-query's cache, so calling this in multiple components is cheap.
 export function useSnapshotSections(snapshotId: string): Section[] {
     const { data } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
-    const { changes, diffsJob, createdTests, quarantinedTests, executedTests } = data;
+    const { changes, diffsJob, createdTests, executedTests } = data;
     return useMemo(
         () =>
             buildSections({
                 changes,
                 affectedTests: diffsJob.affectedTests,
                 createdTests,
-                quarantinedTests,
                 executedTests,
             }),
-        [changes, diffsJob.affectedTests, createdTests, quarantinedTests, executedTests],
+        [changes, diffsJob.affectedTests, createdTests, executedTests],
     );
 }
 

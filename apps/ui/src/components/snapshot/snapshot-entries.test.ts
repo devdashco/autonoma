@@ -24,7 +24,6 @@ function createdTest(): CreatedTest {
         plan: "authored plan",
         generation: { id: "gen-new", status: "success", verdict: "success", reviewReasoning: "Generated cleanly." },
         run: { id: "run-new", status: "success", verdict: undefined, reviewReasoning: undefined },
-        quarantine: undefined,
     };
 }
 
@@ -93,7 +92,6 @@ describe("buildSections - modified test run", () => {
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
             createdTests: [],
-            quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });
 
@@ -107,7 +105,6 @@ describe("buildSections - modified test run", () => {
             changes: [updatedChange()],
             affectedTests: [affectedWithInitialRun()],
             createdTests: [],
-            quarantinedTests: [],
             executedTests: [],
         });
 
@@ -124,7 +121,6 @@ describe("buildSections - modified test run", () => {
             changes: [],
             affectedTests: [affectedWithInitialRun()],
             createdTests: [],
-            quarantinedTests: [],
             executedTests: [executedWithLatestRun()],
         });
 
@@ -141,7 +137,6 @@ describe("buildSections - created tests", () => {
             changes: [addedChange()],
             affectedTests: [],
             createdTests: [createdTest()],
-            quarantinedTests: [],
             executedTests: [],
         });
 
@@ -159,7 +154,6 @@ describe("buildSections - created tests", () => {
             changes: [addedChange()],
             affectedTests: [],
             createdTests: [],
-            quarantinedTests: [],
             executedTests: [],
         });
 

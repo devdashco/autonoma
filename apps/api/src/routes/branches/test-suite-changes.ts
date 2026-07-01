@@ -2,20 +2,17 @@ export interface TestSuiteChangeRow {
     testCase: { id: string; name: string; slug: string };
     latestSnapshotId: string;
     latestSnapshotShortSha: string;
-    quarantined: boolean;
 }
 
 export interface TestSuiteChanges {
     added: TestSuiteChangeRow[];
     modified: TestSuiteChangeRow[];
     removed: TestSuiteChangeRow[];
-    newlyQuarantined: TestSuiteChangeRow[];
 }
 
 interface TestSuiteAssignment {
     testCaseId: string;
     planId: string | null;
-    quarantineIssueId: string | null;
     testCase: { id: string; name: string; slug: string };
 }
 
@@ -26,7 +23,7 @@ interface TestSuiteSnapshot {
 }
 
 export function emptyTestSuiteChanges(): TestSuiteChanges {
-    return { added: [], modified: [], removed: [], newlyQuarantined: [] };
+    return { added: [], modified: [], removed: [] };
 }
 
 export function computeTestSuiteChanges({
@@ -51,12 +48,9 @@ export function computeTestSuiteChanges({
     const added: TestSuiteChangeRow[] = [];
     const modified: TestSuiteChangeRow[] = [];
     const removed: TestSuiteChangeRow[] = [];
-    const newlyQuarantined: TestSuiteChangeRow[] = [];
 
     for (const [testCaseId, ass] of activeMap) {
         const baseAss = baseMap.get(testCaseId);
-        const isQuarantined = ass.quarantineIssueId != null;
-        const wasQuarantined = baseAss?.quarantineIssueId != null;
 
         if (baseAss == null) {
             const snap = findLatestPlanChange(testCaseId, snapshotLookup);
@@ -64,7 +58,6 @@ export function computeTestSuiteChanges({
                 testCase: ass.testCase,
                 latestSnapshotId: snap.id,
                 latestSnapshotShortSha: shortShaOf(snap),
-                quarantined: isQuarantined,
             });
             continue;
         }
@@ -75,18 +68,6 @@ export function computeTestSuiteChanges({
                 testCase: ass.testCase,
                 latestSnapshotId: snap.id,
                 latestSnapshotShortSha: shortShaOf(snap),
-                quarantined: isQuarantined,
-            });
-            continue;
-        }
-
-        if (isQuarantined && !wasQuarantined) {
-            const snap = findLatestQuarantine(testCaseId, snapshotLookup);
-            newlyQuarantined.push({
-                testCase: ass.testCase,
-                latestSnapshotId: snap.id,
-                latestSnapshotShortSha: shortShaOf(snap),
-                quarantined: true,
             });
         }
     }
@@ -98,11 +79,10 @@ export function computeTestSuiteChanges({
             testCase: baseAss.testCase,
             latestSnapshotId: snap.id,
             latestSnapshotShortSha: shortShaOf(snap),
-            quarantined: false,
         });
     }
 
-    return { added, modified, removed, newlyQuarantined };
+    return { added, modified, removed };
 }
 
 function indexByTestCase(snap: TestSuiteSnapshot): Map<string, TestSuiteAssignment> {
@@ -143,27 +123,6 @@ function findLatestPlanChange(
         const cur = lookup.prIndex[i]?.get(testCaseId);
         const prev = prevAssignmentFor(testCaseId, i, lookup);
         if ((cur?.planId ?? null) !== (prev?.planId ?? null)) return snap;
-    }
-    return lookup.activeSnap;
-}
-
-function findLatestQuarantine(
-    testCaseId: string,
-    lookup: {
-        prSnapshots: TestSuiteSnapshot[];
-        prIndex: Array<Map<string, TestSuiteAssignment>>;
-        baseMap: Map<string, TestSuiteAssignment>;
-        activeSnap: TestSuiteSnapshot;
-    },
-): TestSuiteSnapshot {
-    for (let i = lookup.prSnapshots.length - 1; i >= 0; i -= 1) {
-        const snap = lookup.prSnapshots[i];
-        if (snap == null) continue;
-        const cur = lookup.prIndex[i]?.get(testCaseId);
-        const prev = prevAssignmentFor(testCaseId, i, lookup);
-        const curQ = cur?.quarantineIssueId ?? null;
-        const prevQ = prev?.quarantineIssueId ?? null;
-        if (curQ != null && curQ !== prevQ) return snap;
     }
     return lookup.activeSnap;
 }

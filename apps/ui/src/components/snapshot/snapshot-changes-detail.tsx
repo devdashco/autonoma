@@ -1,6 +1,5 @@
-import { Badge, cn, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
+import { Badge, cn } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
-import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -9,27 +8,6 @@ import { ReasoningMarkdown } from "./reasoning-block";
 import { CATEGORY, type TestEntry } from "./snapshot-entries";
 import { useChangesDetailParams } from "./use-changes-params";
 import { useSnapshotEntry } from "./use-snapshot-sections";
-
-const QUARANTINE_REASON: Record<
-  "application_bug" | "engine_limitation" | "unknown_issue",
-  { label: string; variant: "critical" | "high" | "secondary"; hint: string }
-> = {
-  application_bug: {
-    label: "application bug",
-    variant: "critical",
-    hint: "Quarantined because a bug in the application makes this test fail.",
-  },
-  engine_limitation: {
-    label: "engine limitation",
-    variant: "high",
-    hint: "Quarantined because the test engine cannot reliably execute this test.",
-  },
-  unknown_issue: {
-    label: "unknown issue",
-    variant: "secondary",
-    hint: "Quarantined because the test looked like it surfaced a bug we couldn't confirm in the code.",
-  },
-};
 
 const RUN_STATUS_BADGE: Record<string, "status-pending" | "status-running" | "status-passed" | "status-failed"> = {
   pending: "status-pending",
@@ -93,7 +71,6 @@ function TestEntryDetail({ entry }: { entry: TestEntry }) {
               View in active suite
             </Link>
           )}
-          {entry.quarantine != null && <DetailQuarantine quarantine={entry.quarantine} />}
         </div>
       </header>
 
@@ -156,42 +133,6 @@ function DetailSection({
       {children}
       {reasoning != null && reasoning.trim().length > 0 && <Prose>{reasoning}</Prose>}
     </section>
-  );
-}
-
-function DetailQuarantine({ quarantine }: { quarantine: NonNullable<TestEntry["quarantine"]> }) {
-  const reason = QUARANTINE_REASON[quarantine.reason];
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <ShieldWarningIcon size={12} className="text-status-high" />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Badge variant={reason.variant} className="text-3xs">
-              {reason.label}
-            </Badge>
-          }
-        />
-        <TooltipContent>{reason.hint}</TooltipContent>
-      </Tooltip>
-      {quarantine.bugId != null ? (
-        <AppLink
-          to="/app/$appSlug/bugs/$bugId"
-          params={{ bugId: quarantine.bugId }}
-          className="font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
-        >
-          View bug
-        </AppLink>
-      ) : (
-        <AppLink
-          to="/app/$appSlug/issues/$issueId"
-          params={{ issueId: quarantine.issueId }}
-          className="font-mono text-2xs uppercase tracking-widest text-text-tertiary hover:text-text-primary hover:underline"
-        >
-          View issue
-        </AppLink>
-      )}
-    </div>
   );
 }
 

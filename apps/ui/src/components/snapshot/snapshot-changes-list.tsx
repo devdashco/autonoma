@@ -1,7 +1,6 @@
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { InfoIcon } from "@phosphor-icons/react/Info";
-import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { Link } from "@tanstack/react-router";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CATEGORY } from "./snapshot-entries";
@@ -57,7 +56,6 @@ export function SnapshotChangesList() {
                       {CATEGORY[entry.category].label}
                     </Badge>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{entry.testName}</span>
-                    {entry.quarantine != null && <ShieldWarningIcon size={12} className="shrink-0 text-status-high" />}
                   </Link>
                   {entry.testSlug != null && (
                     <Link

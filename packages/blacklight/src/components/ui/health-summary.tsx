@@ -1,7 +1,6 @@
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { PlayCircleIcon } from "@phosphor-icons/react/PlayCircle";
 import { QuestionIcon } from "@phosphor-icons/react/Question";
-import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { cn } from "../../lib/utils";
 
@@ -13,7 +12,6 @@ export interface SnapshotHealthCounts {
   running: number;
   /** Tests that never ran because their scenario setup failed - tracked apart from `failing`. */
   setupFailed: number;
-  quarantined: number;
   notAffected: number;
   totalTests: number;
 }
@@ -28,12 +26,9 @@ export function describeSnapshotHealth(snapshotStatus: string, counts: SnapshotH
   if (counts.setupFailed > 0) {
     return `${counts.setupFailed} ${counts.setupFailed === 1 ? "test" : "tests"} failed to set up`;
   }
-  if (counts.quarantined > 0) {
-    return `${counts.quarantined} ${counts.quarantined === 1 ? "test" : "tests"} quarantined`;
-  }
   if (counts.running > 0) return "Tests are still running";
   if (counts.passing > 0 && counts.notAffected === 0) return "All affected tests passing";
-  if (counts.notAffected === counts.totalTests - counts.quarantined) return "No tests affected by this PR";
+  if (counts.notAffected === counts.totalTests) return "No tests affected by this PR";
   return `${counts.notAffected} of ${counts.totalTests} not affected by this PR`;
 }
 
@@ -93,7 +88,6 @@ export function HealthBreakdown({ counts }: { counts: SnapshotHealthCounts }) {
     { key: "passing", label: `${counts.passing} passing`, tone: "success" },
     { key: "running", label: `${counts.running} running`, tone: "warn" },
     { key: "notAffected", label: `${counts.notAffected} not affected`, tone: "neutral" },
-    { key: "quarantined", label: `${counts.quarantined} quarantined`, tone: "critical" },
   ];
 
   if (counts.totalTests === 0) {
@@ -153,7 +147,6 @@ export function HealthStat({
     <div className="flex flex-col items-start justify-center gap-1">
       <span className={cn("font-mono text-lg leading-none", valueClass)}>{value}</span>
       <span className={cn("flex items-center gap-1 font-mono text-2xs uppercase tracking-widest", iconClass)}>
-        {label === "quarantined" && value > 0 && <WarningOctagonIcon size={10} />}
         {label}
       </span>
     </div>

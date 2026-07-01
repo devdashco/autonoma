@@ -36,8 +36,7 @@ export function VerdictHero({ health, summary, counts, bugs, ctas, className }: 
           <div className="min-w-0">
             <p className="text-lg font-medium text-text-primary">{summary}</p>
             <p className="mt-1 text-sm text-text-secondary">
-              {counts.passing}/{counts.totalTests} passing · {bugs} {bugs === 1 ? "bug" : "bugs"} · {counts.quarantined}{" "}
-              quarantined
+              {counts.passing}/{counts.totalTests} passing · {bugs} {bugs === 1 ? "bug" : "bugs"}
             </p>
           </div>
           {ctas.length > 0 && (
@@ -60,7 +59,7 @@ export function VerdictHero({ health, summary, counts, bugs, ctas, className }: 
           )}
         </div>
 
-        <div className="grid min-w-0 grid-cols-3 gap-4 border-t border-border-dim pt-4 lg:min-w-80 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-5">
+        <div className="grid min-w-0 grid-cols-2 gap-4 border-t border-border-dim pt-4 lg:min-w-80 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-5">
           <MetricCard>
             <MetricLabel>Passing</MetricLabel>
             <HealthStat value={counts.passing} label="tests" />
@@ -68,14 +67,6 @@ export function VerdictHero({ health, summary, counts, bugs, ctas, className }: 
           <MetricCard>
             <MetricLabel>Bugs</MetricLabel>
             <HealthStat value={bugs} label="open" tone={bugs > 0 ? "critical" : "neutral"} />
-          </MetricCard>
-          <MetricCard>
-            <MetricLabel>Quarantined</MetricLabel>
-            <HealthStat
-              value={counts.quarantined}
-              label="quarantined"
-              tone={counts.quarantined > 0 ? "critical" : "neutral"}
-            />
           </MetricCard>
         </div>
       </div>

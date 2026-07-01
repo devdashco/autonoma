@@ -1,7 +1,6 @@
 import type {
     GenerationReviewVerdict,
     GenerationStatus,
-    IssueKind,
     Prisma,
     PrismaClient,
     RunReviewVerdict,
@@ -35,14 +34,12 @@ export interface SnapshotCreatedTest {
     plan: string;
     generation?: CreatedTestGeneration;
     run?: CreatedTestRun;
-    quarantine?: { issueId: string; reason: IssueKind; bugId?: string };
 }
 
 const assignmentSelect = {
     testCaseId: true,
     testCase: { select: { id: true, name: true, slug: true, folderId: true, description: true } },
     plan: { select: { prompt: true } },
-    quarantineIssue: { select: { id: true, kind: true, bugId: true } },
 } satisfies Prisma.TestCaseAssignmentSelect;
 
 const generationSelect = {
@@ -150,14 +147,6 @@ function buildCreatedTest(
                       status: run.status,
                       verdict: run.runReview?.verdict ?? undefined,
                       reviewReasoning: run.runReview?.reasoning ?? undefined,
-                  }
-                : undefined,
-        quarantine:
-            assignment.quarantineIssue != null
-                ? {
-                      issueId: assignment.quarantineIssue.id,
-                      reason: assignment.quarantineIssue.kind,
-                      bugId: assignment.quarantineIssue.bugId ?? undefined,
                   }
                 : undefined,
     };

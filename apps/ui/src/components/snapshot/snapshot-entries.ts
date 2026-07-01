@@ -1,6 +1,6 @@
-import type { AffectedTest, CreatedTest, ExecutedTest, QuarantinedTest, SnapshotChange } from "./diffs-timeline-types";
+import type { AffectedTest, CreatedTest, ExecutedTest, SnapshotChange } from "./diffs-timeline-types";
 
-export type EntryCategory = "added" | "modified" | "checked" | "removed" | "newly-quarantined";
+export type EntryCategory = "added" | "modified" | "checked" | "removed";
 
 export interface TestEntry {
     urlId: string;
@@ -12,11 +12,6 @@ export interface TestEntry {
     previousPlan?: string;
     generation?: { id: string; status: string; reviewReasoning?: string };
     run?: { id: string; status: string; verdict?: string; reviewReasoning?: string };
-    quarantine?: {
-        reason: "application_bug" | "engine_limitation" | "unknown_issue";
-        issueId: string;
-        bugId?: string;
-    };
 }
 
 export interface Section {
@@ -33,32 +28,27 @@ export const CATEGORY: Record<
     modified: { label: "modified", variant: "warn" },
     checked: { label: "checked", variant: "neutral" },
     removed: { label: "removed", variant: "critical" },
-    "newly-quarantined": { label: "newly quarantined", variant: "high" },
 };
 
 export function buildSections({
     changes,
     affectedTests,
     createdTests,
-    quarantinedTests,
     executedTests,
 }: {
     changes: SnapshotChange[];
     affectedTests: AffectedTest[];
     createdTests: CreatedTest[];
-    quarantinedTests: QuarantinedTest[];
     executedTests: ExecutedTest[];
 }): Section[] {
     const affectedByTestCaseId = new Map(affectedTests.map((t) => [t.testCase.id, t]));
     const executedByTestCaseId = new Map(executedTests.map((e) => [e.testCase.id, e]));
     const createdByTestCaseId = new Map(createdTests.map((t) => [t.testCase.id, t]));
-    const quarantineByTestCaseId = new Map(quarantinedTests.map((q) => [q.testCase.id, q]));
 
     const added: TestEntry[] = [];
     const modified: TestEntry[] = [];
     const checked: TestEntry[] = [];
     const removed: TestEntry[] = [];
-    const newlyQuarantined: TestEntry[] = [];
 
     const surfaced = new Set<string>();
 
@@ -76,7 +66,6 @@ export function buildSections({
                 plan: created?.plan ?? change.plan,
                 generation: createdGeneration(created),
                 run: createdRun(created) ?? executedRun(executedByTestCaseId.get(change.testCaseId)),
-                quarantine: quarantineByTestCaseId.get(change.testCaseId),
             });
             surfaced.add(change.testCaseId);
             continue;
@@ -93,7 +82,6 @@ export function buildSections({
                 previousPlan: change.previousPlan,
                 generation: affectedGeneration(affected),
                 run: modifiedRun(affected, executedByTestCaseId.get(change.testCaseId)),
-                quarantine: quarantineByTestCaseId.get(change.testCaseId),
             });
             surfaced.add(change.testCaseId);
             continue;
@@ -121,20 +109,8 @@ export function buildSections({
             reasoning: affected.reasoning,
             generation: affectedGeneration(affected),
             run: modifiedRun(affected, executedByTestCaseId.get(affected.testCase.id)),
-            quarantine: quarantineByTestCaseId.get(affected.testCase.id),
         });
         surfaced.add(affected.testCase.id);
-    }
-
-    for (const q of quarantinedTests) {
-        if (surfaced.has(q.testCase.id)) continue;
-        newlyQuarantined.push({
-            urlId: q.testCase.id,
-            category: "newly-quarantined",
-            testName: q.testCase.name,
-            testSlug: q.testCase.slug,
-            quarantine: { reason: q.reason, issueId: q.issueId, bugId: q.bugId },
-        });
     }
 
     return [
@@ -146,7 +122,6 @@ export function buildSections({
             entries: checked,
         },
         { title: "Removed", entries: removed },
-        { title: "Newly quarantined", entries: newlyQuarantined },
     ];
 }
 

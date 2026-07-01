@@ -15,9 +15,8 @@ interface SuiteChangesSummaryProps {
 
 /**
  * At-a-glance rollup of what this snapshot did to the suite: tests created
- * (authored by the diffs agent during analysis), removed (culled by healing),
- * and newly quarantined. Each test links to its entry in the test-suite-changes
- * view.
+ * (authored by the diffs agent during analysis) and removed (culled by
+ * healing). Each test links to its entry in the test-suite-changes view.
  */
 export function SuiteChangesSummary({ detail, prNumber }: SuiteChangesSummaryProps) {
   const created: SummaryEntry[] = detail.createdTests.map((t) => ({
@@ -27,19 +26,15 @@ export function SuiteChangesSummary({ detail, prNumber }: SuiteChangesSummaryPro
   const removed: SummaryEntry[] = detail.changes
     .filter((c) => c.type === "removed")
     .map((c) => ({ testCaseId: c.testCaseId, testName: c.testCaseName }));
-  const quarantined: SummaryEntry[] = detail.quarantinedTests.map((q) => ({
-    testCaseId: q.testCase.id,
-    testName: q.testCase.name,
-  }));
 
-  if (created.length === 0 && removed.length === 0 && quarantined.length === 0) return null;
+  if (created.length === 0 && removed.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-3 border border-border-dim bg-surface-base px-5 py-4">
       <h3 className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary">
         Suite changes this snapshot
       </h3>
-      <div className="grid grid-cols-1 gap-px bg-border-dim sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-px bg-border-dim sm:grid-cols-2">
         <SummaryGroup
           label="Created"
           variant="success"
@@ -51,13 +46,6 @@ export function SuiteChangesSummary({ detail, prNumber }: SuiteChangesSummaryPro
           label="Removed"
           variant="critical"
           entries={removed}
-          prNumber={prNumber}
-          snapshotId={detail.snapshot.id}
-        />
-        <SummaryGroup
-          label="Quarantined"
-          variant="high"
-          entries={quarantined}
           prNumber={prNumber}
           snapshotId={detail.snapshot.id}
         />
@@ -74,7 +62,7 @@ function SummaryGroup({
   snapshotId,
 }: {
   label: string;
-  variant: "success" | "critical" | "high";
+  variant: "success" | "critical";
   entries: SummaryEntry[];
   prNumber: number;
   snapshotId: string;

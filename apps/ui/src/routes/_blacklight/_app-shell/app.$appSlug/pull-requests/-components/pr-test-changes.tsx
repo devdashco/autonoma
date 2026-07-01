@@ -4,7 +4,6 @@ import { GitDiffIcon } from "@phosphor-icons/react/GitDiff";
 import { MinusCircleIcon } from "@phosphor-icons/react/MinusCircle";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { PlusCircleIcon } from "@phosphor-icons/react/PlusCircle";
-import { WarningOctagonIcon } from "@phosphor-icons/react/WarningOctagon";
 import { useTestSuiteChangesByPr } from "lib/query/branches.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
@@ -40,7 +39,7 @@ export function PRTestChanges({ branchId, prNumber }: PRTestChangesProps) {
 }
 
 function totalChanges(data: TestSuiteChanges): number {
-  return data.added.length + data.modified.length + data.removed.length + data.newlyQuarantined.length;
+  return data.added.length + data.modified.length + data.removed.length;
 }
 
 function TotalChangeCount({ branchId }: { branchId: string }) {
@@ -71,12 +70,11 @@ function PRTestChangesContent({ branchId, prNumber }: { branchId: string; prNumb
       <Section kind="added" title="Tests added" rows={data.added} prNumber={prNumber} />
       <Section kind="modified" title="Tests modified" rows={data.modified} prNumber={prNumber} />
       <Section kind="removed" title="Tests removed" rows={data.removed} prNumber={prNumber} />
-      <Section kind="newlyQuarantined" title="Newly quarantined" rows={data.newlyQuarantined} prNumber={prNumber} />
     </div>
   );
 }
 
-type Kind = "added" | "modified" | "removed" | "newlyQuarantined";
+type Kind = "added" | "modified" | "removed";
 
 function Section({ kind, title, rows, prNumber }: { kind: Kind; title: string; rows: Row[]; prNumber: number }) {
   if (rows.length === 0) return null;
@@ -94,12 +92,7 @@ function Section({ kind, title, rows, prNumber }: { kind: Kind; title: string; r
       </div>
       <div className="flex flex-col">
         {rows.map((row) => (
-          <RowItem
-            key={row.testCase.id}
-            row={row}
-            prNumber={prNumber}
-            showQuarantineFlag={kind !== "newlyQuarantined"}
-          />
+          <RowItem key={row.testCase.id} row={row} prNumber={prNumber} />
         ))}
       </div>
     </section>
@@ -109,11 +102,10 @@ function Section({ kind, title, rows, prNumber }: { kind: Kind; title: string; r
 function KindIcon({ kind }: { kind: Kind }) {
   if (kind === "added") return <PlusCircleIcon size={14} className="text-status-success" />;
   if (kind === "modified") return <PencilSimpleIcon size={14} className="text-status-warn" />;
-  if (kind === "removed") return <MinusCircleIcon size={14} className="text-status-critical" />;
-  return <WarningOctagonIcon size={14} className="text-status-critical" />;
+  return <MinusCircleIcon size={14} className="text-status-critical" />;
 }
 
-function RowItem({ row, prNumber, showQuarantineFlag }: { row: Row; prNumber: number; showQuarantineFlag: boolean }) {
+function RowItem({ row, prNumber }: { row: Row; prNumber: number }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border-dim/60 py-2 last:border-b-0">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -124,15 +116,6 @@ function RowItem({ row, prNumber, showQuarantineFlag }: { row: Row; prNumber: nu
         >
           {row.testCase.name}
         </AppLink>
-        {showQuarantineFlag && row.quarantined && (
-          <span
-            title="Quarantined"
-            className="inline-flex shrink-0 items-center gap-1 border border-status-critical/40 bg-status-critical/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-status-critical"
-          >
-            <WarningOctagonIcon size={10} />
-            quarantined
-          </span>
-        )}
       </div>
       <AppLink
         to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId"

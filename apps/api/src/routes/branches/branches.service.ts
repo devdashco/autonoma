@@ -24,7 +24,6 @@ import { signTestSuiteScreenshots } from "../sign-test-suite-screenshots";
 import { buildCheckpointSummary } from "./checkpoint-summary";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
-import { loadPreviouslyQuarantinedTestCaseIds } from "./quarantine-history";
 import { loadRefinementLoop } from "./refinement-loop";
 import { listExecutedTestsForSnapshot, type SnapshotExecutedTest } from "./snapshot-executed-tests";
 import {
@@ -544,14 +543,6 @@ export class BranchesService extends Service {
                         },
                     },
                 },
-                testCaseAssignments: {
-                    where: { quarantineIssueId: { not: null } },
-                    select: {
-                        testCaseId: true,
-                        testCase: { select: { id: true, name: true, slug: true } },
-                        quarantineIssue: { select: { id: true, kind: true, bugId: true } },
-                    },
-                },
             },
         });
 
@@ -566,31 +557,11 @@ export class BranchesService extends Service {
             : Promise.resolve(undefined);
 
         const { prInfo, ...branchRest } = snapshot.branch;
-        const { diffsJob, branch: _branch, testCaseAssignments, ...snapshotRest } = snapshot;
+        const { diffsJob, branch: _branch, ...snapshotRest } = snapshot;
         const flatSnapshot = {
             ...snapshotRest,
             branch: { ...branchRest, prNumber: prInfo?.prNumber },
         };
-
-        const previouslyQuarantinedTestCaseIds = await loadPreviouslyQuarantinedTestCaseIds(
-            this.db,
-            snapshot.prevSnapshotId,
-        );
-
-        const quarantinedTests = testCaseAssignments
-            .filter(
-                (
-                    a,
-                ): a is typeof a & {
-                    quarantineIssue: NonNullable<typeof a.quarantineIssue>;
-                } => a.quarantineIssue != null && !previouslyQuarantinedTestCaseIds.has(a.testCaseId),
-            )
-            .map((a) => ({
-                testCase: a.testCase,
-                reason: a.quarantineIssue.kind,
-                issueId: a.quarantineIssue.id,
-                bugId: a.quarantineIssue.bugId ?? undefined,
-            }));
 
         const [changes, temporalWorkflow, refinementLoop, firstIterationReasoning] = await Promise.all([
             getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger),
@@ -653,7 +624,6 @@ export class BranchesService extends Service {
             changes,
             diffsJob: diffsJobWithMeta,
             createdTests,
-            quarantinedTests,
             refinementLoop,
             health,
             healthCounts: counts,
@@ -757,7 +727,6 @@ export class BranchesService extends Service {
                 select: {
                     testCaseId: true,
                     planId: true,
-                    quarantineIssueId: true,
                     testCase: { select: { id: true, name: true, slug: true } },
                 },
             },
@@ -828,7 +797,6 @@ export class BranchesService extends Service {
             added: changes.added.length,
             modified: changes.modified.length,
             removed: changes.removed.length,
-            newlyQuarantined: changes.newlyQuarantined.length,
         });
 
         return changes;
