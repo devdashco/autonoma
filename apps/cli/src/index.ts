@@ -1,3 +1,5 @@
+// MUST be first: guards the Node version before @clack/prompts (below) loads.
+import "./core/ensure-node";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";

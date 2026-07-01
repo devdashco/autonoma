@@ -6,7 +6,7 @@ Autonoma so onboarding can continue.
 
 ## Usage
 
-Run it in your project root:
+Requires **Node.js >= 22.13**. Run it in your project root:
 
 ```bash
 npx @autonoma-ai/planner@latest
