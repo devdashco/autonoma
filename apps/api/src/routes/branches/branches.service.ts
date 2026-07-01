@@ -62,10 +62,14 @@ export class BranchesService extends Service {
     async getInvestigationReport(snapshotId: string, organizationId: string) {
         this.logger.info("Getting investigation report", { extra: { snapshotId } });
         try {
-            // The report lives on the detached investigation twin, not the PR snapshot the UI navigates by.
-            // Hop the pairing FK in one query: the report whose snapshot is THIS PR snapshot's investigation twin.
+            // Post-#1204 the report lives on the detached investigation twin (hop the pairing FK); pre-#1204
+            // investigations ran on the PR snapshot itself and keyed the report directly to it. Match either so
+            // historical PRs still surface their report - legacy leg to be dropped once old reports age out.
             const report = await this.db.investigationReport.findFirst({
-                where: { organizationId, snapshot: { investigationParent: { id: snapshotId } } },
+                where: {
+                    organizationId,
+                    OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
+                },
                 select: { s3Key: true, testCount: true, clientBugCount: true, updatedAt: true },
             });
             if (report == null) return undefined;
@@ -99,9 +103,13 @@ export class BranchesService extends Service {
     ): Promise<InvestigationReportData | undefined> {
         this.logger.info("Getting investigation report data", { extra: { snapshotId } });
         try {
-            // One-hop follow of the pairing FK: the structured report lives on the PR snapshot's investigation twin.
+            // Twin's report (post-#1204) or a legacy report keyed directly to the PR snapshot (pre-#1204), so
+            // historical PRs keep their rich report. Legacy leg to be dropped once old reports age out.
             const report = await this.db.investigationReport.findFirst({
-                where: { organizationId, snapshot: { investigationParent: { id: snapshotId } } },
+                where: {
+                    organizationId,
+                    OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
+                },
                 select: { s3Key: true },
             });
             if (report == null) return undefined;
