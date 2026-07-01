@@ -47,6 +47,9 @@ export function useUpdateSetup(applicationId: string) {
                 void queryClient.invalidateQueries({
                     queryKey: trpc.applicationSetups.artifactStatus.queryKey({ applicationId }),
                 });
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.onboarding.getState.queryKey({ applicationId }),
+                });
             },
         }),
     );

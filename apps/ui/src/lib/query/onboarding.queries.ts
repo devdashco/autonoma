@@ -104,6 +104,7 @@ export function useSdkDryRunTargets(applicationId: string) {
             {
                 refetchInterval: (query) => {
                     const targets = query.state.data?.targets ?? [];
+                    if (targets.length === 0) return 5_000;
                     const hasBuildingPreviewkitTarget = targets.some(
                         (target) =>
                             target.source === "previewkit" && target.status != null && target.status !== "ready",

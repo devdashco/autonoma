@@ -11,6 +11,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
 import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
+import { MinusIcon } from "@phosphor-icons/react/Minus";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -74,6 +75,8 @@ const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string
   { id: "secrets", label: "Secrets", description: "Runtime values + deploy" },
 ];
 
+// Steps that count toward the completion tally. Optional steps (hooks) are shown
+// in the stepper but never counted - the tally reflects only required progress.
 const REQUIRED_STEP_COUNT = CONFIG_STEPS.filter((step) => step.optional !== true).length;
 
 export function PreviewkitConfigPage({ appId, focusApp, focusField, focusSection }: PreviewkitConfigPageProps) {
@@ -128,6 +131,10 @@ function PreviewkitConfigContent({
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "secrets" : "apps"));
   const [handledSuggestions, setHandledSuggestions] = useState<Set<string>>(new Set());
+  // The hooks step is optional: it only reads as complete once the user has
+  // advanced past it (clicked next/save from the hooks step), even when nothing
+  // is configured - never before. A previously saved config counts as advanced.
+  const [hooksAcknowledged, setHooksAcknowledged] = useState<boolean>(configQuery.data.saved);
 
   function setDraft(updater: (current: TopologyDraft) => TopologyDraft) {
     setDraftState(updater);
@@ -165,6 +172,7 @@ function PreviewkitConfigContent({
     issues,
     canDeploy,
     hooksValid: hookErrors.size === 0,
+    hooksAcknowledged,
   });
   const completedStepCount = CONFIG_STEPS.filter((step) => step.optional !== true && stepCompletion[step.id]).length;
 
@@ -507,6 +515,7 @@ function PreviewkitConfigContent({
             onSelect={setActiveStep}
             onSave={save}
             onDeploy={startDeploy}
+            onAdvanceFromHooks={() => setHooksAcknowledged(true)}
           />
         </div>
       </div>
@@ -540,10 +549,14 @@ function ConfigStepper({
           const active = step.id === activeStep;
           const complete = completion[step.id];
           const enabled = isConfigStepEnabled(step.id, configReadyForSecrets);
-          // An optional step the user has not configured is skippable, not a pending
-          // required todo - show a neutral dash rather than a step number so it never
-          // reads as unfinished work.
-          const showOptionalPlaceholder = step.optional === true && !complete && !active;
+          const isOptional = step.optional === true;
+          // An optional step that isn't complete is skippable, not a pending required
+          // todo - show a neutral dash rather than a step number so it never reads as
+          // unfinished work.
+          const showDash = isOptional && !complete;
+          // Required steps are numbered by their position among required steps only,
+          // so the optional step never leaves a gap in the sequence.
+          const requiredPosition = CONFIG_STEPS.slice(0, index + 1).filter((s) => s.optional !== true).length;
           return (
             <button
               key={step.id}
@@ -566,7 +579,13 @@ function ConfigStepper({
                       : "border-border-mid text-text-secondary",
                 )}
               >
-                {complete ? <CheckIcon size={12} weight="bold" /> : showOptionalPlaceholder ? "-" : index + 1}
+                {complete ? (
+                  <CheckIcon size={12} weight="bold" />
+                ) : showDash ? (
+                  <MinusIcon size={12} weight="bold" />
+                ) : (
+                  requiredPosition
+                )}
               </span>
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
@@ -575,7 +594,7 @@ function ConfigStepper({
                   >
                     {step.label}
                   </span>
-                  {step.optional === true ? (
+                  {isOptional ? (
                     <Badge variant="outline" className="text-3xs uppercase tracking-widest">
                       Optional
                     </Badge>
@@ -809,6 +828,7 @@ function ConfigStepFooter({
   onSelect,
   onSave,
   onDeploy,
+  onAdvanceFromHooks,
 }: {
   previousStep: { id: ConfigStepId; label: string } | undefined;
   activeStep: ConfigStepId;
@@ -820,6 +840,7 @@ function ConfigStepFooter({
   onSelect: (step: ConfigStepId) => void;
   onSave: () => void;
   onDeploy: () => void;
+  onAdvanceFromHooks: () => void;
 }) {
   const primaryAction = getPrimaryAction();
 
@@ -852,11 +873,22 @@ function ConfigStepFooter({
     }
     if (activeStep === "hooks") {
       if (configReadyForSecrets) {
-        return { label: "Continue to secrets", onClick: () => onSelect("secrets"), disabled: false, icon: "next" };
+        return {
+          label: "Continue to secrets",
+          onClick: () => {
+            onAdvanceFromHooks();
+            onSelect("secrets");
+          },
+          disabled: false,
+          icon: "next",
+        };
       }
       return {
         label: isSaving ? "Saving..." : "Save config",
-        onClick: onSave,
+        onClick: () => {
+          onAdvanceFromHooks();
+          onSave();
+        },
         disabled: hasBlockingIssues || isSaving,
         icon: "save",
       };
@@ -938,11 +970,13 @@ function getConfigStepCompletion({
   issues,
   canDeploy,
   hooksValid,
+  hooksAcknowledged,
 }: {
   draft: TopologyDraft;
   issues: DraftIssues;
   canDeploy: boolean;
   hooksValid: boolean;
+  hooksAcknowledged: boolean;
 }): Record<ConfigStepId, boolean> {
   const noBlockingDocumentErrors = issues.documentErrors.length === 0;
   const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
@@ -961,18 +995,12 @@ function getConfigStepCompletion({
       draft.services.every((service) => service.name.trim() !== "" && service.recipe.trim() !== "")) &&
     noBlockingDocumentErrors;
 
-  // Hooks are optional. The step only reads as "complete" (checked) once the user
-  // has actually configured at least one valid hook - an untouched/empty step is
-  // not a completed step, it is a skipped one. A row counts as configured when its
-  // `app` or `command` is non-blank (matches the compile/save filter); blank rows
-  // are dropped on save and never mark the step done.
-  const hasConfiguredHooks =
-    draft.hooks.pre_deploy.some((step) => step.app.trim() !== "" || step.command.trim() !== "") ||
-    draft.hooks.post_deploy.some((step) => step.app.trim() !== "" || step.command.trim() !== "");
-
   return {
     apps: appsComplete && servicesComplete,
-    hooks: hasConfiguredHooks && hooksValid,
+    // Hooks are optional: complete only once the user has advanced past the step
+    // (acknowledged), even with nothing configured - never before. An invalid row
+    // (missing/unknown app or missing command) keeps it incomplete regardless.
+    hooks: hooksValid && hooksAcknowledged,
     secrets: canDeploy,
   };
 }

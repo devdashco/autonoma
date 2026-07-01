@@ -12,6 +12,7 @@ import {
 } from "@autonoma/blacklight";
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
@@ -48,6 +49,61 @@ import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
+
+type FinishStepId = "cli" | "sdk" | "dry-run";
+
+interface FinishStepDefinition {
+  id: FinishStepId;
+  stepperLabel: string;
+  title: string;
+  description: ReactNode;
+  render: (props: { applicationId: string; artifactStatus: ArtifactStatus }) => ReactNode;
+}
+
+const CLI_FINISH_STEP: FinishStepDefinition = {
+  id: "cli",
+  stepperLabel: "CLI",
+  title: "Upload test artifacts",
+  description: <>Run the Autonoma planner CLI in your repo to upload recipes, test cases, and a knowledge base.</>,
+  render: (props) => <ArtifactsStepBody applicationId={props.applicationId} artifacts={props.artifactStatus} />,
+};
+
+const SDK_FINISH_STEP: FinishStepDefinition = {
+  id: "sdk",
+  stepperLabel: "SDK",
+  title: "Implement the Autonoma SDK",
+  description: (
+    <>
+      Autonoma calls one POST endpoint - the environment factory - to create and tear down isolated test data for each
+      scenario. Mount it at the fixed convention <Code>/api/autonoma</Code>. For a PreviewKit-managed preview, Autonoma
+      provisions both <Code>AUTONOMA_SHARED_SECRET</Code> and <Code>AUTONOMA_SIGNING_SECRET</Code> into the app for you
+      - just read them from the environment in your handler (rotatable in the app's Secrets settings). Open a PR titled{" "}
+      <Code>feat: autonoma-sdk</Code> and validate it against that PR's preview below, so you iterate on a branch
+      instead of pushing to main.
+      <span className="mt-2 block text-text-secondary">
+        <DocLink href="https://docs.autonoma.app/guides/environment-factory">Environment Factory guide</DocLink>
+        {" · "}
+        <DocLink href="https://docs.autonoma.app/examples/typescript#nextjs-app-router">framework example</DocLink>
+      </span>
+    </>
+  ),
+  render: (props) => <SdkStepBody applicationId={props.applicationId} />,
+};
+
+const DRY_RUN_FINISH_STEP: FinishStepDefinition = {
+  id: "dry-run",
+  stepperLabel: "Dry run",
+  title: "Dry-run your scenarios",
+  description: (
+    <>
+      Run each scenario's up/down cycle against a preview env (the auto-detected SDK PR, or main) to confirm test data
+      provisions cleanly.
+    </>
+  ),
+  render: (props) => <DryRunStepBody applicationId={props.applicationId} />,
+};
+
+const FINISH_STEPS = [CLI_FINISH_STEP, SDK_FINISH_STEP, DRY_RUN_FINISH_STEP];
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/finish-setup/")({
   loader: async ({ context, params: { appSlug } }) => {
@@ -90,22 +146,39 @@ function FinishSetupPage() {
       </header>
 
       <Suspense fallback={<Skeleton className="h-96 w-full" />}>
-        <FinishSetupSteps applicationId={app.id} />
+        <FinishSetupSteps applicationId={app.id} appSlug={app.slug} />
       </Suspense>
     </div>
   );
 }
 
-function FinishSetupSteps({ applicationId }: { applicationId: string }) {
+function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; appSlug: string }) {
   const { data: state } = useOnboardingState(applicationId);
   const { data: artifactStatus } = useArtifactStatus(applicationId);
+  const navigate = Route.useNavigate();
 
   const sdkImplemented = state.sdkConfigured;
   const artifactsUploaded = state.artifactsUploaded;
   const dryRunPassed = state.dryRunPassed;
 
   const stepDone = [artifactsUploaded, sdkImplemented, dryRunPassed];
-  const activeStepIndex = stepDone.findIndex((done) => !done);
+  const incompleteStepIndex = stepDone.findIndex((done) => done !== true);
+  const firstIncompleteIndex = incompleteStepIndex === -1 ? 0 : incompleteStepIndex;
+  const [currentIndex, setCurrentIndex] = useState(firstIncompleteIndex);
+  const currentStep = getFinishStep(currentIndex);
+  const currentStepDone = stepDone[currentIndex] === true;
+  const isLastStep = currentIndex === FINISH_STEPS.length - 1;
+  const completedStepCount = stepDone.filter((done) => done === true).length;
+
+  function goToStep(index: number) {
+    const step = getOptionalFinishStep(index);
+    if (step == null) return;
+    setCurrentIndex(index);
+  }
+
+  function goHome() {
+    void navigate({ to: "/app/$appSlug", params: { appSlug } });
+  }
 
   // BYO go-live is optimistic: the app is marked live before we ever see a PR
   // deployment signal. If the customer never wired their `deployment_status`
@@ -131,59 +204,54 @@ function FinishSetupSteps({ applicationId }: { applicationId: string }) {
           </div>
         </div>
       )}
-      <Step
-        index={1}
-        done={artifactsUploaded}
-        active={activeStepIndex === 0}
-        title="Upload test artifacts"
-        description={
-          <>Run the Autonoma planner CLI in your repo to upload recipes, test cases, and a knowledge base.</>
-        }
-      >
-        <ArtifactsStepBody applicationId={applicationId} artifacts={artifactStatus} />
-      </Step>
+      <FinishSetupStepper
+        currentIndex={currentIndex}
+        completedStepCount={completedStepCount}
+        stepDone={stepDone}
+        firstIncompleteIndex={firstIncompleteIndex}
+        onSelect={goToStep}
+      />
 
-      <Step
-        index={2}
-        done={sdkImplemented}
-        active={activeStepIndex === 1}
-        title="Implement the Autonoma SDK"
-        description={
-          <>
-            Autonoma calls one POST endpoint - the environment factory - to create and tear down isolated test data for
-            each scenario. Mount it at the fixed convention <Code>/api/autonoma</Code>. For a PreviewKit-managed
-            preview, Autonoma provisions both <Code>AUTONOMA_SHARED_SECRET</Code> and{" "}
-            <Code>AUTONOMA_SIGNING_SECRET</Code> into the app for you - just read them from the environment in your
-            handler (rotatable in the app's Secrets settings). Open a PR titled <Code>feat: autonoma-sdk</Code> and
-            validate it against that PR's preview below, so you iterate on a branch instead of pushing to main.
-            <span className="mt-2 block text-text-secondary">
-              <DocLink href="https://docs.autonoma.app/guides/environment-factory">Environment Factory guide</DocLink>
-              {" · "}
-              <DocLink href="https://docs.autonoma.app/examples/typescript#nextjs-app-router">
-                framework example
-              </DocLink>
-            </span>
-          </>
-        }
-      >
-        <SdkStepBody applicationId={applicationId} />
-      </Step>
+      <section className="flex flex-col gap-5">
+        <header className="flex flex-col gap-2">
+          <h2 className="text-lg font-medium text-text-primary">{currentStep.title}</h2>
+          <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{currentStep.description}</p>
+        </header>
+        {currentStep.render({ applicationId, artifactStatus })}
+      </section>
 
-      <Step
-        index={3}
-        done={dryRunPassed}
-        active={activeStepIndex === 2}
-        title="Dry-run your scenarios"
-        isLast
-        description={
-          <>
-            Run each scenario's up/down cycle against a preview env (the auto-detected SDK PR, or main) to confirm test
-            data provisions cleanly.
-          </>
-        }
-      >
-        <DryRunStepBody applicationId={applicationId} />
-      </Step>
+      <div className="mt-8 flex items-center justify-between border-t border-border-dim pt-6">
+        <Button
+          variant="outline"
+          className="gap-2"
+          disabled={currentIndex === 0}
+          onClick={() => goToStep(currentIndex - 1)}
+        >
+          <ArrowLeftIcon size={16} weight="bold" />
+          Back
+        </Button>
+        {isLastStep ? (
+          <Button
+            variant="accent"
+            className="gap-2 px-6 font-mono text-sm font-bold uppercase"
+            disabled={!currentStepDone}
+            onClick={goHome}
+          >
+            Finish
+            <ArrowRightIcon size={16} weight="bold" />
+          </Button>
+        ) : (
+          <Button
+            variant="accent"
+            className="gap-2 px-6 font-mono text-sm font-bold uppercase"
+            disabled={!currentStepDone}
+            onClick={() => goToStep(currentIndex + 1)}
+          >
+            Next
+            <ArrowRightIcon size={16} weight="bold" />
+          </Button>
+        )}
+      </div>
 
       <div className="mt-2 border-t border-border-dim pt-6">
         <p className="max-w-2xl text-sm text-text-secondary">
@@ -192,6 +260,85 @@ function FinishSetupSteps({ applicationId }: { applicationId: string }) {
         </p>
       </div>
     </div>
+  );
+}
+
+function getFinishStep(index: number): FinishStepDefinition {
+  if (index === 0) return CLI_FINISH_STEP;
+  if (index === 1) return SDK_FINISH_STEP;
+  return DRY_RUN_FINISH_STEP;
+}
+
+function getOptionalFinishStep(index: number): FinishStepDefinition | undefined {
+  if (index === 0) return CLI_FINISH_STEP;
+  if (index === 1) return SDK_FINISH_STEP;
+  if (index === 2) return DRY_RUN_FINISH_STEP;
+  return undefined;
+}
+
+function FinishSetupStepper({
+  currentIndex,
+  completedStepCount,
+  stepDone,
+  firstIncompleteIndex,
+  onSelect,
+}: {
+  currentIndex: number;
+  completedStepCount: number;
+  stepDone: boolean[];
+  firstIncompleteIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <section className="mb-6 border border-border-dim bg-surface-base">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-dim bg-surface-raised px-5 py-3">
+        <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Finish setup</h2>
+        <span className="font-mono text-2xs uppercase tracking-widest text-primary-ink">
+          {completedStepCount}/{FINISH_STEPS.length} complete
+        </span>
+      </div>
+      <div className="grid gap-px bg-border-dim md:grid-cols-3">
+        {FINISH_STEPS.map((step, index) => {
+          const active = index === currentIndex;
+          const complete = stepDone[index] === true;
+          const enabled = complete || active || index === firstIncompleteIndex;
+          return (
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => onSelect(index)}
+              disabled={!enabled}
+              className={cn(
+                "flex min-h-20 items-start gap-3 bg-surface-base px-4 py-4 text-left transition-colors hover:bg-surface-raised",
+                active && "bg-primary-ink/10",
+                !enabled && "cursor-not-allowed opacity-45 hover:bg-surface-base",
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 flex size-6 shrink-0 items-center justify-center border font-mono text-3xs",
+                  complete
+                    ? "border-primary-ink bg-primary-ink text-surface-void"
+                    : active
+                      ? "border-primary-ink text-primary-ink"
+                      : "border-border-mid text-text-secondary",
+                )}
+              >
+                {complete ? <CheckIcon size={12} weight="bold" /> : index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className={cn("block text-sm font-medium", active ? "text-text-primary" : "text-text-secondary")}>
+                  {step.stepperLabel}
+                </span>
+                <span className="mt-1 block font-mono text-3xs uppercase tracking-widest text-text-secondary">
+                  {step.title}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -211,75 +358,6 @@ function DocLink({ href, children }: { href: string; children: ReactNode }) {
 function Code({ children }: { children: ReactNode }) {
   return (
     <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-2xs text-primary-ink">{children}</code>
-  );
-}
-
-function Step({
-  index,
-  done,
-  active,
-  title,
-  description,
-  isLast,
-  children,
-}: {
-  index: number;
-  done: boolean;
-  active: boolean;
-  title: string;
-  description: ReactNode;
-  isLast?: boolean;
-  children: ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(active);
-  useEffect(() => {
-    setExpanded(active);
-  }, [active]);
-
-  return (
-    <div className="flex gap-4">
-      <div className="flex flex-col items-center">
-        <div
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-full border font-mono text-xs font-bold transition-colors",
-            done
-              ? "border-primary-ink bg-primary-ink text-surface-void"
-              : "border-border-mid bg-surface-base text-text-secondary",
-          )}
-        >
-          {done ? <CheckIcon size={15} weight="bold" /> : index}
-        </div>
-        {!isLast && <div className="my-1 w-px flex-1 bg-border-dim" />}
-      </div>
-      <div className={cn("flex-1", expanded && !isLast ? "pb-10" : "pb-6")}>
-        <button
-          type="button"
-          onClick={() => setExpanded((prev) => !prev)}
-          aria-expanded={expanded}
-          className="group flex w-full items-center gap-2 text-left"
-        >
-          <h2 className="text-lg font-medium text-text-primary">{title}</h2>
-          <CaretDownIcon
-            size={14}
-            className={cn(
-              "text-text-secondary transition-transform group-hover:text-text-primary",
-              expanded ? "" : "-rotate-90",
-            )}
-          />
-        </button>
-        <div
-          className={cn(
-            "grid transition-[grid-template-rows] duration-300 ease-in-out",
-            expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-          )}
-        >
-          <div className="overflow-hidden">
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">{description}</p>
-            <div className="mt-5">{children}</div>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
