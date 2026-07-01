@@ -13,6 +13,8 @@ export {
     cancelInvestigationJob,
     type TriggerInvestigationJobParams,
     triggerInvestigationJob,
+    type TriggerInvestigationMergeJobParams,
+    triggerInvestigationMergeJob,
 } from "./triggers/investigation";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";

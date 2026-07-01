@@ -37,3 +37,19 @@ export { selectAffectedTests } from "./select/select-tests";
 export type { SelectContext } from "./select/select-tests";
 export { buildSelectorTools } from "./select/tools";
 export type { SelectorDeps } from "./select/dependencies";
+export { EditPersister } from "./persist/edit-persister";
+export type {
+    TestModification,
+    NewTestProposal,
+    PersistedEdit,
+    SkippedEdit,
+    PersistEditsResult,
+} from "./persist/edit-persister";
+export { MergeInputsReader } from "./merge/merge-inputs";
+export type { BranchEdit, MainSuiteEntry, MergeInputs } from "./merge/merge-inputs";
+export { reconcileMerge } from "./merge/reconcile-merge";
+export type { ReconcileMergeDeps } from "./merge/reconcile-merge";
+export type { MergePlan, MergeDecision } from "./merge/schema";
+export { MergeApplier } from "./merge/merge-applier";
+export type { MergeApplyResult } from "./merge/merge-applier";
+export { MERGE_RECONCILER_SYSTEM_PROMPT, buildMergePrompt } from "./merge/prompt";

@@ -96,6 +96,32 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
         await validateProposals(snapshotId, selection.suggested, results);
     }
 
+    // Persist the agent's add/modify edits onto the (detached) investigation snapshot - a proposed suite the
+    // merge-with-main step later reconciles into main. Writes only to the twin, never touching the diffs suite.
+    // Prefer the validate->edit->retry result (finalPlan) over the raw proposal when validation ran.
+    const modifications = results.flatMap((result) => {
+        const update = result.modificationValidation?.finalPlan ?? result.verdict?.suggestedTestUpdate;
+        return update != null && update !== "" ? [{ slug: result.slug, plan: update }] : [];
+    });
+    const newTests = selection.suggested.map((suggestion) => ({
+        name: suggestion.name,
+        description: suggestion.description,
+        plan: suggestion.validation?.finalPlan ?? suggestion.instruction,
+    }));
+    // Contained like runOneTest: a persist failure must never sink the report (the workflow's invariant).
+    try {
+        const persisted = await investigation.persistInvestigationEdits({ snapshotId, modifications, newTests });
+        log.info("Investigation edits persisted", {
+            ...ids,
+            extra: { persisted: persisted.persistedCount, skipped: persisted.skipped.length },
+        });
+    } catch (error) {
+        log.error("Investigation persist failed; continuing to report", {
+            ...ids,
+            extra: { message: rootFailureMessage(error) },
+        });
+    }
+
     const report = await investigation.writeInvestigationReport({
         snapshotId,
         results,

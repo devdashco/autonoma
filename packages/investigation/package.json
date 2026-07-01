@@ -19,6 +19,7 @@
         "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/storage": "workspace:*",
+        "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@aws-sdk/client-secrets-manager": "^3.1048.0",
         "@t3-oss/env-core": "catalog:",
@@ -28,7 +29,6 @@
     },
     "devDependencies": {
         "@autonoma/integration-test": "workspace:*",
-        "@autonoma/test-updates": "workspace:*",
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "dotenv": "catalog:",

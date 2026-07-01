@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
+import { planSummary } from "../plan-summary";
 
 /** A test case as the selector sees it (to decide which tests a diff affects). */
 export interface TestCaseInfo {
@@ -7,15 +8,6 @@ export interface TestCaseInfo {
     flow: string;
     /** A one-line summary from the plan frontmatter (description/intent) - the progressive-disclosure layer. */
     description: string;
-}
-
-/** Pull a one-line summary from a test plan's YAML frontmatter (description + intent), for the catalog view. */
-function planSummary(prompt: string | undefined): string {
-    if (prompt == null) return "(no plan)";
-    const description = prompt.match(/^description:\s*["']?(.+?)["']?\s*$/m)?.[1];
-    const intent = prompt.match(/^intent:\s*["']?(.+?)["']?\s*$/m)?.[1];
-    const summary = [description, intent].filter((part) => part != null && part !== "").join(" - ");
-    return summary !== "" ? summary : "(no description)";
 }
 
 /** Reads an application's test catalog + plans. Replaces the prototype's raw psql test-metadata queries. */

@@ -4,6 +4,7 @@ import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
+import { investigationMergeTriggerService } from "../investigation/investigation-merge-service";
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { buildGitHubApp } from "./github-app";
@@ -203,6 +204,7 @@ async function dispatchWebhookEvent(
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
+            await startInvestigationMerge(organizationId, payload);
             return;
         case "push":
             await startMainBranchPushDeploy(organizationId, payload);
@@ -231,6 +233,16 @@ async function startPullRequestDeploy(
         return;
     }
     await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+}
+
+/**
+ * Merge-with-main path for pull_request.closed: when the PR merged, reconcile its investigation twin's edits
+ * into main. Gated on the same shadow flag as the rest of the investigation agent; the service itself no-ops
+ * when the PR did not merge or has no twin.
+ */
+async function startInvestigationMerge(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+    if (!env.INVESTIGATION_SHADOW_ENABLED) return;
+    await investigationMergeTriggerService.onPullRequestClosed(organizationId, payload);
 }
 
 /** Teardown path for pull_request.closed; same previews-enabled gate as the deploy path. */

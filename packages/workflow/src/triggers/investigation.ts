@@ -9,6 +9,38 @@ export interface TriggerInvestigationJobParams {
     snapshotId: string;
 }
 
+export interface TriggerInvestigationMergeJobParams {
+    twinSnapshotId: string;
+    mainSnapshotId: string;
+    mainBranchId: string;
+    organizationId: string;
+}
+
+/**
+ * Start the merge-with-main workflow for a merged PR's investigation twin. The workflow id is idempotent
+ * (`investigation-merge-<twinSnapshotId>`) so a re-delivered merge webhook is rejected rather than double-applied.
+ */
+export async function triggerInvestigationMergeJob(params: TriggerInvestigationMergeJobParams): Promise<void> {
+    const { twinSnapshotId, mainSnapshotId, mainBranchId, organizationId } = params;
+
+    return await withObservabilityContext({ snapshot: { snapshotId: twinSnapshotId } }, async () => {
+        logger.info("Triggering investigation merge workflow", { extra: { mainSnapshotId } });
+
+        const client = await getTemporalClient();
+        const workflowId = `investigation-merge-${twinSnapshotId}`;
+
+        await client.workflow.start(WORKFLOW_TYPE.INVESTIGATION_MERGE, {
+            workflowId,
+            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
+            taskQueue: TaskQueue.INVESTIGATION,
+            searchAttributes: getWorkflowSearchAttributes(),
+            args: [{ twinSnapshotId, mainSnapshotId, mainBranchId, organizationId }],
+        });
+
+        logger.info("Investigation merge workflow started", { workflowId });
+    });
+}
+
 /**
  * Start the shadow investigation workflow for a snapshot. Runs in PARALLEL with the diffs job; the workflow
  * id is idempotent (`investigation-<snapshotId>`) so a duplicate trigger is rejected rather than re-run.

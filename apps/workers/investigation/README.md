@@ -21,8 +21,13 @@ happen on the existing `web` worker via the generation activity.
 - `selectInvestigationTests` - clone + `selectAffectedTests` + create shadow generations.
 - `classifyInvestigationRun` - load the generation + media (S3), clone, wire `classifyRun`'s dependencies.
 - `writeInvestigationReport` - `DeployedComparison` + `buildReportMarkdown` -> S3.
+- `persistInvestigationEdits` - write the agent's add/modify edits onto the twin snapshot (`EditPersister`).
+- `mergeInvestigationEdits` - after a PR merges, reconcile the twin's edits into main and apply the accepted
+  ones onto a detached main-proposal snapshot (`MergeInputsReader` + `reconcileMerge` + `MergeApplier`).
 
-All three live in `src/activities/` and satisfy `InvestigationActivities` from `@autonoma/workflow/activities`.
+All live in `src/activities/` and satisfy `InvestigationActivities` from `@autonoma/workflow/activities`. The
+merge activity runs under the `investigationMergeWorkflow`, triggered by the API on `pull_request.closed`
+(merged) behind `INVESTIGATION_SHADOW_ENABLED`.
 
 ## Trigger
 

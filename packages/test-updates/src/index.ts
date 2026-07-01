@@ -3,6 +3,7 @@ export type { GenerationProvider, PendingGeneration } from "./generation/generat
 export { FakeGenerationProvider } from "./generation/fake-generation-provider";
 export { TemporalGenerationProvider } from "./generation/temporal-generation-provider";
 export {
+    SnapshotDraft,
     SnapshotNotPendingError,
     BranchAlreadyHasPendingSnapshotError,
     ApplicationNotFoundError,

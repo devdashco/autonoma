@@ -10,6 +10,8 @@ export type AffectedTestSelection = z.infer<typeof AffectedTestSelection>;
 /** A NEW test the agent proposes for behavior the diff introduced that no existing test covers. */
 export const SuggestedTest = z.object({
     name: z.string(),
+    /** A one-line, falsifiable behavioral claim - the test case's immutable description (what it proves). */
+    description: z.string(),
     /** A full E2E plan (Setup / Steps / Verification) following the platform test guardrails. */
     instruction: z.string(),
     reasoning: z.string(),

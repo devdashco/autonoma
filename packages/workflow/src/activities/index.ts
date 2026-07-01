@@ -73,5 +73,12 @@ export type {
     CreateValidationGenerationOutput,
     WriteInvestigationReportInput,
     WriteInvestigationReportOutput,
+    InvestigationTestModification,
+    InvestigationNewTest,
+    PersistInvestigationEditsInput,
+    PersistInvestigationEditsOutput,
+    MergeInvestigationEditsInput,
+    MergeInvestigationEditsOutput,
+    InvestigationMergeDecision,
 } from "./investigation-activities";
 export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";

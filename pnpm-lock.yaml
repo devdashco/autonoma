@@ -1718,6 +1718,9 @@ importers:
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../storage
+      '@autonoma/test-updates':
+        specifier: workspace:*
+        version: link:../test-updates
       '@autonoma/types':
         specifier: workspace:*
         version: link:../types
@@ -1740,9 +1743,6 @@ importers:
       '@autonoma/integration-test':
         specifier: workspace:*
         version: link:../integration-test
-      '@autonoma/test-updates':
-        specifier: workspace:*
-        version: link:../test-updates
       '@testcontainers/postgresql':
         specifier: ^11.12.0
         version: 11.12.0

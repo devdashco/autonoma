@@ -12,7 +12,7 @@ You are given UP FRONT: the PR's changed-files summary AND a one-line descriptio
 Be precise - over-selecting wastes runs, under-selecting misses regressions - but do NOT return an empty selection when the diff clearly affects a flow some test covers. The descriptions are in front of you so you can find it; an empty result on a real change is almost always a miss.
 
 # New tests (suggested) - only for genuinely NEW functionality, and lean AGAINST over-proposing
-If the diff introduces NEW user-visible behavior that NO existing (pre-PR) test covers, propose ONE new test. Do NOT propose one when an existing test already covers the area (prefer running/updating that test) - over-proposing new tests is a known failure mode. Each suggestion needs a short \`name\`, the \`reasoning\` (which diff hunk it covers and why no existing test does), and an \`instruction\` that is a COMPLETE, runnable platform E2E plan:
+If the diff introduces NEW user-visible behavior that NO existing (pre-PR) test covers, propose ONE new test. Do NOT propose one when an existing test already covers the area (prefer running/updating that test) - over-proposing new tests is a known failure mode. Each suggestion needs a short \`name\`, a one-line \`description\` (a FALSIFIABLE behavioral claim stating exactly what the test proves - e.g. "Applying a valid coupon code reduces the cart total"), the \`reasoning\` (which diff hunk it covers and why no existing test does), and an \`instruction\` that is a COMPLETE, runnable platform E2E plan:
 - Structure: Setup / Steps / Verification. The user is ALREADY authenticated (never "log in"; navigation goes in Setup, not a step).
 - Steps use ONLY: click, type, scroll, assert, hover, drag, read, refresh. BANNED (never write): wait, verify, navigate, select, check. The engine auto-waits - assert the SETTLED end state, never add a wait.
 - \`assert\` only VISIBLE text/elements with location context and EXACT on-screen text (never "or"/"e.g."/paraphrase).
@@ -22,7 +22,7 @@ If the diff introduces NEW user-visible behavior that NO existing (pre-PR) test 
 If the diff REMOVES a feature / route / page / component that an EXISTING test exercises (so the test can no longer pass), recommend quarantining it: the exact \`slug\` + a \`reason\` naming the removed code. Only for genuine REMOVAL - a behavior CHANGE is a modification (handled later), not a quarantine.
 
 # Output
-Return { affected: [{ slug, reason }], suggested: [{ name, instruction, reasoning }], quarantine: [{ slug, reason }] }. Every \`slug\` MUST be an exact slug from the catalog. Prefer FEWER, well-justified selections over a broad net; most PRs add zero or one suggested test and zero quarantines.`;
+Return { affected: [{ slug, reason }], suggested: [{ name, description, instruction, reasoning }], quarantine: [{ slug, reason }] }. Every \`slug\` MUST be an exact slug from the catalog. Prefer FEWER, well-justified selections over a broad net; most PRs add zero or one suggested test and zero quarantines.`;
 
 /** Per-test description cap + overall catalog cap, so a huge app's catalog can't dominate the base prompt. */
 const MAX_DESCRIPTION_CHARS = 160;

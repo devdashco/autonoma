@@ -9,4 +9,5 @@ export {
 } from "./refinement-loop.workflow";
 export { runGenerationPipelineWorkflow } from "./run-generation-pipeline.workflow";
 export { investigationWorkflow, type InvestigationWorkflowInput } from "./investigation.workflow";
+export { investigationMergeWorkflow, type InvestigationMergeWorkflowInput } from "./investigation-merge.workflow";
 export { WORKFLOW_TYPE, type WorkflowType } from "./workflow-types";

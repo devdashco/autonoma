@@ -5,13 +5,16 @@
  *   tsx --env-file=/tmp/investigation-local.env scripts/run-activity.ts select   <snapshotId>
  *   tsx --env-file=/tmp/investigation-local.env scripts/run-activity.ts classify <snapshotId> <slug> <reason> <testGenerationId>
  *   tsx --env-file=/tmp/investigation-local.env scripts/run-activity.ts report   <snapshotId>
+ *   tsx --env-file=/tmp/investigation-local.env scripts/run-activity.ts merge    <twinSnapshotId> <mainSnapshotId> <mainBranchId> <organizationId>
  *
  * `classify` against an EXISTING generation that already ran (has a video) exercises the whole classifier
- * without needing the web worker.
+ * without needing the web worker. `merge` reconciles a twin's persisted edits into main - run it after a
+ * `select`+persist has populated the twin.
  */
 import { readFile } from "node:fs/promises";
 import type { InvestigationTestResult } from "@autonoma/workflow/activities";
 import { classifyInvestigationRun } from "../src/activities/classify-run";
+import { mergeInvestigationEdits } from "../src/activities/merge-edits";
 import { selectInvestigationTests } from "../src/activities/select-tests";
 import { writeInvestigationReport } from "../src/activities/write-report";
 
@@ -55,7 +58,17 @@ async function main(): Promise<void> {
         console.log(JSON.stringify(result, null, 2));
         return;
     }
-    throw new Error("usage: run-activity.ts <select|classify|report [resultsJsonFile]> <args...>");
+    if (mode === "merge") {
+        const result = await mergeInvestigationEdits({
+            twinSnapshotId: arg(rest, 0, "twinSnapshotId"),
+            mainSnapshotId: arg(rest, 1, "mainSnapshotId"),
+            mainBranchId: arg(rest, 2, "mainBranchId"),
+            organizationId: arg(rest, 3, "organizationId"),
+        });
+        console.log(JSON.stringify(result, null, 2));
+        return;
+    }
+    throw new Error("usage: run-activity.ts <select|classify|report [resultsJsonFile]|merge> <args...>");
 }
 
 main()

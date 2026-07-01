@@ -2,6 +2,8 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { InvestigationActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
+import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
+import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
 import { selectInvestigationTests as selectImpl } from "./select-tests";
 import { createValidationGeneration as createValidationImpl } from "./validate-proposal";
 import { writeInvestigationReport as writeReportImpl } from "./write-report";
@@ -37,6 +39,11 @@ export const selectInvestigationTests = withHeartbeat(selectImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 export const writeInvestigationReport = withHeartbeat(writeReportImpl);
 export const createValidationGeneration = withHeartbeat(createValidationImpl);
+// Loops over every modification + new test (bounded only by the affected-tests count), so heartbeat it like
+// the other activities to stay well under the 2m heartbeat timeout on a large PR.
+export const persistInvestigationEdits = withHeartbeat(persistEditsImpl);
+// DB reads + one structured reconcile call; heartbeat it so a slow model call does not trip the 2m timeout.
+export const mergeInvestigationEdits = withHeartbeat(mergeEditsImpl);
 
 /** Compile-time guarantee that the exported activities satisfy the workflow's activity contract. */
 const _activities: InvestigationActivities = {
@@ -44,5 +51,7 @@ const _activities: InvestigationActivities = {
     classifyInvestigationRun,
     writeInvestigationReport,
     createValidationGeneration,
+    persistInvestigationEdits,
+    mergeInvestigationEdits,
 };
 void _activities;

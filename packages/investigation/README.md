@@ -38,6 +38,13 @@ src/
   select/
     schema.ts · prompt.ts · dependencies.ts · tools.ts
     select-tests.ts             selectAffectedTests - pick the tests a diff affects
+  persist/
+    edit-persister.ts           EditPersister  - write the agent's add/modify edits onto the twin snapshot
+  merge/
+    merge-inputs.ts             MergeInputsReader - derive the twin's edits (vs its baseline) + main's suite
+    schema.ts · prompt.ts       the reconcile MergePlan schema + the reconciler prompt (generic)
+    reconcile-merge.ts          reconcileMerge - one structured pass: apply / merge / skip each edit into main
+    merge-applier.ts            MergeApplier   - apply accepted edits onto a detached main-proposal snapshot
   report/markdown.ts            buildReportMarkdown - the S3 report (verdicts + deployed comparison)
 ```
 

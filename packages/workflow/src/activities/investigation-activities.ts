@@ -16,6 +16,8 @@ export interface SelectInvestigationTestsInput {
 /** A NEW test the agent proposes for brand-new functionality (a full E2E plan, following the guardrails). */
 export interface SuggestedNewTest {
     name: string;
+    /** A one-line falsifiable behavioral claim - the test case's immutable description when persisted. */
+    description: string;
     instruction: string;
     reasoning: string;
     /** Validation outcome once the proposed test has been run (Objective 2c); absent until then. */
@@ -127,10 +129,71 @@ export interface WriteInvestigationReportOutput {
     reportUrl: string;
 }
 
+// --- Persist add/modify edits onto the investigation snapshot (a proposed suite the merge-with-main step
+// later reconciles into main). Persist-only: no generations are queued here.
+
+/** An existing test to repoint to a revised plan on the investigation snapshot. */
+export interface InvestigationTestModification {
+    slug: string;
+    plan: string;
+}
+
+/** A brand-new test to add to the investigation snapshot. */
+export interface InvestigationNewTest {
+    name: string;
+    description: string;
+    plan: string;
+}
+
+export interface PersistInvestigationEditsInput {
+    snapshotId: string;
+    modifications: InvestigationTestModification[];
+    newTests: InvestigationNewTest[];
+}
+
+export interface PersistInvestigationEditsOutput {
+    /** How many edits were written (0 when nothing applied). */
+    persistedCount: number;
+    /** Edits that could not be applied, with reasons (never thrown). */
+    skipped: { kind: string; ref: string; reason: string }[];
+}
+
+// --- Merge-with-main: after a PR merges, reconcile the branch twin's proposed edits into main's current
+// suite (which other merges may have moved) and apply the accepted ones onto a detached main-proposal
+// snapshot. Shadow-safe: never touches the real (diffs) main suite.
+
+export interface MergeInvestigationEditsInput {
+    /** The branch's investigation twin snapshot (holds the proposed edits). */
+    twinSnapshotId: string;
+    /** Main's current active snapshot - the suite to reconcile into. */
+    mainSnapshotId: string;
+    /** The main branch, whose active suite the proposal snapshot is cloned from. */
+    mainBranchId: string;
+    organizationId: string;
+}
+
+/** One reconciliation decision, carried out to the report/PR comment. */
+export interface InvestigationMergeDecision {
+    kind: string;
+    ref: string;
+    action: string;
+    reason: string;
+}
+
+export interface MergeInvestigationEditsOutput {
+    /** The detached main-proposal snapshot the accepted edits landed on, or undefined when nothing was applied. */
+    mainProposalSnapshotId?: string;
+    appliedCount: number;
+    skippedCount: number;
+    decisions: InvestigationMergeDecision[];
+}
+
 /** The activities run by the investigation worker (the INVESTIGATION task queue). */
 export interface InvestigationActivities {
     selectInvestigationTests(input: SelectInvestigationTestsInput): Promise<SelectInvestigationTestsOutput>;
     classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;
     createValidationGeneration(input: CreateValidationGenerationInput): Promise<CreateValidationGenerationOutput>;
+    persistInvestigationEdits(input: PersistInvestigationEditsInput): Promise<PersistInvestigationEditsOutput>;
+    mergeInvestigationEdits(input: MergeInvestigationEditsInput): Promise<MergeInvestigationEditsOutput>;
 }
