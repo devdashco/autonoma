@@ -13,7 +13,8 @@
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
-        "test": "vitest run --passWithNoTests"
+        "test": "vitest run --passWithNoTests",
+        "eval": "vitest run --config vitest.eval.config.ts --passWithNoTests"
     },
     "dependencies": {
         "@11ty/gray-matter": "^2.1.0",
