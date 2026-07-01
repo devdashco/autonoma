@@ -8,6 +8,7 @@ import type {
     WebActivities,
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
+import { scenarioSetupFailureResult } from "../scenario-setup-failure";
 import { TaskQueue } from "../task-queues";
 
 /** Max validate->edit->retry passes for a single proposed/modified plan before giving up. */
@@ -253,17 +254,39 @@ async function validatePlan(
 
 /** Run + classify a single shadow test. A failed generation is still classified - that's the signal we want. */
 async function runOneTest(snapshotId: string, test: InvestigationSelectedTest): Promise<InvestigationTestResult> {
-    let scenarioInstanceId: string | undefined;
-    try {
-        if (test.scenarioId != null) {
+    // Mirror the diffs generation path: if `scenario up` fails, the environment was never provisioned, so skip
+    // the browser AND the classifier entirely and report a categorized provisioning failure. Running the
+    // classifier here would clone + call the model against a test that never executed and, because it produces
+    // no verdict, the report would mislabel the SDK error as a `classification_error`.
+    if (test.scenarioId != null) {
+        let scenarioInstanceId: string;
+        try {
             const up = await general.scenarioUp({
                 scenarioJobType: "generation",
                 entityId: test.testGenerationId,
                 scenarioId: test.scenarioId,
             });
             scenarioInstanceId = up.scenarioInstanceId;
+        } catch (error) {
+            const message = rootFailureMessage(error);
+            log.warn("Scenario setup failed; skipping the run and classifier for this test", {
+                snapshot: { snapshotId },
+                extra: { slug: test.slug, message },
+            });
+            return scenarioSetupFailureResult({ slug: test.slug, message });
         }
+        return await runAndClassify(snapshotId, test, scenarioInstanceId);
+    }
+    return await runAndClassify(snapshotId, test, undefined);
+}
 
+/** Run the shadow generation, classify the outcome, and always tear the scenario down afterwards. */
+async function runAndClassify(
+    snapshotId: string,
+    test: InvestigationSelectedTest,
+    scenarioInstanceId: string | undefined,
+): Promise<InvestigationTestResult> {
+    try {
         try {
             await web.runWebGeneration({ testGenerationId: test.testGenerationId });
         } catch (error) {

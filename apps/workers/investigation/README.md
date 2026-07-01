@@ -12,7 +12,10 @@ happen on the existing `web` worker via the generation activity.
    for each affected runnable test.
 2. For each test: **scenarioUp** (general queue) -> **runWebGeneration** (web queue) -> **classifyInvestigationRun**
    (here) -> **scenarioDown** (general queue). A single test's failure is contained; a failed generation is
-   still classified (that's the signal).
+   still classified (that's the signal). If **scenarioUp** fails, the environment was never provisioned, so the
+   workflow skips the browser AND the classifier and records a categorized provisioning failure
+   (`environment_failure` for a missing/unreachable preview, `scenario_issue` for a seeding error) - mirroring
+   the diffs generation path. This keeps `scenario up` failures out of the `classification_error` bucket.
 3. **writeInvestigationReport** (here) - build the markdown (verdicts + the deployed-agent comparison) and
    upload it to S3.
 4. **postInvestigationPrComment** (here) - post the results as a single, self-updating PR comment
