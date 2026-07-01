@@ -21,8 +21,8 @@ export interface SnapshotHealthCounts {
 /**
  * Engine-vs-app attribution of failing tests that carry a linked Issue, keyed by
  * the Issue kind (`engine_limitation` -> engine; `application_bug` /
- * `unknown_issue` -> app). Replaces the former quarantine split now that reported
- * tests re-run every snapshot instead of being hidden.
+ * `unknown_issue` -> app). Reported tests re-run every snapshot and surface here
+ * as failures instead of being hidden.
  */
 export interface FailingByKind {
     engine: number;

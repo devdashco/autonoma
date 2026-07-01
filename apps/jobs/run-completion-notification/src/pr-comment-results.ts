@@ -6,7 +6,6 @@ export type CommentTestGenerationForResult = {
 
 export type CommentTestAssignmentForResult = {
     testCaseId: string;
-    quarantineIssueId: string | null;
     runs: Array<{
         status: string;
         startedAt: Date | null;
@@ -27,7 +26,6 @@ export function collectTestStatsForComment({
     testGenerations: CommentTestGenerationForResult[];
     testCaseAssignments: CommentTestAssignmentForResult[];
 }): CommentTestStats {
-    const activeAssignments = testCaseAssignments.filter((assignment) => assignment.quarantineIssueId == null);
     const latestGenerationByTestCaseId = new Map<string, CommentTestGenerationForResult>();
     const latestRunByTestCaseId = new Map<string, CommentTestAssignmentForResult["runs"][number]>();
 
@@ -39,7 +37,7 @@ export function collectTestStatsForComment({
         }
     }
 
-    for (const assignment of activeAssignments) {
+    for (const assignment of testCaseAssignments) {
         for (const run of assignment.runs) {
             const existing = latestRunByTestCaseId.get(assignment.testCaseId);
             if (existing == null || timeOf(run) > timeOf(existing)) {
@@ -55,7 +53,7 @@ export function collectTestStatsForComment({
     let passed = 0;
     let failed = 0;
 
-    for (const assignment of activeAssignments) {
+    for (const assignment of testCaseAssignments) {
         const run = latestRunByTestCaseId.get(assignment.testCaseId);
         if (run != null) {
             if (run.status === "success") passed += 1;

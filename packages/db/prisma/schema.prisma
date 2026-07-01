@@ -653,9 +653,10 @@ model TestCaseAssignment {
   stepsId String?        @map("steps_id")
   steps   StepInputList? @relation(fields: [stepsId], references: [id])
 
-  // The test is quarantined iff `quarantineIssue` is set. The Issue's `kind`
-  // is the reason; if it links a Bug, that's the source bug. Deleting the
-  // Issue un-quarantines the test (the FK goes null, the assignment stays).
+  // DEPRECATED / UNUSED. The quarantine skip was removed: reported tests now
+  // re-run every snapshot instead of being excluded via this flag. No code reads
+  // or writes this column anymore. It is kept nullable and abandoned in place (no
+  // DROP COLUMN) so existing rows and the foreign key stay untouched.
   quarantineIssueId String? @map("quarantine_issue_id")
   quarantineIssue   Issue?  @relation(fields: [quarantineIssueId], references: [id], onDelete: SetNull)
 

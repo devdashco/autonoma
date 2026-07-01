@@ -110,7 +110,7 @@ describe("classifyTestsForMerge", () => {
             });
         });
 
-        it("case C: quarantine on source, main modified (quarantine_vs_edit collapsed in Phase 1)", () => {
+        it("case C: source lacks the test, main modified (absent_vs_edit collapsed in Phase 1)", () => {
             const result = classifyOne({
                 slug: "a",
                 target: ref("t1", "plan-main2"),
@@ -124,7 +124,7 @@ describe("classifyTestsForMerge", () => {
             expect(result.versions.some((v) => v.role === "source")).toBe(false);
         });
 
-        it("case C: source modified, main quarantined the test (target planId=null)", () => {
+        it("case C: source modified, main has no plan for the test (target planId=null)", () => {
             const result = classifyOne({
                 slug: "a",
                 target: ref("t1", null),

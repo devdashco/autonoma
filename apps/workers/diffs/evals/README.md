@@ -144,10 +144,10 @@ channels:
   `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
   `report_engine_limitation`, and a suspected-but-ungroundable issue is
   `report_unknown_issue`.
-- `provenance` grades the **remove-vs-quarantine rule**. It is keyed by failing test
+- `provenance` grades the **remove-vs-keep rule**. It is keyed by failing test
   case and is semantic rather than kind-exact: `removed` means an invalid test authored *this*
-  snapshot must be `remove_test`-ed, and `quarantined` means a *pre-existing* failing
-  test must be kept under any quarantine action and never deleted.
+  snapshot must be `remove_test`-ed, and `kept` means a *pre-existing* failing
+  test must be kept under any keep action and never deleted.
 
 ```yaml
 ---
@@ -157,9 +157,9 @@ expectedActions:                  # subset of failing test cases whose action ki
     tc-abc: update_plan           # the kind the agent must emit for this test case
     tc-def: report_bug
     tc-ghi: remove_test
-provenance:                       # subset of the failing test cases; remove-vs-quarantine rule
+provenance:                       # subset of the failing test cases; remove-vs-keep rule
     tc-ghi: removed               # invalid new test -> remove_test (its failure must cite a review)
-    tc-def: quarantined           # pre-existing failing test -> kept, never remove_test
+    tc-def: kept                  # pre-existing failing test -> kept, never remove_test
 ---
 Free-text judge rubric. Grade qualities the deterministic checks cannot:
     - For each update_plan: does the newPrompt actually address the cited failure?

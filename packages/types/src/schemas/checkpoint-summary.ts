@@ -30,7 +30,7 @@ export type CheckpointTestCounts = z.infer<typeof checkpointTestCountsSchema>;
 
 // Engine-vs-app attribution of failing tests that have a linked Issue: an
 // `engine_limitation` Issue counts as engine, `application_bug` / `unknown_issue`
-// as app. Replaces the former quarantine split now that reported tests re-run.
+// as app. Reported tests re-run every snapshot and surface here as failures.
 export const checkpointFailingByKindSchema = z.object({
     engine: z.number(),
     app: z.number(),

@@ -22,27 +22,17 @@ export async function fetchTestSuiteInfo(db: PrismaClient, snapshotId: string) {
                 },
             },
             steps: { select: { id: true, list: true } },
-            quarantineIssueId: true,
-            quarantineIssue: { select: { kind: true, bugId: true } },
         },
     });
 
     return {
-        testCases: testCaseAssignments.map(({ testCase, plan, steps, quarantineIssueId, quarantineIssue }) => ({
+        testCases: testCaseAssignments.map(({ testCase, plan, steps }) => ({
             id: testCase.id,
             slug: testCase.slug,
             name: testCase.name,
             folderId: testCase.folderId,
             plan,
             steps,
-            quarantine:
-                quarantineIssue != null
-                    ? {
-                          reason: quarantineIssue.kind,
-                          bugId: quarantineIssue.bugId ?? undefined,
-                          issueId: quarantineIssueId ?? undefined,
-                      }
-                    : undefined,
         })),
     };
 }

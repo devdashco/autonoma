@@ -191,8 +191,8 @@ cutoverSuite((test) => {
             runStatus: "failed",
         });
 
-        // An affected test that never got a run (e.g. quarantined) must be left
-        // out of the seed - it has neither a generation nor a run.
+        // An affected test that never got a run must be left out of the seed - it
+        // has neither a generation nor a run.
         const noRun = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
         await harness.createAffectedTest({ organizationId, snapshotId, testCaseId: noRun.testCaseId });
 
@@ -365,13 +365,12 @@ cutoverSuite((test) => {
         const bugCount = await harness.db.bug.count({ where: { applicationId } });
         expect(bugCount).toBe(0);
 
-        // The test is NOT excluded: report_* records the failure as an Issue but
-        // leaves the assignment in place so the test re-runs next snapshot.
-        const assignment = await harness.db.testCaseAssignment.findUniqueOrThrow({
+        // report_* records the failure as an Issue but leaves the assignment in
+        // place so the test re-runs next snapshot rather than being excluded.
+        await harness.db.testCaseAssignment.findUniqueOrThrow({
             where: { snapshotId_testCaseId: { snapshotId, testCaseId: subject.testCaseId } },
-            select: { quarantineIssueId: true },
+            select: { id: true },
         });
-        expect(assignment.quarantineIssueId).toBeNull();
     });
 
     test("a pending generation on the investigation twin does NOT trip the diffs loop's per-plan invariant", async ({

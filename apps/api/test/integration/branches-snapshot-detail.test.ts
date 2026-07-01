@@ -6,9 +6,7 @@ import type { APITestHarness } from "../harness";
 apiTestSuite({
     name: "branches.snapshotDetail",
     cases: (test) => {
-        test("returns executed test rows matching snapshot health counts, counting a formerly-quarantined test", async ({
-            harness,
-        }) => {
+        test("returns executed test rows matching snapshot health counts", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness);
             const olderRunTime = new Date("2026-01-01T10:00:00Z");
             const latestRunTime = new Date("2026-01-01T11:00:00Z");
@@ -26,9 +24,7 @@ apiTestSuite({
                 },
             });
             await createRun(harness, fixture.assignments.running.id, "running", latestRunTime);
-            // The formerly-quarantined assignment still carries the deprecated quarantineIssueId,
-            // but is no longer excluded: its run counts in the tally and appears in the rows.
-            await createRun(harness, fixture.assignments.quarantined.id, "success", latestRunTime);
+            await createRun(harness, fixture.assignments.extra.id, "success", latestRunTime);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
@@ -39,9 +35,9 @@ apiTestSuite({
                 totalTests: 4,
             });
             expect(detail.executedTests.map((row) => row.testCase.slug).sort()).toEqual([
+                "extra-check",
                 "failing-check",
                 "passing-check",
-                "quarantined-check",
                 "running-check",
             ]);
 
@@ -86,7 +82,7 @@ apiTestSuite({
             });
 
             // An application-bug failure: failed run -> review -> application_bug Issue.
-            const appRun = await createRun(harness, fixture.assignments.quarantined.id, "failed", at);
+            const appRun = await createRun(harness, fixture.assignments.extra.id, "failed", at);
             const appReview = await harness.db.runReview.create({
                 data: {
                     runId: appRun.id,
@@ -434,7 +430,7 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
         },
     });
 
-    const names = input.testNames ?? ["Passing check", "Failing check", "Running check", "Quarantined check"];
+    const names = input.testNames ?? ["Passing check", "Failing check", "Running check", "Extra check"];
     const assignments: Record<string, { id: string; testCaseId: string }> = {};
     for (const name of names) {
         const slug = name.toLowerCase().replaceAll(" ", "-");
@@ -454,23 +450,6 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
             },
         });
         assignments[slug.replace("-check", "")] = { id: assignment.id, testCaseId: testCase.id };
-    }
-
-    if (assignments.quarantined != null) {
-        const issue = await harness.db.issue.create({
-            data: {
-                kind: "engine_limitation",
-                severity: "low",
-                title: "Known automation issue",
-                description: "The test is intentionally quarantined.",
-                snapshotId: branch.activeSnapshotId,
-                organizationId: harness.organizationId,
-            },
-        });
-        await harness.db.testCaseAssignment.update({
-            where: { id: assignments.quarantined.id },
-            data: { quarantineIssueId: issue.id },
-        });
     }
 
     return {

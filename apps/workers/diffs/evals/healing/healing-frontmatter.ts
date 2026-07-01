@@ -12,10 +12,10 @@ const ACTION_KINDS = [
 
 const actionKindSchema = z.enum(ACTION_KINDS);
 
-/** The non-removal actions that quarantine a failing test rather than deleting it from the suite. */
-const QUARANTINE_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "report_unknown_issue"] as const;
+/** The non-removal actions that keep a failing test in the suite rather than deleting it. */
+const KEEP_KINDS = ["update_plan", "report_bug", "report_engine_limitation", "report_unknown_issue"] as const;
 
-const provenanceDispositionSchema = z.enum(["removed", "quarantined"]);
+const provenanceDispositionSchema = z.enum(["removed", "kept"]);
 
 /**
  * Deterministic checks for a Healing case.
@@ -29,16 +29,16 @@ const provenanceDispositionSchema = z.enum(["removed", "quarantined"]);
  * `report_engine_limitation`. Healing only heals and culls - it authors no
  * tests.
  *
- * `provenance` grades the remove-vs-quarantine rule. It is keyed by failing test
+ * `provenance` grades the remove-vs-keep rule. It is keyed by failing test
  * case and semantic rather than kind-exact:
  *   - `removed` - an invalid test authored *this* snapshot (or whose feature was
  *     deleted): the agent must `remove_test` it. Removal is failure-driven and
  *     citable - the runtime attaches a source review and rejects an uncitable
  *     removal - and `validateHealingCase` refuses a `removed` expectation whose
  *     failure carries no `reviewLink`, so a removal always cites a review.
- *   - `quarantined` - a *pre-existing* failing test, which is useful and must be
- *     kept: the agent must pick any quarantine action ({@link QUARANTINE_KINDS})
- *     and must NOT `remove_test` it. This does not pin which quarantine
+ *   - `kept` - a *pre-existing* failing test, which is useful and must be
+ *     kept: the agent must pick any keep action ({@link KEEP_KINDS})
+ *     and must NOT `remove_test` it. This does not pin which keep
  *     mechanism, only that the test is not deleted.
  *
  * Anything subtler (was the rewritten plan sensible? was the bug severity
@@ -88,9 +88,9 @@ function checkExpectedActions(result: HealingResult, expected: HealingFrontmatte
 }
 
 /**
- * Grade the remove-vs-quarantine rule per provenance-labelled test case. A
- * `removed` test must be deleted (`remove_test`); a `quarantined` test must be
- * kept under any quarantine action and never deleted.
+ * Grade the remove-vs-keep rule per provenance-labelled test case. A
+ * `removed` test must be deleted (`remove_test`); a `kept` test must be
+ * kept under any keep action and never deleted.
  */
 function checkProvenance(result: HealingResult, provenance: HealingFrontmatter["provenance"]): CheckFailure[] {
     if (provenance == null) return [];
@@ -116,10 +116,10 @@ function checkProvenance(result: HealingResult, provenance: HealingFrontmatter["
             continue;
         }
 
-        if (disposition === "quarantined" && action.kind === "remove_test") {
+        if (disposition === "kept" && action.kind === "remove_test") {
             failures.push({
                 check: `provenance.${testCaseId}`,
-                message: `expected the pre-existing failing test to be quarantined (${QUARANTINE_KINDS.join(" / ")}) but it was removed`,
+                message: `expected the pre-existing failing test to be kept (${KEEP_KINDS.join(" / ")}) but it was removed`,
             });
         }
     }

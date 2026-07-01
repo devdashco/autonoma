@@ -68,7 +68,7 @@ Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`
             prompt += `\n- **${c.slug}** (${c.testName}) - PRs involved: ${c.involvedPrNumbers.join(", ")}`;
             for (const v of c.versions) {
                 const origin = v.role === "source" ? `source ${v.sourceName ?? ""} (PR #${v.prNumber ?? "?"})` : v.role;
-                prompt += `\n    - ${origin}: assignment \`${v.assignmentId}\`, plan \`${v.planId ?? "<quarantined>"}\``;
+                prompt += `\n    - ${origin}: assignment \`${v.assignmentId}\`, plan \`${v.planId ?? "<none>"}\``;
             }
         }
     }

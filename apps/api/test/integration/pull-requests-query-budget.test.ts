@@ -24,7 +24,7 @@ const DETAIL_BY_PR_BUDGET = 2;
 // Measured constant cost is ~30 SQL statements (the nested-include reads expand to several
 // statements each under the pg driver adapter); the value does NOT grow with the number of tests in
 // the snapshot. The open-bug-count read lets the checkpoint summary separate real app bugs from
-// execution/quarantine state (countOpenBugsBySnapshot resolves its generationReview/runReview
+// execution state (countOpenBugsBySnapshot resolves its generationReview/runReview
 // relation chains as a couple of statements). Budget is current + headroom: a coarse net. The slope
 // assertion below is the precise N+1 guard. This cost is constant per call, but the PR overview
 // card multiplies it by the snapshot count.

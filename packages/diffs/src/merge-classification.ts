@@ -3,9 +3,8 @@ import { logger as rootLogger } from "@autonoma/logger";
 /**
  * Reference to a specific test case assignment: its row id plus the test plan
  * pointer it carries. A null `planId` represents a test without an active plan
- * at that leg - i.e. quarantined. Quarantine vs edit is intentionally not a
- * separate case in Phase 1; the classifier treats null like any other plan
- * pointer value.
+ * at that leg. A missing plan vs an edit is intentionally not a separate case in
+ * Phase 1; the classifier treats null like any other plan pointer value.
  */
 export interface AssignmentRef {
     assignmentId: string;
@@ -18,7 +17,7 @@ export interface AssignmentRef {
  * strategies, unlike the merge commit's parent SHA).
  *
  * - `leg` is the test's assignment in the pinned source snapshot, or null if
- *   the source did not have this test (e.g. quarantined or absent).
+ *   the source did not have this test (absent).
  * - `base` is the test's assignment in the source branch's merge-base
  *   snapshot (resolved from `branch.baseSnapshotId`, with the prev-snapshot
  *   fallback used by the PR diff view). Plays the role of the 3-way

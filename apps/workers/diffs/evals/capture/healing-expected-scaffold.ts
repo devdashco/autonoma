@@ -19,8 +19,7 @@ export function buildHealingExpected(
         expectedLines.length > 0 ? expectedLines.join("\n") : "#   (no failing test cases in this turn)";
 
     const provenanceLines = failures.map(
-        (f) =>
-            `#   ${f.testCaseId}: quarantined   # ${f.testCaseSlug} - removed (invalid new test) | quarantined (pre-existing)`,
+        (f) => `#   ${f.testCaseId}: kept   # ${f.testCaseSlug} - removed (invalid new test) | kept (pre-existing)`,
     );
     const provenanceBlock =
         provenanceLines.length > 0 ? provenanceLines.join("\n") : "#   (no failing test cases in this turn)";
@@ -36,10 +35,10 @@ skip: true
 # expectedActions:
 ${expectedBlock}
 #
-# provenance: grades the remove-vs-quarantine rule. Keys are a subset of the
+# provenance: grades the remove-vs-keep rule. Keys are a subset of the
 # failing test cases (only those whose disposition matters). Use \`removed\` for an
 # invalid test authored this snapshot (must be remove_test, and its failure must
-# carry a reviewLink) and \`quarantined\` for a pre-existing failing test (must NOT
+# carry a reviewLink) and \`kept\` for a pre-existing failing test (must NOT
 # be removed - any of update_plan / report_bug / report_engine_limitation /
 # report_unknown_issue).
 # provenance:

@@ -66,7 +66,6 @@ const generationForCommentSelect = {
             testCaseAssignments: {
                 select: {
                     testCaseId: true,
-                    quarantineIssueId: true,
                     runs: {
                         select: {
                             status: true,
@@ -126,7 +125,6 @@ type GenerationForComment = {
         }>;
         testCaseAssignments: Array<{
             testCaseId: string;
-            quarantineIssueId: string | null;
             runs: Array<{
                 status: string;
                 startedAt: Date | null;

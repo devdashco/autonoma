@@ -136,20 +136,20 @@ describe("healing provenance grader", () => {
         expect(failing.map((f) => f.check)).toEqual(["provenance.tc-1"]);
     });
 
-    it("accepts any quarantine action for a pre-existing failing test but rejects removal", () => {
-        // The rule is "kept, not deleted" - it does not pin which quarantine mechanism.
+    it("accepts any keep action for a pre-existing failing test but rejects removal", () => {
+        // The rule is "kept, not deleted" - it does not pin which keep mechanism.
         for (const action of [updatePlanAction("tc-1"), reportBugAction("tc-1"), reportUnknownIssueAction("tc-1")]) {
-            expect(checkHealingResult(healingResult([action]), { provenance: { "tc-1": "quarantined" } })).toEqual([]);
+            expect(checkHealingResult(healingResult([action]), { provenance: { "tc-1": "kept" } })).toEqual([]);
         }
 
         const removed = checkHealingResult(healingResult([removeAction("tc-1")]), {
-            provenance: { "tc-1": "quarantined" },
+            provenance: { "tc-1": "kept" },
         });
         expect(removed.map((f) => f.check)).toEqual(["provenance.tc-1"]);
     });
 
     it("flags a provenance test case the agent never acted on", () => {
-        const failures = checkHealingResult(healingResult([]), { provenance: { "tc-1": "quarantined" } });
+        const failures = checkHealingResult(healingResult([]), { provenance: { "tc-1": "kept" } });
         expect(failures.map((f) => f.check)).toEqual(["provenance.tc-1"]);
     });
 });
@@ -197,7 +197,7 @@ describe("validateHealingCase removal citability", () => {
         expect(() =>
             validateHealingCase(
                 healingCase([{ testCaseId: "tc-1", reviewLink: { runReviewId: "rr-1" } }], {
-                    provenance: { "tc-other": "quarantined" },
+                    provenance: { "tc-other": "kept" },
                 }),
             ),
         ).toThrow(/not in input.failures/);

@@ -49,7 +49,7 @@ function validateExpectedActions(testCase: HealingCase): void {
 /**
  * Every `provenance` key must be one of this turn's failing test cases. Unlike
  * `expectedActions` the keyset need not be exhaustive - provenance grades only
- * the test cases whose remove-vs-quarantine disposition matters - but a key for
+ * the test cases whose remove-vs-keep disposition matters - but a key for
  * a test case that did not fail this turn is an authoring mistake (the agent
  * could never act on it).
  */
@@ -75,7 +75,7 @@ function validateProvenance(testCase: HealingCase): void {
  * `reviewLink` is unrunnable: the agent cannot emit the removal and the case can
  * never pass. Catching it at load time is the in-repo enforcement of "no
  * remove_test case lacks a cited review"; the fix is to re-capture against a
- * failure that surfaced a review, or to expect a quarantine instead.
+ * failure that surfaced a review, or to expect a keep action instead.
  */
 function validateRemovalsAreCitable(testCase: HealingCase): void {
     const expectedRemovals = collectExpectedRemovals(testCase.frontmatter);
@@ -89,7 +89,7 @@ function validateRemovalsAreCitable(testCase: HealingCase): void {
         `Healing case "${testCase.name}" expects remove_test for test case(s) whose failure carries no reviewLink: ` +
             `[${uncitable.join(", ")}]. remove_test requires a cited source review, so the failing generation/run ` +
             "must surface a review the removal can cite. Re-capture against a failure that carries a review, or expect " +
-            "a quarantine action instead.",
+            "a keep action instead.",
     );
 }
 
