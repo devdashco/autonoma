@@ -8,7 +8,7 @@ import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AppSecretInfo, AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
 import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
-import { isConflict } from "./k8s-errors";
+import { isConflict, isNotFound } from "./k8s-errors";
 import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
 import { buildGatekeeperApiEgressPolicy, buildNetworkPolicies } from "./network-policy-factory";
 import { findTerminalPodFailure, summarizePodStates } from "./pod-failure";
@@ -230,7 +230,13 @@ export class Deployer {
             buildGatekeeperConfigMap({ apps: gatekeeperApps, namespace, prNumber }),
             "configmaps",
         );
-        await this.applyDeployment(
+        // Gatekeeper is the namespace's singleton ingress/auth proxy, so it goes
+        // through the create-or-replace path (rolling update - the replicas=1
+        // Deployment surges a new pod before retiring the old one, so ingress
+        // stays up) rather than applyDeployment's delete-then-create. That clean
+        // slate is only wanted for app pods; using it here would black out
+        // ingress for the whole namespace on every redeploy while gatekeeper drains.
+        await this.applyServiceDeployment(
             namespace,
             buildGatekeeperDeployment({
                 apps: gatekeeperApps,
@@ -868,24 +874,67 @@ export class Deployer {
         }
     }
 
-    private async applyDeployment(namespace: string, deployment: k8s.V1Deployment, times = 5): Promise<void> {
+    /**
+     * Applies an app Deployment by deleting any existing one first and waiting
+     * until it is fully gone, then creating fresh. Recreating from a clean slate
+     * (rather than replace/patch) guarantees a redeploy can't leave the workload
+     * in an inconsistent state - stale pod-template fields or pods left over from
+     * an incompatible spec change. Infra singletons that must stay available
+     * across a redeploy (e.g. the Gatekeeper ingress proxy) use the rolling
+     * `applyServiceDeployment` path instead.
+     */
+    private async applyDeployment(namespace: string, deployment: k8s.V1Deployment, attempts = 3): Promise<void> {
         const name = deployment.metadata?.name ?? `no-name-${randomUUID()}`;
-        if (times <= 0) {
-            throw new Error(`Max times reached trying to apply deployment for ${name} on ${namespace}. Tried 5 times.`);
-        }
 
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            await this.deleteDeploymentAndWait(namespace, name);
+            try {
+                await this.appsApi.createNamespacedDeployment({ namespace, body: deployment });
+                logger.info(`Deployment ${name} on ${namespace} created`);
+                return;
+            } catch (err: unknown) {
+                // deleteDeploymentAndWait polls until a 404, so a conflict here means
+                // the object reappeared between that read and this create (a stray
+                // finalizer or a concurrent operator). Delete and retry rather than
+                // failing the deploy; anything other than a conflict is a real error.
+                if (!isConflict(err) || attempt === attempts) throw err;
+                logger.warn(`Create raced an existing deployment ${name} on ${namespace}; retrying`, { attempt });
+            }
+        }
+    }
+
+    /**
+     * Deletes the named Deployment (cascading, Foreground) and waits until the
+     * API no longer returns it. A no-op if it doesn't exist. The wait matters
+     * because deletion is asynchronous: creating a new Deployment while the old
+     * object still lingers returns a 409 conflict. Foreground propagation keeps
+     * the object readable until its ReplicaSets and Pods are gone, so the fresh
+     * create never races leftover pods from the previous revision.
+     */
+    private async deleteDeploymentAndWait(namespace: string, name: string, timeoutMs = 120_000): Promise<void> {
         try {
-            await this.appsApi.createNamespacedDeployment({ namespace, body: deployment });
-            logger.info(`Deployment ${name} on ${namespace} created`);
+            await this.appsApi.deleteNamespacedDeployment({ name, namespace, propagationPolicy: "Foreground" });
         } catch (err: unknown) {
-            if (!isConflict(err)) throw err;
-
-            logger.info(`There was a conflict. Deleting and recreating the deployment ${name} on ${namespace}`);
-
-            await this.appsApi.deleteNamespacedDeployment({ name, namespace });
-            await new Promise((r) => setTimeout(r, 1_000));
-            return this.applyDeployment(namespace, deployment, times - 1);
+            if (isNotFound(err)) return;
+            throw err;
         }
+        logger.info(`Deleting existing deployment ${name} on ${namespace} before recreate`);
+
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            try {
+                await this.appsApi.readNamespacedDeployment({ namespace, name });
+            } catch (err: unknown) {
+                if (isNotFound(err)) {
+                    logger.info(`Existing deployment ${name} on ${namespace} deleted`);
+                    return;
+                }
+                logger.warn("Transient error polling deployment deletion, retrying", { namespace, app: name, err });
+            }
+            await new Promise((r) => setTimeout(r, 1_000));
+        }
+
+        throw new Error(`Timed out waiting for existing deployment "${name}" to delete in ${namespace}`);
     }
 
     private async applyStatefulSet(namespace: string, statefulSet: k8s.V1StatefulSet): Promise<void> {
