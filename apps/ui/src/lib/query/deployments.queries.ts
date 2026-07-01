@@ -10,6 +10,7 @@ const PREVIEW_POLL_MS = 5_000;
 // Frontend preview statuses that are still in flight (a redeploy is building or pending). Terminal
 // statuses (ready/degraded/failed/stopped/missing/unknown) stop the poll.
 const ACTIVE_PREVIEW_STATUSES: ReadonlySet<string> = new Set(["building", "stale"]);
+const ACTIVE_PREVIEW_PHASES: ReadonlySet<string> = new Set(["deploy_requested"]);
 
 export function usePreviewEnvironmentSummary(
     applicationId: string,
@@ -18,10 +19,12 @@ export function usePreviewEnvironmentSummary(
 ) {
     return useSuspenseQuery({
         ...trpc.deployments.previewSummaryByPr.queryOptions({ applicationId, prNumber }),
-        refetchInterval: (query) =>
-            options?.refetchWhileActive === true && ACTIVE_PREVIEW_STATUSES.has(query.state.data?.status ?? "")
-                ? PREVIEW_POLL_MS
-                : false,
+        refetchInterval: (query) => {
+            const status = query.state.data?.status ?? "";
+            const phase = query.state.data?.phase ?? "";
+            const previewIsActive = ACTIVE_PREVIEW_STATUSES.has(status) || ACTIVE_PREVIEW_PHASES.has(phase);
+            return options?.refetchWhileActive === true && previewIsActive ? PREVIEW_POLL_MS : false;
+        },
     });
 }
 

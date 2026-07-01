@@ -1,4 +1,4 @@
-import { Badge, Button, Skeleton, cn } from "@autonoma/blacklight";
+import { Badge, BrailleSpinner, Button, Skeleton, cn } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
@@ -26,6 +26,14 @@ export const Route = createFileRoute("/_blacklight/onboarding/preview-deploy-ver
 
 type PreviewReadinessData = ReturnType<typeof usePreviewReadiness>["data"];
 type PreviewFailure = NonNullable<PreviewReadinessData["diagnostics"]["failures"]>[number];
+
+const PREVIEW_DEPLOY_REQUEST_PHASES = new Set(["deploy_requested"]);
+const PREVIEW_DEPLOY_STEPS = [
+  { label: "Request accepted", state: "complete" },
+  { label: "Waiting for worker", state: "current" },
+  { label: "Build queued", state: "pending" },
+  { label: "URL pending", state: "pending" },
+] as const;
 
 export function PreviewDeployVerifyPage({ appId }: { appId?: string }) {
   if (appId == null) {
@@ -61,6 +69,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const complete = useCompletePreviewOnboarding();
   const application = applications.find((app) => app.id === appId);
   const isReady = data.diagnostics.status === "ready";
+  const isDeployRequested = isPreviewDeployRequestPhase(data.diagnostics.phase) && data.previewUrl == null;
   const failures = data.diagnostics.failures ?? [];
 
   function copyForAgent() {
@@ -166,6 +175,8 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
                   <GlobeIcon size={15} />
                   {data.previewUrl}
                 </a>
+              ) : isDeployRequested ? (
+                <DeployRequestIdleIndicator />
               ) : (
                 <p className="mt-4 text-sm text-text-secondary">No preview URL has been reported yet.</p>
               )}
@@ -250,6 +261,55 @@ function logStreamUrl(logs: { repoFullName: string; prNumber: number }): string 
   return buildPreviewLogStreamUrl(owner, repo, logs.prNumber);
 }
 
+function isPreviewDeployRequestPhase(phase: string | undefined): boolean {
+  return phase != null && PREVIEW_DEPLOY_REQUEST_PHASES.has(phase);
+}
+
+function previewPhaseLabel(phase: string): string {
+  if (isPreviewDeployRequestPhase(phase)) return "Deploy request accepted";
+  if (phase === "workflow_not_started") return "Workflow not started";
+  return phase.replaceAll("_", " ");
+}
+
+function DeployRequestIdleIndicator() {
+  return (
+    <div className="mt-5 overflow-hidden border border-border-dim bg-surface-raised">
+      <div className="flex items-center gap-3 border-b border-border-dim px-4 py-3">
+        <div className="flex size-9 shrink-0 items-center justify-center border border-primary-ink/30 bg-surface-base text-primary-ink">
+          <BrailleSpinner animation="orbit" size="md" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Deploy request accepted</p>
+          <p className="mt-1 text-xs text-text-secondary">PreviewKit is waiting for a deploy worker to start.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-4 sm:grid-cols-4">
+        {PREVIEW_DEPLOY_STEPS.map((step) => (
+          <div key={step.label} className="min-w-0">
+            <div
+              className={cn(
+                "h-1.5 rounded-full",
+                step.state === "complete" && "bg-status-success",
+                step.state === "current" && "animate-pulse bg-primary-ink",
+                step.state === "pending" && "bg-border-mid",
+              )}
+            />
+            <p
+              className={cn(
+                "mt-2 truncate font-mono text-3xs uppercase tracking-wider",
+                step.state === "pending" ? "text-text-secondary" : "text-text-primary",
+              )}
+            >
+              {step.label}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Extracts the field key from an `apps.<i>.<field>` path so the config screen can focus the exact input. */
 function fieldFromPath(fieldPath: string | undefined): string | undefined {
   if (fieldPath == null) return undefined;
@@ -295,7 +355,7 @@ function PreviewDiagnosticsPanel({
         <div className="p-5">
           <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Status</p>
           <p className="mt-2 text-sm text-text-secondary">
-            {diagnostics.phase ?? diagnostics.status}
+            {diagnostics.phase != null ? previewPhaseLabel(diagnostics.phase) : diagnostics.status}
             {diagnostics.logs.available ? " · logs available" : ""}
           </p>
           {!diagnostics.logs.available ? (
