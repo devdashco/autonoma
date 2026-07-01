@@ -9,6 +9,7 @@ export {
     type PullRequest,
     type PullRequestState,
     type PullRequestCommit,
+    type IssueComment,
     type Commit,
     type CommitFile,
     type GitTree,

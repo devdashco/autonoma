@@ -9,6 +9,8 @@ export interface StorageProvider {
     download(key: string): Promise<Buffer>;
     /** Delete a file from the storage provider. */
     delete(key: string): Promise<void>;
-    /** Get a signed URL for a file from the storage provider. This is publicly accessible */
-    getSignedUrl(key: string, expiresInSeconds: number): Promise<string>;
+    /** Get a signed URL for a file from the storage provider. This is publicly accessible.
+     *  `responseContentType` overrides the Content-Type the URL serves (e.g. "image/png" so GitHub renders a
+     *  screenshot stored as application/octet-stream). */
+    getSignedUrl(key: string, expiresInSeconds: number, responseContentType?: string): Promise<string>;
 }

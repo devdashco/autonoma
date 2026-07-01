@@ -21,6 +21,9 @@ export const env = createEnv({
         INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
         // Optional Loki base URL for the get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
+        // Gate for posting investigation results as a PR comment. OFF by default so it never touches real PRs
+        // until deliberately enabled (safe rollout).
+        INVESTIGATION_PR_COMMENT_ENABLED: z.stringbool().default(false),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

@@ -1,9 +1,15 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AutonomaCommentBug, AutonomaCommentPayload, AutonomaCommentState } from "./types";
+import type {
+    AutonomaCommentBug,
+    AutonomaCommentEvidence,
+    AutonomaCommentPayload,
+    AutonomaCommentState,
+} from "./types";
 
 const STATE_LABELS: Record<AutonomaCommentState, string> = {
     running: "RUNNING",
     healthy: "HEALTHY",
+    warning: "WARNING",
     critical: "UNHEALTHY",
     unknown: "UNKNOWN",
 };
@@ -11,6 +17,7 @@ const STATE_LABELS: Record<AutonomaCommentState, string> = {
 const STATE_ICONS: Record<AutonomaCommentState, string> = {
     running: "🟡",
     healthy: "🟢",
+    warning: "🟡",
     critical: "🔴",
     unknown: "⚪",
 };
@@ -18,6 +25,7 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
 const STATUS_PILL_ASSETS: Record<AutonomaCommentState, string> = {
     running: "status-running-pill.svg",
     healthy: "status-healthy-pill.svg",
+    warning: "status-warning-pill.svg",
     critical: "status-critical-pill.svg",
     unknown: "status-unknown-pill.svg",
 };
@@ -25,6 +33,7 @@ const STATUS_PILL_ASSETS: Record<AutonomaCommentState, string> = {
 const STATUS_DOT_ASSETS: Record<AutonomaCommentState, string> = {
     running: "status-dot-yellow.svg",
     healthy: "status-dot-green.svg",
+    warning: "status-dot-yellow.svg",
     critical: "status-dot-red.svg",
     unknown: "status-dot-gray.svg",
 };
@@ -41,22 +50,29 @@ const CTA_TEXT_PREFIXES: Record<string, string> = {
 
 export function renderMarkdown(payload: AutonomaCommentPayload): string {
     const sections: string[] = ["<!-- autonoma:pr-comment:v2 -->"];
+    const rich = payload.bugs.some(isRichBug);
 
     const statusImage = renderStatusImage(payload);
     if (statusImage != null) sections.push("", statusImage);
 
+    // The title is generated (no user content), so render it as markdown - the bug/warning count is wrapped in
+    // a `code` span to stand out, which escaping would otherwise neutralize.
     const titlePrefix = statusImage == null ? `${STATE_ICONS[payload.state]} ` : "";
-    sections.push("", `## ${titlePrefix}${escapeMarkdown(renderTitle(payload))}`, "");
+    sections.push("", `## ${titlePrefix}${renderTitle(payload)}`, "");
 
     if (statusImage == null) {
         sections.push(`**${STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
     }
 
-    const statsLine = renderStatsLine(payload);
-    if (statsLine != null) sections.push("", statsLine);
+    // The stats line + "Top issues" label only add noise to the rich investigation comment (the title already
+    // carries the count); keep them for the plain diffs comment only.
+    if (!rich) {
+        const statsLine = renderStatsLine(payload);
+        if (statsLine != null) sections.push("", statsLine);
+    }
 
     if (payload.bugs.length > 0) {
-        sections.push("", "**Top issues**", renderBugList(payload));
+        sections.push("", ...(rich ? [] : ["**Top issues**"]), renderBugList(payload));
     }
 
     if (payload.ctas.length > 0) sections.push("", renderCtas(payload));
@@ -107,10 +123,18 @@ export function renderMarkdown(payload: AutonomaCommentPayload): string {
 }
 
 function renderTitle(payload: AutonomaCommentPayload): string {
-    if (payload.state === "critical" && payload.bugs.length > 0) {
-        const count = payload.bugs.length;
-        return `Autonoma found ${count} ${count === 1 ? "bug" : "bugs"} in this PR`;
+    const count = payload.bugs.length;
+    const rich = payload.bugs.some(isRichBug);
+    // The rich investigation comment highlights the count and uses friendlier warning/healthy titles; the plain
+    // diffs comment keeps its existing titles unchanged.
+    if (payload.state === "critical" && count > 0) {
+        const label = `${count} ${count === 1 ? "bug" : "bugs"}`;
+        return `Autonoma found ${rich ? `\`${label}\`` : label} in this PR`;
     }
+    if (rich && payload.state === "warning" && count > 0) {
+        return `Autonoma raised \`${count} ${count === 1 ? "warning" : "warnings"}\` in this PR`;
+    }
+    if (rich && payload.state === "healthy") return "Autonoma found no issues in this PR";
     return `Autonoma PR #${payload.prNumber}`;
 }
 
@@ -142,10 +166,107 @@ function renderStatsLine(payload: AutonomaCommentPayload): string | undefined {
 
 function renderBugList(payload: AutonomaCommentPayload): string {
     const dotUrl = resolveAssetUrl(payload.assetBaseUrl, STATUS_DOT_ASSETS[payload.state]);
+    // Rich bugs (the investigation comment) each expand into a <details> with screenshot + remediation +
+    // nested evidence; the diffs comment's plain bugs stay one-liners (top 3) - fully backward-compatible.
+    if (payload.bugs.some(isRichBug)) {
+        return payload.bugs.map((bug) => renderBugDetails(bug, dotUrl)).join("\n");
+    }
     return payload.bugs
         .slice(0, 3)
         .map((bug) => `${renderBugMarker(dotUrl)} ${renderBugLabel(bug)}${renderBugOccurrence(bug)}`)
         .join("  \n");
+}
+
+function isRichBug(bug: AutonomaCommentBug): boolean {
+    return (
+        bug.description != null ||
+        bug.screenshotUrl != null ||
+        bug.remediation != null ||
+        (bug.evidence != null && bug.evidence.length > 0)
+    );
+}
+
+/** One bug as an expandable section: collapsed it's a one-line title; expanded it shows the evidence. */
+function renderBugDetails(bug: AutonomaCommentBug, dotUrl: string | undefined): string {
+    const occurrence = bug.occurrenceCount != null ? ` <code>×${bug.occurrenceCount}</code>` : "";
+    const summary = `${renderBugMarker(dotUrl)} ${escapeHtml(bug.title)}${occurrence}`;
+    const body: string[] = [];
+
+    if (bug.screenshotUrl != null) {
+        const img = `<img src="${escapeHtmlAttribute(bug.screenshotUrl)}" alt="Run screenshot" />`;
+        body.push(bug.replayHref != null ? `<a href="${escapeHtmlAttribute(bug.replayHref)}">${img}</a>` : img);
+    }
+    if (bug.replayHref != null) body.push(`🎬 [Watch replay](${escapeUrl(bug.replayHref)})`);
+    if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));
+    if (bug.remediation != null) body.push(`**Remediation:** ${sanitizeRichMarkdown(bug.remediation)}`);
+    if (bug.evidence != null && bug.evidence.length > 0) body.push(renderEvidence(bug.evidence));
+
+    const links = renderBugLinks(bug);
+    if (links !== "") body.push(links);
+
+    return ["<details>", `<summary>${summary}</summary>`, "", body.join("\n\n"), "</details>"].join("\n");
+}
+
+/**
+ * The nested Evidence collapsible - the full picture a coding agent needs. Each item is a labelled line (source
+ * + file:line + detail) followed by its code snippet in its own fenced, syntax-highlighted block - rendered as
+ * real markdown rather than one monospace blob.
+ */
+function renderEvidence(items: AutonomaCommentEvidence[]): string {
+    const lines: string[] = ["<details>", "<summary>Evidence</summary>", ""];
+    for (const item of items) {
+        const location =
+            item.file != null
+                ? ` \`${inlineCodeContent(`${item.file}${item.lines != null ? `:${item.lines}` : ""}`)}\``
+                : "";
+        const detail = item.detail != null && item.detail !== "" ? ` - ${sanitizeRichMarkdown(item.detail)}` : "";
+        lines.push(`**[${escapeMarkdown(item.source)}]**${location}${detail}`);
+        if (item.snippet != null && item.snippet !== "") {
+            const fence = "`".repeat(longestBacktickRun(item.snippet) + 1);
+            lines.push("", `${fence}${languageForFile(item.source, item.file)}`, item.snippet, fence);
+        }
+        lines.push("");
+    }
+    lines.push("</details>");
+    return lines.join("\n");
+}
+
+/** A fence language for syntax highlighting, from the evidence source (a diff) or the file extension. */
+function languageForFile(source: string, file: string | undefined): string {
+    if (source === "diff") return "diff";
+    const ext = file?.split(".").pop()?.toLowerCase();
+    const byExt: Record<string, string> = {
+        ts: "ts",
+        tsx: "tsx",
+        js: "js",
+        jsx: "jsx",
+        py: "python",
+        rb: "ruby",
+        go: "go",
+        rs: "rust",
+        java: "java",
+        sql: "sql",
+        json: "json",
+        sh: "bash",
+        css: "css",
+        html: "html",
+    };
+    return ext != null ? (byExt[ext] ?? "") : "";
+}
+
+function renderBugLinks(bug: AutonomaCommentBug): string {
+    const links: string[] = [];
+    if (bug.href != null) links.push(`[See full report](${escapeUrl(bug.href)})`);
+    if (bug.previewHref != null) links.push(`[Open preview](${escapeUrl(bug.previewHref)})`);
+    return links.join(" · ");
+}
+
+/**
+ * Render LLM-authored prose as markdown (so `code` spans and file:line survive) while neutralizing the only
+ * tags that could break the comment's <details> structure. GitHub's own sanitizer strips scripts/unsafe HTML.
+ */
+function sanitizeRichMarkdown(value: string): string {
+    return value.replace(/<(\/?)(details|summary)\b/gi, "&lt;$1$2");
 }
 
 function renderBugMarker(dotUrl: string | undefined): string {
@@ -164,7 +285,10 @@ function renderBugOccurrence(bug: AutonomaCommentBug): string {
 }
 
 function renderCtas(payload: AutonomaCommentPayload): string {
-    return payload.ctas.map((cta) => renderCta(payload.assetBaseUrl, cta.label, cta.href)).join(" | ");
+    const rendered = payload.ctas.map((cta) => renderCta(payload.assetBaseUrl, cta.label, cta.href));
+    // Button images sit fine side by side; the " | " separator only helps the text-link fallback.
+    const hasAssets = payload.assetBaseUrl != null && payload.assetBaseUrl !== "";
+    return rendered.join(hasAssets ? "&nbsp;&nbsp;" : " | ");
 }
 
 function renderCta(assetBaseUrl: string | undefined, label: string, href: string): string {

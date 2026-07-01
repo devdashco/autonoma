@@ -4,6 +4,7 @@ import type {
     Commit,
     GitHubInstallationClient,
     GitTree,
+    IssueComment,
     ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
@@ -180,6 +181,11 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             return JSON.stringify({ name: "api", scripts: { start: "node server.js" } });
         }
         return undefined;
+    }
+
+    async listIssueComments(repoFullName: string, prNumber: number): Promise<IssueComment[]> {
+        this.logger.info("Skipping local-dev PR comment list", { repoFullName, prNumber });
+        return [];
     }
 
     async postComment(repoFullName: string, prNumber: number, _body: string): Promise<string> {

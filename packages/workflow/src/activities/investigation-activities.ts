@@ -129,6 +129,20 @@ export interface WriteInvestigationReportOutput {
     reportUrl: string;
 }
 
+export interface PostInvestigationPrCommentInput {
+    snapshotId: string;
+    results: InvestigationTestResult[];
+    suggested: SuggestedNewTest[];
+    quarantine: QuarantineRecommendation[];
+}
+
+export interface PostInvestigationPrCommentOutput {
+    /** "posted" (new comment) | "updated" (edited in place) | "skipped" (flag off, or snapshot has no PR). */
+    status: "posted" | "updated" | "skipped";
+    /** The PR comment id when one was posted or updated; absent when skipped. */
+    commentId?: string;
+}
+
 // --- Persist add/modify edits onto the investigation snapshot (a proposed suite the merge-with-main step
 // later reconciles into main). Persist-only: no generations are queued here.
 
@@ -194,6 +208,7 @@ export interface InvestigationActivities {
     classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;
     createValidationGeneration(input: CreateValidationGenerationInput): Promise<CreateValidationGenerationOutput>;
+    postInvestigationPrComment(input: PostInvestigationPrCommentInput): Promise<PostInvestigationPrCommentOutput>;
     persistInvestigationEdits(input: PersistInvestigationEditsInput): Promise<PersistInvestigationEditsOutput>;
     mergeInvestigationEdits(input: MergeInvestigationEditsInput): Promise<MergeInvestigationEditsOutput>;
 }

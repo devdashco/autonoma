@@ -110,13 +110,14 @@ export class S3Storage implements StorageProvider {
         return this.urlForKey(key);
     }
 
-    private getObjectCommand(urlOrKey: string) {
+    private getObjectCommand(urlOrKey: string, responseContentType?: string) {
         const key = stripProtocolIfPresent(urlOrKey);
         const strippedKey = stripBucket(key, this.config.bucket);
 
         return new GetObjectCommand({
             Bucket: this.config.bucket,
             Key: strippedKey,
+            ResponseContentType: responseContentType,
         });
     }
 
@@ -140,7 +141,9 @@ export class S3Storage implements StorageProvider {
         await this.s3.send(this.deleteObjectCommand(urlOrKey));
     }
 
-    async getSignedUrl(urlOrKey: string, expiresInSeconds: number): Promise<string> {
-        return await getSignedUrl(this.s3, this.getObjectCommand(urlOrKey), { expiresIn: expiresInSeconds });
+    async getSignedUrl(urlOrKey: string, expiresInSeconds: number, responseContentType?: string): Promise<string> {
+        return await getSignedUrl(this.s3, this.getObjectCommand(urlOrKey, responseContentType), {
+            expiresIn: expiresInSeconds,
+        });
     }
 }

@@ -15,12 +15,18 @@ happen on the existing `web` worker via the generation activity.
    still classified (that's the signal).
 3. **writeInvestigationReport** (here) - build the markdown (verdicts + the deployed-agent comparison) and
    upload it to S3.
+4. **postInvestigationPrComment** (here) - post the results as a single, self-updating PR comment
+   (flag-gated, see Env). Runs after the report; a failure here is contained and never sinks the workflow.
 
 ## Activities
 
 - `selectInvestigationTests` - clone + `selectAffectedTests` + create shadow generations.
 - `classifyInvestigationRun` - load the generation + media (S3), clone, wire `classifyRun`'s dependencies.
 - `writeInvestigationReport` - `DeployedComparison` + `buildReportMarkdown` -> S3.
+- `postInvestigationPrComment` - render a concise summary (category counts + client-bug headlines + a link to
+  the in-app report) and upsert it on the PR via `postOrUpdateMarkerComment`. Idempotent: it scans the PR for
+  a hidden `<!-- autonoma-investigation -->` marker and updates that comment in place instead of posting a
+  duplicate on re-runs. The signed S3 report URL is never posted (it carries a token).
 - `persistInvestigationEdits` - write the agent's add/modify edits onto the twin snapshot (`EditPersister`).
 - `mergeInvestigationEdits` - after a PR merges, reconcile the twin's edits into main and apply the accepted
   ones onto a detached main-proposal snapshot (`MergeInputsReader` + `reconcileMerge` + `MergeApplier`).
@@ -36,9 +42,10 @@ The parallel launch is in `apps/api` (`DiffsTriggerService`), fire-and-forget be
 
 ## Env
 
-`GITHUB_APP_*` (clone), `OPENROUTER_API_KEY` + `OPENAI_API_KEY` (+ model id overrides), optional `LOKI_URL`,
-plus the shared DB / Temporal / S3 / Sentry vars. See `src/env.ts`. The deployment reads
-`eks/main/production/worker-investigation`.
+`GITHUB_APP_*` (clone + PR comment), `OPENROUTER_API_KEY` + `OPENAI_API_KEY` (+ model id overrides), optional
+`LOKI_URL`, and `INVESTIGATION_PR_COMMENT_ENABLED` (default OFF - gates the PR-comment activity so it never
+touches real PRs until deliberately enabled), plus the shared DB / Temporal / S3 / Sentry vars. See
+`src/env.ts`. The deployment reads `eks/main/production/worker-investigation`.
 
 ## v1 limitations
 

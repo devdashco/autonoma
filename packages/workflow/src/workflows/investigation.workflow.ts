@@ -128,6 +128,24 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
         suggested: selection.suggested,
         quarantine: selection.quarantine,
     });
+
+    // Post the results to the PR (flag-gated, idempotent). The report is the deliverable and is already
+    // written, so a comment failure must never sink the workflow - it's contained and logged.
+    try {
+        const comment = await investigation.postInvestigationPrComment({
+            snapshotId,
+            results,
+            suggested: selection.suggested,
+            quarantine: selection.quarantine,
+        });
+        log.info("Investigation PR comment step finished", { ...ids, extra: { status: comment.status } });
+    } catch (error) {
+        log.error("Investigation PR comment failed; report already written, continuing", {
+            ...ids,
+            extra: { message: rootFailureMessage(error) },
+        });
+    }
+
     log.info("Investigation workflow completed", { ...ids, extra: { reportUrl: report.reportUrl } });
 }
 

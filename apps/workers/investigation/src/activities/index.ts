@@ -4,6 +4,7 @@ import { heartbeat } from "@temporalio/activity";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
 import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
+import { postInvestigationPrComment as postPrCommentImpl } from "./post-pr-comment";
 import { selectInvestigationTests as selectImpl } from "./select-tests";
 import { createValidationGeneration as createValidationImpl } from "./validate-proposal";
 import { writeInvestigationReport as writeReportImpl } from "./write-report";
@@ -39,6 +40,7 @@ export const selectInvestigationTests = withHeartbeat(selectImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 export const writeInvestigationReport = withHeartbeat(writeReportImpl);
 export const createValidationGeneration = withHeartbeat(createValidationImpl);
+export const postInvestigationPrComment = withHeartbeat(postPrCommentImpl);
 // Loops over every modification + new test (bounded only by the affected-tests count), so heartbeat it like
 // the other activities to stay well under the 2m heartbeat timeout on a large PR.
 export const persistInvestigationEdits = withHeartbeat(persistEditsImpl);
@@ -51,6 +53,7 @@ const _activities: InvestigationActivities = {
     classifyInvestigationRun,
     writeInvestigationReport,
     createValidationGeneration,
+    postInvestigationPrComment,
     persistInvestigationEdits,
     mergeInvestigationEdits,
 };

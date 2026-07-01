@@ -73,6 +73,8 @@ export type {
     CreateValidationGenerationOutput,
     WriteInvestigationReportInput,
     WriteInvestigationReportOutput,
+    PostInvestigationPrCommentInput,
+    PostInvestigationPrCommentOutput,
     InvestigationTestModification,
     InvestigationNewTest,
     PersistInvestigationEditsInput,

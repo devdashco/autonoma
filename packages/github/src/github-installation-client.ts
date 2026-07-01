@@ -63,6 +63,12 @@ export interface PullRequestCommit {
     authoredAt: string;
 }
 
+/** A PR/issue comment, narrowed to what marker-based comment de-duplication needs. */
+export interface IssueComment {
+    id: string;
+    body: string;
+}
+
 /**
  * Result of a conditional open-PR list request. `unchanged` is returned when GitHub
  * answers `304 Not Modified` (the stored ETag still matches), in which case callers
@@ -103,6 +109,8 @@ export interface GitHubInstallationClient {
     getGitTree(repoId: number, ref: string): Promise<GitTree>;
     /** Decoded file content at `path`/`ref`, or undefined when the path doesn't exist (or is not a file). */
     getFileContent(repoId: number, path: string, ref: string): Promise<string | undefined>;
+    /** Every comment on the PR's conversation timeline (paginated), used to find an existing marker comment. */
+    listIssueComments(repoFullName: string, prNumber: number): Promise<IssueComment[]>;
     postComment(repoFullName: string, prNumber: number, body: string): Promise<string>;
     updateComment(repoFullName: string, commentId: string, body: string): Promise<void>;
     deleteComment(repoFullName: string, commentId: string): Promise<void>;
@@ -603,6 +611,31 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             }
             throw error;
         }
+    }
+
+    async listIssueComments(repoFullName: string, prNumber: number): Promise<IssueComment[]> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Listing PR comments", { repoFullName, prNumber });
+
+        const comments: IssueComment[] = [];
+        let page = 1;
+        while (true) {
+            const { data } = await this.octokit.request("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+                page,
+            });
+            for (const comment of data) {
+                comments.push({ id: String(comment.id), body: comment.body ?? "" });
+            }
+            if (data.length < 100) break;
+            page++;
+        }
+
+        this.logger.info("Listed PR comments", { repoFullName, prNumber, count: comments.length });
+        return comments;
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {

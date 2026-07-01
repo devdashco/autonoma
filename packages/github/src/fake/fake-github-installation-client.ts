@@ -4,6 +4,7 @@ import type {
     CommitFile,
     GitHubInstallationClient,
     GitTree,
+    IssueComment,
     ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
@@ -324,6 +325,13 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
 
     async cloneRepository(_params: CloneRepositoryParams): Promise<string> {
         throw new Error("FakeGitHubInstallationClient.cloneRepository is not implemented");
+    }
+
+    async listIssueComments(repoFullName: string, prNumber: number): Promise<IssueComment[]> {
+        this.requireRepo(repoFullName);
+        return this.comments
+            .filter((comment) => comment.repoFullName === repoFullName && comment.prNumber === prNumber)
+            .map((comment) => ({ id: comment.id, body: comment.body }));
     }
 
     async postComment(repoFullName: string, prNumber: number, body: string): Promise<string> {

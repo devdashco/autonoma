@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const AutonomaCommentStateSchema = z.enum(["running", "healthy", "critical", "unknown"]);
+export const AutonomaCommentStateSchema = z.enum(["running", "healthy", "warning", "critical", "unknown"]);
 export type AutonomaCommentState = z.infer<typeof AutonomaCommentStateSchema>;
 
 export const AutonomaCommentCtaSchema = z.object({
@@ -9,11 +9,32 @@ export const AutonomaCommentCtaSchema = z.object({
 });
 export type AutonomaCommentCta = z.infer<typeof AutonomaCommentCtaSchema>;
 
+/** One evidence item shown in a bug's nested Evidence collapsible - a labelled line + an optional code snippet. */
+export const AutonomaCommentEvidenceSchema = z.object({
+    source: z.string(),
+    detail: z.string().optional(),
+    file: z.string().optional(),
+    lines: z.string().optional(),
+    snippet: z.string().optional(),
+});
+export type AutonomaCommentEvidence = z.infer<typeof AutonomaCommentEvidenceSchema>;
+
 export const AutonomaCommentBugSchema = z.object({
     title: z.string(),
     href: z.string().optional(),
     severity: z.string().optional(),
     occurrenceCount: z.number().int().positive().optional(),
+    /**
+     * Rich detail (the investigation comment): when any of these are set, the bug renders as an expandable
+     * `<details>` - a screenshot linking to the replay, the short description, the remediation, and a nested
+     * Evidence collapsible for coding agents. Absent on the diffs comment, which keeps bugs as one-liners.
+     */
+    screenshotUrl: z.string().optional(),
+    replayHref: z.string().optional(),
+    description: z.string().optional(),
+    remediation: z.string().optional(),
+    evidence: z.array(AutonomaCommentEvidenceSchema).optional(),
+    previewHref: z.string().optional(),
 });
 export type AutonomaCommentBug = z.infer<typeof AutonomaCommentBugSchema>;
 

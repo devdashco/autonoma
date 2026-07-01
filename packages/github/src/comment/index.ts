@@ -7,6 +7,7 @@ export type {
     AutonomaCommentAddon,
     AutonomaCommentBug,
     AutonomaCommentCta,
+    AutonomaCommentEvidence,
     AutonomaCommentPayload,
     AutonomaCommentService,
     AutonomaCommentState,
