@@ -15,10 +15,13 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
         file: "s3://bucket/file.png",
     });
 
+    // Mirror production wiring: the HTTP router hands the service the real
+    // OnboardingManager (not the OnboardingService wrapper), so setup-completion
+    // logic resolves to real manager methods.
     const service = new ApplicationSetupService(
         harness.db,
         harness.generationProvider,
-        harness.services.onboarding,
+        harness.services.onboarding.manager,
         new ScenarioRecipeStore(harness.db),
     );
     const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);

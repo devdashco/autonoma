@@ -126,6 +126,37 @@ apiTestSuite({
             enqueueSpy.mockRestore();
         });
 
+        test("PATCH completion goes live and enqueues when preview is verified but not yet live", async ({
+            harness,
+        }) => {
+            // Finish setup and "Go live" are independent signals: a user can finish
+            // setup (creating pending generations) while onboarding is parked at
+            // diff_trigger, never having clicked Go live. Reaching diff_trigger means
+            // the preview was verified, so completion here should go live itself and
+            // drain the pending generations rather than defer forever.
+            const { app, setupId, service, onboardingManager } = await createSetupFixture(
+                harness,
+                "Application Setup PATCH Diff Trigger",
+            );
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: app.id },
+                create: { applicationId: app.id, step: "diff_trigger" },
+                update: { step: "diff_trigger" },
+            });
+
+            const enqueueSpy = vi.spyOn(onboardingManager, "enqueueGenerations").mockResolvedValue(undefined);
+
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            expect(enqueueSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
+            const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
+                where: { applicationId: app.id },
+                select: { step: true },
+            });
+            expect(onboarding.step).toBe("completed");
+            enqueueSpy.mockRestore();
+        });
+
         test("PATCH completion defers generation enqueue while onboarding is unfinished", async ({ harness }) => {
             const { app, setupId, service, onboardingManager } = await createSetupFixture(
                 harness,

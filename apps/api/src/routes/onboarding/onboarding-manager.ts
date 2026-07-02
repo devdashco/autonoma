@@ -838,6 +838,15 @@ export class OnboardingManager {
     }
 
     /**
+     * Whether `step` is at or past `target` in the onboarding sequence. Pure
+     * helper so callers can reason about ordering without reaching into the
+     * module-private `STEP_ORDER`.
+     */
+    isStepAtOrPast(step: OnboardingState["step"], target: OnboardingState["step"]): boolean {
+        return STEP_ORDER.indexOf(step) >= STEP_ORDER.indexOf(target);
+    }
+
+    /**
      * Trigger the refinement loop on the application's main branch after onboarding completes.
      * The loop fires pending generations, validates them, and finalizes the snapshot.
      */
