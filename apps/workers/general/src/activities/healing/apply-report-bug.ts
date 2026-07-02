@@ -25,10 +25,20 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
     logger.info("Applying report_bug");
 
     await db.$transaction(async (tx) => {
+        // The branch a bug is scoped to is the branch of the snapshot it was detected
+        // on (the investigation twin's branch is the feature branch, so this holds for
+        // twin-detected bugs too). Resolved once and shared by both write paths so the
+        // "Issue's snapshot branch == Bug.branchId" invariant is enforced from a single
+        // source of truth.
+        const snapshot = await tx.branchSnapshot.findUniqueOrThrow({
+            where: { id: input.snapshotId },
+            select: { branchId: true, branch: { select: { applicationId: true } } },
+        });
+
         const bugId =
             input.matchedBugId != null
-                ? await linkExistingBug(tx, input.matchedBugId, input)
-                : await createNewBug(tx, input);
+                ? await linkExistingBug(tx, input.matchedBugId, snapshot.branchId, input)
+                : await createNewBug(tx, snapshot.branchId, snapshot.branch.applicationId, input);
 
         await tx.issue.create({
             data: {
@@ -51,12 +61,22 @@ export async function applyReportBug(input: ApplyReportBugInput): Promise<void> 
 async function linkExistingBug(
     tx: Prisma.TransactionClient,
     bugId: string,
+    snapshotBranchId: string,
     input: ApplyReportBugInput,
 ): Promise<string> {
     const bug = await tx.bug.findUniqueOrThrow({
         where: { id: bugId },
-        select: { status: true, severity: true },
+        select: { status: true, severity: true, branchId: true },
     });
+
+    // Invariant: a matched bug must live on the same branch as the detecting
+    // snapshot. BugMatcher only ever proposes candidates from this branch, so a
+    // mismatch means a cross-branch match slipped through - refuse to attach.
+    if (bug.branchId !== snapshotBranchId) {
+        throw new Error(
+            `report_bug branch invariant violation: matched bug ${bugId} is on branch ${bug.branchId ?? "null"} but the detecting snapshot ${input.snapshotId} is on branch ${snapshotBranchId}`,
+        );
+    }
 
     const newStatus: BugStatus = bug.status === "resolved" ? "regressed" : bug.status;
     const newSeverity = pickHigherSeverity(bug.severity, input.severity);
@@ -80,18 +100,19 @@ async function linkExistingBug(
     return bugId;
 }
 
-async function createNewBug(tx: Prisma.TransactionClient, input: ApplyReportBugInput): Promise<string> {
-    const snapshot = await tx.branchSnapshot.findUniqueOrThrow({
-        where: { id: input.snapshotId },
-        select: { branch: { select: { applicationId: true } } },
-    });
-
+async function createNewBug(
+    tx: Prisma.TransactionClient,
+    branchId: string,
+    applicationId: string,
+    input: ApplyReportBugInput,
+): Promise<string> {
     const bug = await tx.bug.create({
         data: {
             title: input.title,
             description: input.description,
             severity: input.severity,
-            applicationId: snapshot.branch.applicationId,
+            branchId,
+            applicationId,
             organizationId: input.organizationId,
             evidence: { create: { testCaseId: input.testCaseId } },
         },

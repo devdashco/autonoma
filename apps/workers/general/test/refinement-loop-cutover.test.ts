@@ -3,6 +3,7 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
 import { applyRemoveTest } from "../src/activities/healing/apply-remove-test";
+import { applyReportBug } from "../src/activities/healing/apply-report-bug";
 import { applyReportScenarioUnsupported } from "../src/activities/healing/apply-report-scenario-unsupported";
 import { applyReportUnknownIssue } from "../src/activities/healing/apply-report-unknown-issue";
 import { applyUpdatePlan } from "../src/activities/healing/apply-update-plan";
@@ -154,6 +155,67 @@ class CutoverHarness implements IntegrationHarness {
                 shadow: args.shadow ?? false,
             },
         });
+    }
+
+    async branchIdOf(snapshotId: string): Promise<string> {
+        const { branchId } = await this.db.branchSnapshot.findUniqueOrThrow({
+            where: { id: snapshotId },
+            select: { branchId: true },
+        });
+        return branchId;
+    }
+
+    /** Another snapshot on an existing branch - a later commit of the same PR. */
+    async createSnapshotOnBranch(branchId: string): Promise<string> {
+        const snapshot = await this.db.branchSnapshot.create({
+            data: { branchId, source: "GITHUB_PUSH" },
+        });
+        return snapshot.id;
+    }
+
+    /**
+     * The detached investigation twin paired with a diffs snapshot. The twin lives
+     * on the same branch as its parent (the feature branch), which is exactly what
+     * a twin-detected bug must derive its branchId from.
+     */
+    async createInvestigationTwin(parentSnapshotId: string): Promise<string> {
+        const branchId = await this.branchIdOf(parentSnapshotId);
+        const twin = await this.db.branchSnapshot.create({ data: { branchId, source: "WEBHOOK" } });
+        await this.db.branchSnapshot.update({
+            where: { id: parentSnapshotId },
+            data: { investigationSnapshotId: twin.id },
+        });
+        return twin.id;
+    }
+
+    /**
+     * A failed generation review for a plan on a snapshot - the deterministic
+     * failure metadata a report_bug action links its Issue to.
+     */
+    async createGenerationReview(args: {
+        organizationId: string;
+        snapshotId: string;
+        planId: string;
+    }): Promise<string> {
+        const generation = await this.db.testGeneration.create({
+            data: {
+                snapshotId: args.snapshotId,
+                testPlanId: args.planId,
+                organizationId: args.organizationId,
+                status: "failed",
+            },
+            select: { id: true },
+        });
+        const review = await this.db.generationReview.create({
+            data: {
+                generationId: generation.id,
+                organizationId: args.organizationId,
+                status: "completed",
+                verdict: "application_bug",
+            },
+            select: { id: true },
+        });
+        return review.id;
     }
 
     async inputPlanIds(iterationId: string): Promise<string[]> {
@@ -501,5 +563,207 @@ cutoverSuite((test) => {
         // review, not the assignment), preserving the proposed extension.
         const issueStillPresent = await harness.db.issue.findUnique({ where: { id: issue.id }, select: { id: true } });
         expect(issueStillPresent).not.toBeNull();
+    });
+
+    test("report_bug stamps the new Bug with the detecting snapshot's branch and retains applicationId", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const branchId = await harness.branchIdOf(snapshotId);
+        const subject = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+        const reviewId = await harness.createGenerationReview({ organizationId, snapshotId, planId: subject.planId });
+
+        await applyReportBug({
+            snapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Checkout total is wrong",
+            description: "The cart sums line items incorrectly when a coupon is applied.",
+            severity: "high",
+            evidence: [],
+            reviewLink: { generationReviewId: reviewId },
+        });
+
+        const bug = await harness.db.bug.findFirstOrThrow({
+            where: { branchId },
+            select: { id: true, branchId: true, applicationId: true },
+        });
+        // Branch-scoped, but the denormalized applicationId is still stamped so
+        // application-scoped reads keep working during the additive slice.
+        expect(bug.branchId).toBe(branchId);
+        expect(bug.applicationId).toBe(applicationId);
+
+        // The Issue links to the same Bug, so the occurrence hangs off the branch too.
+        const issue = await harness.db.issue.findFirstOrThrow({
+            where: { generationReviewId: reviewId },
+            select: { kind: true, bugId: true },
+        });
+        expect(issue.kind).toBe("application_bug");
+        expect(issue.bugId).toBe(bug.id);
+    });
+
+    test("report_bug on the investigation twin derives branchId from the twin's (feature) branch", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const parentSnapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const branchId = await harness.branchIdOf(parentSnapshotId);
+        const twinSnapshotId = await harness.createInvestigationTwin(parentSnapshotId);
+
+        // The plan/review live on the twin snapshot - the twin is where the
+        // investigation agent detected the bug.
+        const subject = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId: twinSnapshotId,
+        });
+        const reviewId = await harness.createGenerationReview({
+            organizationId,
+            snapshotId: twinSnapshotId,
+            planId: subject.planId,
+        });
+
+        await applyReportBug({
+            snapshotId: twinSnapshotId,
+            organizationId,
+            testCaseId: subject.testCaseId,
+            title: "Session drops mid-flow",
+            description: "The auth token is discarded after the first navigation.",
+            severity: "critical",
+            evidence: [],
+            reviewLink: { generationReviewId: reviewId },
+        });
+
+        // The twin is detached from every branch pointer, but its branchId is the
+        // feature branch - so the bug lands on the feature branch, not on a phantom.
+        const bug = await harness.db.bug.findFirstOrThrow({ where: { branchId }, select: { branchId: true } });
+        expect(bug.branchId).toBe(branchId);
+    });
+
+    test("report_bug matched to a same-branch Bug appends an occurrence instead of a new row", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const firstSnapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const branchId = await harness.branchIdOf(firstSnapshotId);
+        const first = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId: firstSnapshotId,
+        });
+        const firstReviewId = await harness.createGenerationReview({
+            organizationId,
+            snapshotId: firstSnapshotId,
+            planId: first.planId,
+        });
+
+        await applyReportBug({
+            snapshotId: firstSnapshotId,
+            organizationId,
+            testCaseId: first.testCaseId,
+            title: "Search returns no results",
+            description: "The search index is never queried for two-word terms.",
+            severity: "high",
+            evidence: [],
+            reviewLink: { generationReviewId: firstReviewId },
+        });
+        const bug = await harness.db.bug.findFirstOrThrow({ where: { branchId }, select: { id: true } });
+
+        // A later commit on the SAME branch re-detects the same root cause; the
+        // matcher hands applyReportBug the existing bug id.
+        const laterSnapshotId = await harness.createSnapshotOnBranch(branchId);
+        const laterReviewId = await harness.createGenerationReview({
+            organizationId,
+            snapshotId: laterSnapshotId,
+            planId: first.planId,
+        });
+
+        await applyReportBug({
+            snapshotId: laterSnapshotId,
+            organizationId,
+            testCaseId: first.testCaseId,
+            title: "Search still returns no results",
+            description: "Two-word search terms match nothing.",
+            severity: "critical",
+            evidence: [],
+            matchedBugId: bug.id,
+            reviewLink: { generationReviewId: laterReviewId },
+        });
+
+        // No second Bug row: the occurrence collapses into the existing one, and
+        // the severity is bumped to the higher of the two reports.
+        const bugs = await harness.db.bug.findMany({ where: { branchId }, select: { id: true, severity: true } });
+        expect(bugs).toHaveLength(1);
+        expect(bugs[0]?.severity).toBe("critical");
+        // Both Issues attach to the one Bug.
+        const occurrences = await harness.db.issue.count({ where: { bugId: bug.id } });
+        expect(occurrences).toBe(2);
+    });
+
+    test("report_bug refuses to link a matched Bug from a different branch", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        // A bug already tracked on branch A.
+        const branchASnapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const onA = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId: branchASnapshotId,
+        });
+        const reviewA = await harness.createGenerationReview({
+            organizationId,
+            snapshotId: branchASnapshotId,
+            planId: onA.planId,
+        });
+        await applyReportBug({
+            snapshotId: branchASnapshotId,
+            organizationId,
+            testCaseId: onA.testCaseId,
+            title: "Bug on branch A",
+            description: "Root cause seen on branch A.",
+            severity: "medium",
+            evidence: [],
+            reviewLink: { generationReviewId: reviewA },
+        });
+        const branchABranchId = await harness.branchIdOf(branchASnapshotId);
+        const bugOnA = await harness.db.bug.findFirstOrThrow({
+            where: { branchId: branchABranchId },
+            select: { id: true },
+        });
+
+        // A detection on a different branch B is fed that branch-A bug id (a match
+        // that should never happen once dedup is branch-scoped). The write path is
+        // the last line of defence: it refuses the cross-branch attachment.
+        const branchBSnapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        const onB = await harness.createPlanWithAssignment({
+            organizationId,
+            applicationId,
+            folderId,
+            snapshotId: branchBSnapshotId,
+        });
+        const reviewB = await harness.createGenerationReview({
+            organizationId,
+            snapshotId: branchBSnapshotId,
+            planId: onB.planId,
+        });
+
+        await expect(
+            applyReportBug({
+                snapshotId: branchBSnapshotId,
+                organizationId,
+                testCaseId: onB.testCaseId,
+                title: "Same symptom on branch B",
+                description: "Looks the same as the branch A bug.",
+                severity: "medium",
+                evidence: [],
+                matchedBugId: bugOnA.id,
+                reviewLink: { generationReviewId: reviewB },
+            }),
+        ).rejects.toThrow(/branch invariant/);
     });
 });

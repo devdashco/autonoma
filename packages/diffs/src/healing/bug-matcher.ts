@@ -25,8 +25,16 @@ const matchResultSchema = z.object({
 
 type MatchResult = z.infer<typeof matchResultSchema>;
 
+// Upper bound on how many existing bugs are loaded and fed to the dedup prompt.
+// A long-lived branch (especially main, the durable backlog) can accumulate many
+// bugs; loading all of them would risk OOM and blow the model's context window.
+// The most recently seen bugs are the likeliest match, so we cap to the newest N
+// by lastSeenAt. All statuses are kept (a resolved match is intentionally reopened,
+// see the system prompt), so the cap trades a rare missed dedup for a bounded prompt.
+const MAX_CANDIDATE_BUGS = 100;
+
 const SYSTEM_PROMPT = `You are a bug deduplication service. Given one new issue candidate and the list
-of existing tracked bugs for the same application, decide whether the candidate describes the same
+of existing tracked bugs on the same branch, decide whether the candidate describes the same
 underlying bug as one of them.
 
 Two reports describe the same bug if they share a root cause - not just similar symptoms. Some
@@ -52,10 +60,10 @@ export class BugMatcher {
 
     constructor(
         private readonly db: PrismaClient,
-        private readonly applicationId: string,
+        private readonly branchId: string,
         model: LanguageModel,
     ) {
-        this.logger = rootLogger.child({ name: this.constructor.name, applicationId });
+        this.logger = rootLogger.child({ name: this.constructor.name, branchId });
         this.objectGenerator = new ObjectGenerator({
             model,
             systemPrompt: SYSTEM_PROMPT,
@@ -68,13 +76,14 @@ export class BugMatcher {
         this.logger.info("Looking for matching bug", { title: candidate.title });
 
         const existing = await this.db.bug.findMany({
-            where: { applicationId: this.applicationId },
+            where: { branchId: this.branchId },
             select: { id: true, title: true, description: true, status: true },
             orderBy: { lastSeenAt: "desc" },
+            take: MAX_CANDIDATE_BUGS,
         });
 
         if (existing.length === 0) {
-            this.logger.info("No existing bugs in application; candidate is novel");
+            this.logger.info("No existing bugs on branch; candidate is novel");
             return undefined;
         }
 
@@ -101,7 +110,7 @@ function buildPrompt(existing: ExistingBug[], candidate: BugCandidate): string {
 Title: ${candidate.title}
 Description: ${candidate.description}
 
-## Existing Bugs in This Application
+## Existing Bugs on This Branch
 
 ${existingList}
 

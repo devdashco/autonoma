@@ -513,6 +513,7 @@ model Branch {
   mainOfApplication Application?       @relation("MainBranch")
   snapshots         BranchSnapshot[]
   deployments       BranchDeployment[]
+  bugs              Bug[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -934,6 +935,13 @@ model Bug {
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
+  // The branch this bug is scoped to, derived from the snapshot it was detected on.
+  // Nullable during the additive migration: pre-existing bugs keep branchId = null
+  // (abandoned by branch-scoped reads). New bugs always stamp it. The denormalized
+  // applicationId is retained so application-scoped reads keep working.
+  branchId String? @map("branch_id")
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
   firstSeenAt DateTime  @default(now()) @map("first_seen_at")
   lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
   resolvedAt  DateTime? @map("resolved_at")
@@ -948,6 +956,8 @@ model Bug {
 
   @@index([applicationId, lastSeenAt])
   @@index([status])
+  @@index([branchId, status])
+  @@index([branchId, lastSeenAt])
   @@map("bug")
 }
 

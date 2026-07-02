@@ -1,7 +1,6 @@
 import { db } from "@autonoma/db";
 import { BugMatcher, openModelSession } from "@autonoma/diffs";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
 import type { ApplyHealingActionsInput, ApplyHealingActionsOutput } from "@autonoma/workflow/activities";
 import { Context } from "@temporalio/activity";
 import { applyRemoveTest } from "./apply-remove-test";
@@ -22,10 +21,11 @@ import { applyUpdatePlan } from "./apply-update-plan";
  * either fully visible to subsequent activities or not at all.
  *
  * Per-action bug dedup: each report_bug action calls BugMatcher.findMatch
- * against the application's existing Bug rows before applyReportBug runs.
- * Because applyReportBug writes synchronously inside the loop, same-batch
- * siblings with the same root cause are matched against the freshly persisted
- * Bug on subsequent iterations, so duplicates should never reach the database.
+ * against the existing Bug rows on the detecting snapshot's branch before
+ * applyReportBug runs. Because applyReportBug writes synchronously inside the
+ * loop, same-batch siblings with the same root cause are matched against the
+ * freshly persisted Bug on subsequent iterations, so duplicates should never
+ * reach the database.
  */
 export async function applyHealingActions(input: ApplyHealingActionsInput): Promise<ApplyHealingActionsOutput> {
     const logger = rootLogger.child({
@@ -172,13 +172,14 @@ async function buildBugMatcher(input: ApplyHealingActionsInput): Promise<BugMatc
     const hasReportBug = input.actions.some(({ action }) => action.kind === "report_bug");
     if (!hasReportBug) return undefined;
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId: input.snapshotId,
-        organizationId: input.organizationId,
+    // Dedup is branch-scoped: the same root cause on two branches is two Bug rows,
+    // so the matcher only ever compares against bugs on the detecting snapshot's branch.
+    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
+        where: { id: input.snapshotId },
+        select: { branchId: true },
     });
 
     const session = openModelSession();
     const model = session.getModel({ model: "smart-visual", tag: "bug-matcher" });
-    return new BugMatcher(db, updater.applicationId, model);
+    return new BugMatcher(db, snapshot.branchId, model);
 }
