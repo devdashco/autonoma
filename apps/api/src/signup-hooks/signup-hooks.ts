@@ -217,6 +217,13 @@ export class SignupHooks {
     }
 
     private async sendWelcomeEmail(email: string, userName: string, channelResult?: ChannelResult): Promise<void> {
+        // Welcome email sending is temporarily disabled. Newsletter and Slack hooks remain active.
+        const welcomeEmailEnabled = false;
+        if (!welcomeEmailEnabled) {
+            this.logger.info("Welcome email sending is disabled - skipping send", { email });
+            return;
+        }
+
         if (this.resend == null) return;
         await this.resend.sendWelcomeEmail({ email, userName, channelResult });
     }
