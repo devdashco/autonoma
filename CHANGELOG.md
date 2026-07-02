@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.8.11](https://github.com/Autonoma-AI/agent/compare/v1.8.10...v1.8.11) (2026-07-01)
+
+
+### Features
+
+* convert finish setup to paged layout ([#1192](https://github.com/Autonoma-AI/agent/issues/1192)) ([04bf39e](https://github.com/Autonoma-AI/agent/commit/04bf39e56982f31aa941ee6c8e1f55b409e049e2))
+* health and reporting reflect running tests instead of quarantine ([#1219](https://github.com/Autonoma-AI/agent/issues/1219)) ([ce8e126](https://github.com/Autonoma-AI/agent/commit/ce8e126023854696168cfaff14b4ca44f9bea5b8))
+* improve preview deploy loader ([#1193](https://github.com/Autonoma-AI/agent/issues/1193)) ([48f0b7c](https://github.com/Autonoma-AI/agent/commit/48f0b7c5b22bcf3e154f363645199efaba922bce))
+* **investigation:** persist test edits and reconcile them into main on merge ([#1210](https://github.com/Autonoma-AI/agent/issues/1210)) ([0acbf16](https://github.com/Autonoma-AI/agent/commit/0acbf160ba75474e56fc8e7968cb7cdab46081d0))
+* **investigation:** post results as a GitHub PR comment ([#1182](https://github.com/Autonoma-AI/agent/issues/1182)) ([3f6950b](https://github.com/Autonoma-AI/agent/commit/3f6950b445fed5b2a881017ef9c68519b804cbfc))
+* remove the newly-quarantined UI surface ([#1223](https://github.com/Autonoma-AI/agent/issues/1223)) ([c03bfab](https://github.com/Autonoma-AI/agent/commit/c03bfab9bce58570d16e33915de6232b04d6d431))
+* scenario_unsupported verdict ([#1061](https://github.com/Autonoma-AI/agent/issues/1061)) ([#1129](https://github.com/Autonoma-AI/agent/issues/1129)) ([5648c05](https://github.com/Autonoma-AI/agent/commit/5648c0598d207798f751d0a21c7878d9069c5fa1))
+* stop quarantining reported tests so they re-run every snapshot ([#1216](https://github.com/Autonoma-AI/agent/issues/1216)) ([1130877](https://github.com/Autonoma-AI/agent/commit/1130877a989d517e4c9bc415f92fb6a4af8cd4a5))
+* **ui:** GitHub-style settings tab bar + rename Previewkit tab to Preview Environments ([#1239](https://github.com/Autonoma-AI/agent/issues/1239)) ([565fe6b](https://github.com/Autonoma-AI/agent/commit/565fe6bd44a645302dabe8a5d924e0129213bab4))
+
+
+### Bug Fixes
+
+* **api:** alert on rejected GitHub install callbacks ([#1224](https://github.com/Autonoma-AI/agent/issues/1224)) ([396b276](https://github.com/Autonoma-AI/agent/commit/396b2765515221bf85c2dc0ae16c06af37ee300a))
+* increase nginx ingress buffer size ([#1221](https://github.com/Autonoma-AI/agent/issues/1221)) ([b9ad6e6](https://github.com/Autonoma-AI/agent/commit/b9ad6e6c4f01b97dad424faae69a405fca3d0f1e))
+* **investigation:** mark shadow generations so they stop polluting client UIs ([#1229](https://github.com/Autonoma-AI/agent/issues/1229)) ([abe451f](https://github.com/Autonoma-AI/agent/commit/abe451f873fb5538f1d95a50de4d2e6099b37ed4))
+* **investigation:** skip run+classify when scenario up fails ([#1227](https://github.com/Autonoma-AI/agent/issues/1227)) ([94d6b86](https://github.com/Autonoma-AI/agent/commit/94d6b863016290bfe715c1b203b92d43b72d6966))
+* move preview generation CTA outside cards ([#1191](https://github.com/Autonoma-AI/agent/issues/1191)) ([dcf059f](https://github.com/Autonoma-AI/agent/commit/dcf059f03534094d860bb175f791e288ff5a3eb5))
+* **previewkit:** delete existing Deployment before recreate in applyDeployment ([#1220](https://github.com/Autonoma-AI/agent/issues/1220)) ([29c0ae6](https://github.com/Autonoma-AI/agent/commit/29c0ae6f51680571da218ed433f6a527f8b5d37e))
+* **previewkit:** refactor hook jobs logs ([#1218](https://github.com/Autonoma-AI/agent/issues/1218)) ([6892013](https://github.com/Autonoma-AI/agent/commit/68920130bf214a1fb630905e3d9f0f653ebc74b7))
+* **previewkit:** remove obsolete env vars from configmap  ([#1217](https://github.com/Autonoma-AI/agent/issues/1217)) ([4cb02d0](https://github.com/Autonoma-AI/agent/commit/4cb02d0d24f52308276c9829261c52c67040bb96))
+
 ## [1.8.10](https://github.com/Autonoma-AI/agent/compare/v1.8.9...v1.8.10) (2026-07-01)
 
 
