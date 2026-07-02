@@ -10,7 +10,7 @@ import {
   useSnapshotDetail,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
-import { useBugsListByPr } from "lib/query/bugs.queries";
+import { useBugsListByBranch } from "lib/query/bugs.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -19,7 +19,7 @@ import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
-type Bug = RouterOutputs["bugs"]["listByPr"][number];
+type Bug = RouterOutputs["bugs"]["listByBranch"][number];
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/main")({
   loader: async ({ context, params: { appSlug } }) => {
@@ -57,7 +57,7 @@ function MainBranchContent() {
   const app = useCurrentApplication();
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const { data: bugs } = useBugsListByPr(app.id, branch.id, "open");
+  const { data: bugs } = useBugsListByBranch(branch.id, "open");
 
   const ordered = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const latest = ordered[0];

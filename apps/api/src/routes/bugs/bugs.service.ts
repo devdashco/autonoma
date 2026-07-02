@@ -33,12 +33,10 @@ const analysisSchema = z
 
 type SignedEvidenceItem = { type: string; description: string; url?: string };
 
-interface ListBugsByPrParams {
+interface ListBugsByBranchParams {
     organizationId: string;
-    applicationId: string;
     branchId: string;
     status: BugStatus;
-    snapshotId?: string;
 }
 
 export const bugDetailIssueSummarySelect = {
@@ -223,13 +221,34 @@ export class BugsService extends Service {
         super();
     }
 
+    /**
+     * The branch IDs that back the application-level bug views. An app-level view means
+     * "bugs on main", so we resolve each application's main branch and scope reads to it.
+     * Without an applicationId the org-wide listing is the union of every application's
+     * main branch. Bugs abandoned by the branch-scoping migration (branchId = null) never
+     * match, so they drop out of every app-level view.
+     */
+    private async mainBranchIds(organizationId: string, applicationId?: string): Promise<string[]> {
+        const apps = await this.db.application.findMany({
+            where: {
+                organizationId,
+                mainBranchId: { not: null },
+                ...(applicationId != null ? { id: applicationId } : {}),
+            },
+            select: { mainBranchId: true },
+        });
+        return apps.map((app) => app.mainBranchId).filter((id): id is string => id != null);
+    }
+
     async listBugs(organizationId: string, applicationId?: string, status?: BugStatus) {
         this.logger.info("Listing bugs", { organizationId, applicationId, status });
+
+        const branchIds = await this.mainBranchIds(organizationId, applicationId);
 
         const bugs = await this.db.bug.findMany({
             where: {
                 organizationId,
-                ...(applicationId != null ? { applicationId } : {}),
+                branchId: { in: branchIds },
                 ...(status != null ? { status } : {}),
             },
             select: {
@@ -271,10 +290,12 @@ export class BugsService extends Service {
     async listBugsSummary(organizationId: string, applicationId?: string, status?: BugStatus) {
         this.logger.info("Listing bug summaries", { organizationId, applicationId, status });
 
+        const branchIds = await this.mainBranchIds(organizationId, applicationId);
+
         const bugs = await this.db.bug.findMany({
             where: {
                 organizationId,
-                ...(applicationId != null ? { applicationId } : {}),
+                branchId: { in: branchIds },
                 ...(status != null ? { status } : {}),
             },
             select: {
@@ -300,20 +321,21 @@ export class BugsService extends Service {
         }));
     }
 
-    async listBugsByPr(params: ListBugsByPrParams) {
-        const { organizationId, applicationId, branchId, status, snapshotId } = params;
-        this.logger.info("Listing bugs by PR", { organizationId, applicationId, branchId, status, snapshotId });
-
-        const issueScope = this.buildPrIssueScope(params);
+    /**
+     * Bugs on a single branch. Main is just a branch, so this backs both the PR detail
+     * page (a feature branch) and the main-branch view. The `Bug.branchId` stamped by the
+     * write path makes this a direct branch lookup - no more Issue -> snapshot -> branch
+     * join - and abandoned bugs (branchId = null) never match.
+     */
+    async listBugsByBranch(params: ListBugsByBranchParams) {
+        const { organizationId, branchId, status } = params;
+        this.logger.info("Listing bugs by branch", { organizationId, branchId, status });
 
         const bugs = await this.db.bug.findMany({
             where: {
                 organizationId,
-                applicationId,
+                branchId,
                 status,
-                issues: {
-                    some: issueScope,
-                },
             },
             select: {
                 id: true,
@@ -332,7 +354,6 @@ export class BugsService extends Service {
                     orderBy: { lastSeenAt: "desc" },
                 },
                 issues: {
-                    where: issueScope,
                     select: {
                         id: true,
                         createdAt: true,
@@ -371,76 +392,9 @@ export class BugsService extends Service {
             })
             .slice(0, 50);
 
-        this.logger.info("PR bugs listed", { count: sorted.length, snapshotId });
+        this.logger.info("Branch bugs listed", { count: sorted.length, branchId });
 
         return sorted;
-    }
-
-    private buildPrIssueScope({
-        organizationId,
-        applicationId,
-        branchId,
-        snapshotId,
-    }: ListBugsByPrParams): Prisma.IssueWhereInput {
-        const generationScope: Prisma.IssueWhereInput =
-            snapshotId != null
-                ? {
-                      generationReview: {
-                          is: {
-                              generation: {
-                                  snapshotId,
-                                  snapshot: {
-                                      branchId,
-                                      branch: {
-                                          applicationId,
-                                          organizationId,
-                                      },
-                                  },
-                              },
-                          },
-                      },
-                  }
-                : {
-                      generationReview: {
-                          is: {
-                              generation: {
-                                  snapshot: {
-                                      branchId,
-                                      branch: {
-                                          applicationId,
-                                          organizationId,
-                                      },
-                                  },
-                              },
-                          },
-                      },
-                  };
-
-        if (snapshotId == null) return generationScope;
-
-        return {
-            OR: [
-                generationScope,
-                {
-                    runReview: {
-                        is: {
-                            run: {
-                                assignment: {
-                                    snapshotId,
-                                    snapshot: {
-                                        branchId,
-                                        branch: {
-                                            applicationId,
-                                            organizationId,
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ],
-        };
     }
 
     private async findIssueThumbnail(

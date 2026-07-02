@@ -16,7 +16,7 @@ import {
 } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
 import { ensureBranchByPrData, useBranchByPr, useSnapshotDetail, useSnapshotHistory } from "lib/query/branches.queries";
-import { useBugsListByPr } from "lib/query/bugs.queries";
+import { useBugsListByBranch } from "lib/query/bugs.queries";
 import { ensurePreviewEnvironmentSummaryData } from "lib/query/deployments.queries";
 import {
   useApplicationRepositoryFromGitHub,
@@ -35,7 +35,7 @@ import { PRDetailHeader } from "../-components/pr-detail-header";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
-type Bug = RouterOutputs["bugs"]["listByPr"][number];
+type Bug = RouterOutputs["bugs"]["listByBranch"][number];
 type PullRequest = RouterOutputs["github"]["getPullRequest"];
 type Repository = RouterOutputs["github"]["getApplicationRepository"];
 type PRTestEntry = TestEntry & { snapshotId: string };
@@ -146,7 +146,7 @@ function PullRequestDetailWithCheckpoint({
   latestSnapshot: Snapshot;
 }) {
   const { data: detail } = useSnapshotDetail(latestSnapshot.id);
-  const { data: bugs } = useBugsListByPr(applicationId, branchId, "open");
+  const { data: bugs } = useBugsListByBranch(branchId, "open");
 
   return (
     <>

@@ -5,7 +5,7 @@ import type { APITestHarness } from "../harness";
 
 async function seedFixture(harness: APITestHarness) {
     const application = await harness.services.applications.createApplication({
-        name: "Bug PR App",
+        name: "Bug Branch App",
         organizationId: harness.organizationId,
         architecture: ApplicationArchitecture.WEB,
         url: "https://example.com",
@@ -76,126 +76,112 @@ async function seedFixture(harness: APITestHarness) {
 
     const [firstSnapshot, secondSnapshot, otherSnapshot] = await Promise.all([
         harness.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "GITHUB_PUSH",
-                status: "active",
-            },
+            data: { branchId: branch.id, source: "GITHUB_PUSH", status: "active" },
         }),
         harness.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "GITHUB_PUSH",
-                status: "active",
-            },
+            data: { branchId: branch.id, source: "GITHUB_PUSH", status: "active" },
         }),
         harness.db.branchSnapshot.create({
-            data: {
-                branchId: otherBranch.id,
-                source: "GITHUB_PUSH",
-                status: "active",
-            },
+            data: { branchId: otherBranch.id, source: "GITHUB_PUSH", status: "active" },
         }),
     ]);
 
-    const prBug = await harness.db.bug.create({
+    // Open bug on the target branch, re-detected across two commits -> two occurrences.
+    const branchBug = await harness.db.bug.create({
         data: {
             title: "Checkout button crashes",
             description: "The checkout button throws during payment.",
             severity: "critical",
+            branchId: branch.id,
             applicationId: application.id,
             organizationId: harness.organizationId,
-            evidence: {
-                create: {
-                    testCaseId: testCase.id,
-                },
-            },
+            evidence: { create: { testCaseId: testCase.id } },
         },
     });
 
-    const otherBranchBug = await harness.db.bug.create({
+    // A second open bug on the same branch, without evidence screenshots.
+    const secondBranchBug = await harness.db.bug.create({
         data: {
-            title: "Other branch bug",
-            description: "A bug on a different branch.",
+            title: "Totals miscalculated",
+            description: "Line item totals are off by a cent.",
             severity: "high",
+            branchId: branch.id,
             applicationId: application.id,
             organizationId: harness.organizationId,
+            evidence: { create: { testCaseId: testCase.id } },
         },
     });
 
-    const resolvedBug = await harness.db.bug.create({
-        data: {
-            title: "Resolved PR bug",
-            description: "A resolved bug on this PR.",
-            severity: "medium",
-            status: "resolved",
-            resolvedAt: new Date(),
-            applicationId: application.id,
-            organizationId: harness.organizationId,
-        },
-    });
-
-    const secondSnapshotBug = await harness.db.bug.create({
-        data: {
-            title: "Second snapshot only bug",
-            description: "A bug that only appears on the second snapshot.",
-            severity: "high",
-            applicationId: application.id,
-            organizationId: harness.organizationId,
-            evidence: {
-                create: {
-                    testCaseId: testCase.id,
-                },
-            },
-        },
-    });
-
+    // A bug detected via a replay run review, on the same branch.
     const runReviewBug = await harness.db.bug.create({
         data: {
             title: "Run review bug",
             description: "A bug reported from replay review.",
             severity: "medium",
+            branchId: branch.id,
             applicationId: application.id,
             organizationId: harness.organizationId,
-            evidence: {
-                create: {
-                    testCaseId: runTestCase.id,
-                },
-            },
+            evidence: { create: { testCaseId: runTestCase.id } },
+        },
+    });
+
+    // A resolved bug on the target branch - excluded from the default open query.
+    const resolvedBug = await harness.db.bug.create({
+        data: {
+            title: "Resolved branch bug",
+            description: "A resolved bug on this branch.",
+            severity: "medium",
+            status: "resolved",
+            resolvedAt: new Date(),
+            branchId: branch.id,
+            applicationId: application.id,
+            organizationId: harness.organizationId,
+        },
+    });
+
+    // A bug on a different branch - must never leak into the target branch view.
+    const otherBranchBug = await harness.db.bug.create({
+        data: {
+            title: "Other branch bug",
+            description: "A bug on a different branch.",
+            severity: "high",
+            branchId: otherBranch.id,
+            applicationId: application.id,
+            organizationId: harness.organizationId,
+        },
+    });
+
+    // A bug abandoned by the branch-scoping migration (branchId = null). It stays in the
+    // table but must fall out of every branch-scoped view.
+    const abandonedBug = await harness.db.bug.create({
+        data: {
+            title: "Abandoned pre-migration bug",
+            description: "Left with a null branch by the additive migration.",
+            severity: "critical",
+            applicationId: application.id,
+            organizationId: harness.organizationId,
         },
     });
 
     await createIssueForBug(harness, {
-        bugId: prBug.id,
+        bugId: branchBug.id,
         snapshotId: firstSnapshot.id,
         testPlanId: testPlan.id,
         title: "Checkout fails on first snapshot",
         screenshotKey: "evidence/first-snapshot.jpeg",
     });
     await createIssueForBug(harness, {
-        bugId: prBug.id,
+        bugId: branchBug.id,
         snapshotId: secondSnapshot.id,
         testPlanId: testPlan.id,
         title: "Checkout fails on second snapshot",
         screenshotKey: "evidence/second-snapshot.jpeg",
     });
     await createIssueForBug(harness, {
-        bugId: otherBranchBug.id,
-        snapshotId: otherSnapshot.id,
-        testPlanId: testPlan.id,
-        title: "Other branch issue",
-    });
-    await createIssueForBug(harness, {
-        bugId: resolvedBug.id,
+        bugId: secondBranchBug.id,
         snapshotId: secondSnapshot.id,
         testPlanId: testPlan.id,
-        title: "Resolved issue",
-    });
-    await createIssueForBug(harness, {
-        bugId: secondSnapshotBug.id,
-        snapshotId: secondSnapshot.id,
-        testPlanId: testPlan.id,
-        title: "Second snapshot issue without thumbnail",
+        title: "Totals bug without thumbnail",
     });
     await createRunIssueForBug(harness, {
         bugId: runReviewBug.id,
@@ -205,17 +191,23 @@ async function seedFixture(harness: APITestHarness) {
         title: "Run review issue with thumbnail",
         screenshotKey: "evidence/run-review.jpeg",
     });
+    await createIssueForBug(harness, {
+        bugId: otherBranchBug.id,
+        snapshotId: otherSnapshot.id,
+        testPlanId: testPlan.id,
+        title: "Other branch issue",
+    });
 
     return {
         application,
         branch,
-        firstSnapshot,
-        secondSnapshot,
-        prBug,
-        otherBranchBug,
-        resolvedBug,
-        secondSnapshotBug,
+        otherBranch,
+        branchBug,
+        secondBranchBug,
         runReviewBug,
+        resolvedBug,
+        otherBranchBug,
+        abandonedBug,
     };
 }
 
@@ -322,63 +314,55 @@ function buildAnalysis(screenshotKey: string | undefined) {
 }
 
 apiTestSuite({
-    name: "bugs.listByPr",
+    name: "bugs.listByBranch",
     seed: async ({ harness }) => seedFixture(harness),
     cases: (test) => {
-        test("returns open bugs scoped to a PR branch", async ({ harness, seedResult }) => {
-            const bugs = await harness.request().bugs.listByPr({
-                applicationId: seedResult.application.id,
-                branchId: seedResult.branch.id,
-            });
-
-            expect(bugs.map((bug) => bug.id)).toEqual(
-                expect.arrayContaining([seedResult.prBug.id, seedResult.secondSnapshotBug.id]),
-            );
-            expect(bugs.find((bug) => bug.id === seedResult.prBug.id)?.occurrences).toBe(2);
-            expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.otherBranchBug.id);
-            expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.resolvedBug.id);
-            expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.runReviewBug.id);
-        });
-
-        test("returns bugs scoped to a snapshot with thumbnails", async ({ harness, seedResult }) => {
-            const bugs = await harness.request().bugs.listByPr({
-                applicationId: seedResult.application.id,
-                branchId: seedResult.branch.id,
-                snapshotId: seedResult.secondSnapshot.id,
-            });
+        test("returns open bugs scoped to a single branch", async ({ harness, seedResult }) => {
+            const bugs = await harness.request().bugs.listByBranch({ branchId: seedResult.branch.id });
 
             expect(bugs.map((bug) => bug.id)).toEqual(
                 expect.arrayContaining([
-                    seedResult.prBug.id,
-                    seedResult.secondSnapshotBug.id,
+                    seedResult.branchBug.id,
+                    seedResult.secondBranchBug.id,
                     seedResult.runReviewBug.id,
                 ]),
             );
             expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.otherBranchBug.id);
             expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.resolvedBug.id);
+            expect(bugs.map((bug) => bug.id)).not.toContain(seedResult.abandonedBug.id);
+        });
 
-            const repeatedBug = bugs.find((bug) => bug.id === seedResult.prBug.id);
-            expect(repeatedBug?.occurrences).toBe(1);
-            expect(repeatedBug?.thumbnail?.url).toContain("evidence/second-snapshot.jpeg");
+        test("collapses a branch's commits into occurrences and surfaces the latest thumbnail", async ({
+            harness,
+            seedResult,
+        }) => {
+            const bugs = await harness.request().bugs.listByBranch({ branchId: seedResult.branch.id });
+
+            const branchBug = bugs.find((bug) => bug.id === seedResult.branchBug.id);
+            expect(branchBug?.occurrences).toBe(2);
+            expect(branchBug?.thumbnail?.url).toContain("evidence/second-snapshot.jpeg");
 
             const runReviewBug = bugs.find((bug) => bug.id === seedResult.runReviewBug.id);
             expect(runReviewBug?.occurrences).toBe(1);
             expect(runReviewBug?.thumbnail?.url).toContain("evidence/run-review.jpeg");
 
-            const bugWithoutThumbnail = bugs.find((bug) => bug.id === seedResult.secondSnapshotBug.id);
-            expect(bugWithoutThumbnail?.thumbnail).toBeUndefined();
+            const secondBranchBug = bugs.find((bug) => bug.id === seedResult.secondBranchBug.id);
+            expect(secondBranchBug?.thumbnail).toBeUndefined();
         });
 
-        test("does not include bugs from other snapshots when snapshot scoped", async ({ harness, seedResult }) => {
-            const bugs = await harness.request().bugs.listByPr({
-                applicationId: seedResult.application.id,
+        test("returns the other branch's own bug when pointed at it", async ({ harness, seedResult }) => {
+            const bugs = await harness.request().bugs.listByBranch({ branchId: seedResult.otherBranch.id });
+
+            expect(bugs.map((bug) => bug.id)).toEqual([seedResult.otherBranchBug.id]);
+        });
+
+        test("returns resolved bugs when the status filter asks for them", async ({ harness, seedResult }) => {
+            const bugs = await harness.request().bugs.listByBranch({
                 branchId: seedResult.branch.id,
-                snapshotId: seedResult.firstSnapshot.id,
+                status: "resolved",
             });
 
-            expect(bugs.map((bug) => bug.id)).toEqual([seedResult.prBug.id]);
-            expect(bugs[0]?.occurrences).toBe(1);
-            expect(bugs[0]?.thumbnail?.url).toContain("evidence/first-snapshot.jpeg");
+            expect(bugs.map((bug) => bug.id)).toEqual([seedResult.resolvedBug.id]);
         });
     },
 });

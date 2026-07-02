@@ -29,26 +29,20 @@ export const bugsRouter = router({
             services.bugs.listBugsSummary(organizationId, input?.applicationId, input?.status),
         ),
 
-    listByPr: protectedProcedure
+    listByBranch: protectedProcedure
         .input(
             z.object({
-                applicationId: z.string(),
                 branchId: z.string(),
                 status: z.enum(["open", "resolved", "regressed"]).default("open"),
-                snapshotId: z.string().optional(),
             }),
         )
-        .query(({ ctx: { services, organizationId }, input }) => {
-            const params = {
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.bugs.listBugsByBranch({
                 organizationId,
-                applicationId: input.applicationId,
                 branchId: input.branchId,
                 status: input.status,
-            };
-            if (input.snapshotId != null)
-                return services.bugs.listBugsByPr({ ...params, snapshotId: input.snapshotId });
-            return services.bugs.listBugsByPr(params);
-        }),
+            }),
+        ),
 
     detail: protectedProcedure
         .input(z.object({ bugId: z.string() }))

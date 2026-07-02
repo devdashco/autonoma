@@ -11,15 +11,8 @@ export function useBugsSummary(status?: "open" | "resolved" | "regressed") {
     return useSuspenseQuery(trpc.bugs.listSummary.queryOptions({ applicationId: currentApp.id, status }));
 }
 
-export function useBugsListByPr(
-    applicationId: string,
-    branchId: string,
-    status: "open" | "resolved" | "regressed" = "open",
-    snapshotId?: string,
-) {
-    const input =
-        snapshotId != null ? { applicationId, branchId, status, snapshotId } : { applicationId, branchId, status };
-    return useSuspenseQuery(trpc.bugs.listByPr.queryOptions(input));
+export function useBugsListByBranch(branchId: string, status: "open" | "resolved" | "regressed" = "open") {
+    return useSuspenseQuery(trpc.bugs.listByBranch.queryOptions({ branchId, status }));
 }
 
 export function useBugDetail(bugId: string) {
