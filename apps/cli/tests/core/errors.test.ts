@@ -222,8 +222,35 @@ describe("describeKnownError", () => {
         expect(known?.hint).toContain("autonoma.app");
     });
 
+    test("maps a proxy 404 to the service-unavailable message instead of a raw stack", () => {
+        const known = describeKnownError(apiError(404, "Not Found"));
+        expect(known?.title).toContain("temporarily unavailable");
+        expect(known?.hint).toContain("contact support");
+    });
+
+    test("recognizes the proxy 404 through the AgentError cause chain (the reported bug)", () => {
+        // Reproduces the field report: the OpenRouter provider throws a 404
+        // "Not Found", the agent layer wraps it in an AgentError, and the raw
+        // status must still be dug out of the cause chain.
+        const wrapped = new AgentError(
+            'agent "pages-finder" (model google/gemini-3-flash-preview) failed: Not Found',
+            "pages-finder",
+            apiError(404, "Not Found"),
+        );
+        const known = describeKnownError(wrapped);
+        expect(known?.title).toContain("temporarily unavailable");
+    });
+
+    test("maps proxy 502/503 and the unconfigured signal to service-unavailable", () => {
+        expect(describeKnownError(apiError(502, "Bad Gateway"))?.title).toContain("temporarily unavailable");
+        expect(describeKnownError(apiError(503))?.title).toContain("temporarily unavailable");
+        expect(describeKnownError(new Error("llm_proxy_unconfigured"))?.title).toContain("temporarily unavailable");
+    });
+
     test("returns null for unrecognized errors", () => {
         expect(describeKnownError(new Error("something nobody has seen"))).toBeUndefined();
+        // A bare 500 stays unrecognized on purpose - an unexpected server crash
+        // is worth surfacing with its full stack, unlike the known 404/502/503 family.
         expect(describeKnownError(apiError(500))).toBeUndefined();
     });
 });

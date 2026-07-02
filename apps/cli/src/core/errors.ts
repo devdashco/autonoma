@@ -117,6 +117,25 @@ function chainMessages(err: unknown): string {
 }
 
 /**
+ * Walk the cause chain to the first APICallError and return its HTTP status.
+ * The agent layer wraps provider errors in an AgentError (and the AI SDK may
+ * wrap them in a RetryError), so the status we key friendly messages off of is
+ * almost never on the top-level error - we have to dig for it.
+ */
+function apiStatusOf(err: unknown): number | undefined {
+    let cur: unknown = err;
+    for (let depth = 0; cur != null && depth < 10; depth++) {
+        if (APICallError.isInstance(cur)) return cur.statusCode;
+        if (RetryError.isInstance(cur)) {
+            cur = cur.lastError;
+            continue;
+        }
+        cur = cur instanceof Error ? cur.cause : undefined;
+    }
+    return undefined;
+}
+
+/**
  * Translate the failures we've seen in the wild into an actionable one-liner.
  * These are almost always configuration problems, not bugs - a raw stack just
  * buries the fix. Returns null for anything we don't recognize, so the caller
@@ -124,7 +143,7 @@ function chainMessages(err: unknown): string {
  */
 export function describeKnownError(err: unknown): KnownError | undefined {
     const msg = chainMessages(err);
-    const status = APICallError.isInstance(err) ? err.statusCode : undefined;
+    const status = apiStatusOf(err);
 
     const looksLikeAuth =
         msg.includes("missing authentication header") ||
@@ -173,6 +192,21 @@ export function describeKnownError(err: unknown): KnownError | undefined {
         return {
             title: "Autonoma is rate-limiting this account.",
             hint: "Wait a minute and re-run. If it persists, reach out to support.",
+        };
+    }
+
+    // A 404/502/503 reaching the CLI is a problem with the managed planner
+    // service, not the user's input. A bare 404 means the proxy route wasn't
+    // found at the API host - the proxy is disabled or undeployed, or a custom
+    // AUTONOMA_API_URL points somewhere without it (the exact failure that once
+    // surfaced as a raw "Not Found"). A 502/503 means the proxy is reachable but
+    // its upstream or config is failing. Real bad-model/bad-request failures come
+    // back as 400 and are handled above, so this family is always "our side -
+    // retry or contact support", never something the user can fix by re-running.
+    if (status === 404 || status === 502 || status === 503 || msg.includes("llm_proxy_unconfigured")) {
+        return {
+            title: "The Autonoma planner service is temporarily unavailable.",
+            hint: "This is on our side, not your setup - retry in a minute, and contact support if it keeps happening. If you set a custom AUTONOMA_API_URL, confirm it points at a host running the planner.",
         };
     }
 
