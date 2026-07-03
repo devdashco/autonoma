@@ -11,6 +11,7 @@ import {
     buildServiceSummaries,
     classifyPreviewFailures,
     derivePreviewStatus,
+    isBuildingOverPriorAttempt,
     parseStringRecord,
     projectManifest,
     resolvePrimaryUrl,
@@ -403,17 +404,27 @@ export async function buildPreviewkitReadiness(
     }
 
     const latestBuild = environment.builds[0] ?? null;
+    const buildingOverPriorAttempt = isBuildingOverPriorAttempt(environment.status, latestBuild);
+    const effectiveLatestBuild = buildingOverPriorAttempt ? null : latestBuild;
     const manifest = projectManifest(environment.resolvedConfig);
     const urls = parseStringRecord(environment.urls);
     const primaryUrl = resolvePrimaryUrl(manifest, urls);
-    const appBuilds = toAppBuildOutcomeMap(latestBuild?.appBuilds ?? []);
-    const services = buildServiceSummaries({
+    const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
+    const derivedServices = buildServiceSummaries({
         branchName: application.mainBranch?.name ?? environment.headRef,
         environment,
         manifest,
-        latestBuild,
+        latestBuild: effectiveLatestBuild,
         appBuilds,
     });
+    // A stale `build_failed` app-instance row can survive into the first moments
+    // of a redeploy; while building over a prior attempt, present it as still
+    // building rather than as a leftover failure - and count it that way too.
+    const services = buildingOverPriorAttempt
+        ? derivedServices.map((service) =>
+              service.status === "failed" ? { ...service, status: "building" as const, statusReason: null } : service,
+          )
+        : derivedServices;
     const failedServiceCount = services.filter((service) => service.status === "failed").length;
     const degradedServiceCount = services.filter((service) => service.status === "fallback").length;
     const previewStatus = derivePreviewStatus({
@@ -430,21 +441,23 @@ export async function buildPreviewkitReadiness(
         repoFullName: environment.repoFullName,
         prNumber: MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
     };
-    const failures = classifyPreviewFailures({
-        appBuilds,
-        services,
-        environmentError: environment.error ?? latestBuild?.error ?? undefined,
-        appIndexByName: await resolveFailureAppIndexes(
-            db,
-            environment.resolvedConfig,
-            applicationId,
-            application.activeConfigRevisionId,
-        ),
-    });
+    const failures = buildingOverPriorAttempt
+        ? []
+        : classifyPreviewFailures({
+              appBuilds,
+              services,
+              environmentError: environment.error ?? latestBuild?.error ?? undefined,
+              appIndexByName: await resolveFailureAppIndexes(
+                  db,
+                  environment.resolvedConfig,
+                  applicationId,
+                  application.activeConfigRevisionId,
+              ),
+          });
     const diagnostics = diagnosticsFromPreviewStatus({
         status: previewStatus,
         phase: environment.phase ?? undefined,
-        error: environment.error ?? latestBuild?.error ?? undefined,
+        error: buildingOverPriorAttempt ? undefined : (environment.error ?? latestBuild?.error ?? undefined),
         primaryUrl,
         logs,
         failures,

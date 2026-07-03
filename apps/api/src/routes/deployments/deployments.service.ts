@@ -9,6 +9,7 @@ import {
     buildServiceSummaries,
     deriveEnvironmentHealth,
     derivePreviewStatus,
+    isBuildingOverPriorAttempt,
     legacyPreviewSummary,
     mapBuildStatus,
     missingPreviewSummary,
@@ -349,17 +350,26 @@ export class DeploymentsService extends Service {
         }
 
         const latestBuild = environment.builds[0] ?? null;
+        const buildingOverPriorAttempt = isBuildingOverPriorAttempt(environment.status, latestBuild);
+        const effectiveLatestBuild = buildingOverPriorAttempt ? null : latestBuild;
         const manifest = projectManifest(environment.resolvedConfig);
         const urls = parseStringRecord(environment.urls);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
-        const appBuilds = toAppBuildOutcomeMap(latestBuild?.appBuilds ?? []);
-        const services = buildServiceSummaries({
+        const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
+        const derivedServices = buildServiceSummaries({
             branchName: branch.name,
             environment,
             manifest,
-            latestBuild,
+            latestBuild: effectiveLatestBuild,
             appBuilds,
         });
+        const services = buildingOverPriorAttempt
+            ? derivedServices.map((service) =>
+                  service.status === "failed"
+                      ? { ...service, status: "building" as const, statusReason: null }
+                      : service,
+              )
+            : derivedServices;
         const serviceCount = services.length;
         const readyServiceCount = services.filter((service) => service.status === "ready").length;
         const failedServiceCount = services.filter((service) => service.status === "failed").length;
@@ -378,7 +388,7 @@ export class DeploymentsService extends Service {
             status,
             primaryUrl,
             phase: environment.phase,
-            error: environment.error,
+            error: buildingOverPriorAttempt ? null : environment.error,
             headSha: currentHeadSha ?? environment.headSha,
             lastDeployedSha: environment.headSha,
             updatedAt: environment.updatedAt,
@@ -389,15 +399,15 @@ export class DeploymentsService extends Service {
             failedServiceCount,
             services,
             latestBuild:
-                latestBuild == null
+                effectiveLatestBuild == null
                     ? null
                     : {
-                          headSha: latestBuild.headSha,
-                          status: mapBuildStatus(latestBuild.status),
-                          durationMs: latestBuild.durationMs,
-                          error: latestBuild.error,
-                          startedAt: latestBuild.startedAt,
-                          finishedAt: latestBuild.finishedAt,
+                          headSha: effectiveLatestBuild.headSha,
+                          status: mapBuildStatus(effectiveLatestBuild.status),
+                          durationMs: effectiveLatestBuild.durationMs,
+                          error: effectiveLatestBuild.error,
+                          startedAt: effectiveLatestBuild.startedAt,
+                          finishedAt: effectiveLatestBuild.finishedAt,
                       },
             actions: {
                 openPreview: {

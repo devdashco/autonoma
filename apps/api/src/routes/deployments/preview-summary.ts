@@ -355,6 +355,28 @@ function classifyAppFailure(
     return { code: fallbackCode, message, appName };
 }
 
+/**
+ * True while the environment is deploying but the newest build row is still the
+ * prior attempt - its row is finished, whereas the in-flight build's row (once
+ * written) has `finishedAt` null. Callers use this to avoid surfacing the
+ * previous attempt's error and failed services during a fresh redeploy.
+ *
+ * We key off `finishedAt` alone rather than the build's head SHA: a manual
+ * same-commit redeploy reuses the prior head, so a SHA comparison would fail to
+ * suppress exactly the case this guards. The tradeoff is that if the current
+ * build finishes (e.g. fails) a moment before `environment.status` transitions
+ * off in-flight, this briefly reports "building"; that window is transient and
+ * self-corrects on the next poll once the status flips.
+ */
+export function isBuildingOverPriorAttempt(
+    previewkitStatus: PreviewkitStatus,
+    latestBuild: { finishedAt: Date | null } | null,
+): boolean {
+    const environmentInFlight =
+        previewkitStatus === "pending" || previewkitStatus === "building" || previewkitStatus === "deploying";
+    return environmentInFlight && latestBuild != null && latestBuild.finishedAt != null;
+}
+
 export function derivePreviewStatus({
     previewkitStatus,
     currentHeadSha,
