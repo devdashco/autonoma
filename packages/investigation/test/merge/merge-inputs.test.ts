@@ -25,6 +25,7 @@ investigationDbSuite({
                 organizationId,
                 [{ slug: "checkout-flow", plan: "revised checkout plan" }],
                 [{ name: "Coupon test", description: "coupon applies a discount", plan: "new coupon plan" }],
+                [],
             );
 
             const inputs = await new MergeInputsReader(harness.db).read(

@@ -48,7 +48,7 @@ src/
                                 twin's shadow-generation results, never the current catalog, so it can't leak a
                                 post-base test. Retires a test automatically the snapshot it passes.
   persist/
-    edit-persister.ts           EditPersister  - write the agent's add/modify edits onto the twin snapshot
+    edit-persister.ts           EditPersister  - write the agent's add/modify/remove edits onto the twin snapshot
   merge/
     merge-inputs.ts             MergeInputsReader - derive the twin's test edits + recipe create-graph edits
                                 (each vs its fork-point baseline) + main's current suite/recipes

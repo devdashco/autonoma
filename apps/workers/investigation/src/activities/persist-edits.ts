@@ -4,17 +4,19 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { PersistInvestigationEditsInput, PersistInvestigationEditsOutput } from "@autonoma/workflow/activities";
 
 /**
- * Persist the investigation agent's add/modify edits onto its (detached) snapshot: a proposed suite that the
- * merge-with-main step later reconciles into main. It writes only to the twin - never activating it, never
- * touching the diffs suite - so it always runs; the investigation surface is internal (@autonoma.app) already.
+ * Persist the investigation agent's add/modify/remove edits onto its (detached) snapshot: a proposed suite that
+ * the merge-with-main step later reconciles into main. It writes only to the twin - never activating it, never
+ * touching the diffs suite. Add/modify always run; `removals` is only populated by the caller for orgs that
+ * opted into the agent acting (a deletion is harder to walk back than an added/edited plan), so it is gated
+ * upstream by the same autofix flag as recipe/test-fix writes.
  */
 export async function persistInvestigationEdits(
     input: PersistInvestigationEditsInput,
 ): Promise<PersistInvestigationEditsOutput> {
-    const { snapshotId, modifications, newTests } = input;
+    const { snapshotId, modifications, newTests, removals } = input;
     const logger = rootLogger.child({ name: "persistInvestigationEdits", extra: { snapshotId } });
     logger.info("Persisting investigation edits", {
-        extra: { modifications: modifications.length, newTests: newTests.length },
+        extra: { modifications: modifications.length, newTests: newTests.length, removals: removals.length },
     });
 
     // Only the organizationId is needed to scope the writes - resolve it directly instead of pulling a full
@@ -30,6 +32,7 @@ export async function persistInvestigationEdits(
         snapshot.branch.organizationId,
         modifications,
         newTests,
+        removals,
     );
 
     logger.info("Persisted investigation edits", {

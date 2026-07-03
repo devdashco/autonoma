@@ -297,6 +297,12 @@ export interface PersistInvestigationEditsInput {
     snapshotId: string;
     modifications: InvestigationTestModification[];
     newTests: InvestigationNewTest[];
+    /**
+     * Slugs of tests to delete from the twin (the PR removed the feature they covered). Gated: the caller passes
+     * these only for orgs opted into the agent acting. Just the slugs - the removal rationale is surfaced in the
+     * report from the selector's `quarantine` output, not threaded through the write path.
+     */
+    removals: string[];
 }
 
 export interface PersistInvestigationEditsOutput {

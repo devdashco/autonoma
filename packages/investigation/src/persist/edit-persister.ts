@@ -17,16 +17,17 @@ export interface NewTestProposal {
 
 /** One edit that was written to the snapshot. */
 export interface PersistedEdit {
-    kind: "modified" | "added";
-    /** The existing test's slug (modifications) or the new test's name (additions). */
+    kind: "modified" | "added" | "removed";
+    /** The existing test's slug (modifications/removals) or the new test's name (additions). */
     ref: string;
     testCaseId: string;
-    planId: string;
+    /** The pinned plan (modifications/additions); absent for removals, which delete the assignment. */
+    planId?: string;
 }
 
 /** One edit that could not be written, with the reason (surfaced in the report, never thrown). */
 export interface SkippedEdit {
-    kind: "modification" | "new_test";
+    kind: "modification" | "new_test" | "removal";
     ref: string;
     reason: string;
 }
@@ -44,10 +45,12 @@ const INVESTIGATION_FOLDER_NAME = "Investigation";
 
 /**
  * Persists the investigation agent's proposed test edits onto its (detached) snapshot: repoints existing
- * tests to a revised plan and adds proposed new tests. Writes ONLY to the given snapshot's
- * `TestCaseAssignment` set and never activates it, so the branch's active (diffs) suite is untouched - the
- * edits live on the investigation twin as a proposed suite that the merge-with-main step later reconciles
- * into main. Persist-only: it does not queue generations (running is the cumulative-running phase's job).
+ * tests to a revised plan, adds proposed new tests, and removes tests whose feature the PR deleted. Writes
+ * ONLY to the given snapshot's `TestCaseAssignment` set and never activates it, so the branch's active (diffs)
+ * suite is untouched - the edits live on the investigation twin as a proposed suite that the merge-with-main
+ * step later reconciles into main. Persist-only: it does not queue generations (running is the
+ * cumulative-running phase's job). Add/modify are unconditional; the caller decides whether to pass removals
+ * (they are gated per org, since a deletion is harder to walk back than an added/edited plan).
  */
 export class EditPersister {
     private readonly logger: Logger;
@@ -66,19 +69,33 @@ export class EditPersister {
         organizationId: string,
         modifications: TestModification[],
         newTests: NewTestProposal[],
+        removalSlugs: string[],
     ): Promise<PersistEditsResult> {
         this.logger.info("Persisting investigation test edits", {
             snapshot: { snapshotId },
-            extra: { modifications: modifications.length, newTests: newTests.length },
+            extra: { modifications: modifications.length, newTests: newTests.length, removals: removalSlugs.length },
         });
 
         const draft = await SnapshotDraft.loadById({ db: this.db, snapshotId, organizationId });
         const persisted: PersistedEdit[] = [];
         const skipped: SkippedEdit[] = [];
 
+        // A removal supersedes a modification of the same test: repointing a plan we are about to delete is
+        // wasted work, so drop those modifications up-front (recorded as skipped so the report shows the conflict).
+        const removalSet = new Set(removalSlugs);
         for (const modification of modifications) {
+            if (removalSet.has(modification.slug)) {
+                skipped.push({
+                    kind: "modification",
+                    ref: modification.slug,
+                    reason: "superseded by a removal of the same test",
+                });
+                continue;
+            }
             await this.applyModification(draft, snapshotId, modification, persisted, skipped);
         }
+
+        await this.applyRemovals(draft, snapshotId, removalSlugs, persisted, skipped);
 
         if (newTests.length > 0) {
             const folderId = await this.resolveInvestigationFolder(draft.applicationId, organizationId);
@@ -128,6 +145,42 @@ export class EditPersister {
             scenarioId: assignment.plan?.scenarioId ?? undefined,
         });
         persisted.push({ kind: "modified", ref: modification.slug, testCaseId: assignment.testCaseId, planId });
+    }
+
+    /**
+     * Remove tests from the snapshot by deleting their assignments (branch-scoped: the twin's suite loses them,
+     * the global TestCases and main are untouched; merge-with-main carries the removals into a main-proposal).
+     * Every slug's assignment is resolved in one query; a slug not assigned to the snapshot is recorded in
+     * `skipped`, never thrown.
+     */
+    private async applyRemovals(
+        draft: SnapshotDraft,
+        snapshotId: string,
+        slugs: string[],
+        persisted: PersistedEdit[],
+        skipped: SkippedEdit[],
+    ): Promise<void> {
+        if (slugs.length === 0) return;
+
+        const assignments = await this.db.testCaseAssignment.findMany({
+            where: { snapshotId, testCase: { slug: { in: slugs } } },
+            select: { testCaseId: true, testCase: { select: { slug: true } } },
+        });
+        const testCaseIdBySlug = new Map(assignments.map((a) => [a.testCase.slug, a.testCaseId]));
+
+        for (const slug of slugs) {
+            const testCaseId = testCaseIdBySlug.get(slug);
+            if (testCaseId == null) {
+                this.logger.warn("Skipping removal - test not assigned to snapshot", {
+                    snapshot: { snapshotId },
+                    extra: { slug },
+                });
+                skipped.push({ kind: "removal", ref: slug, reason: "test not assigned to snapshot" });
+                continue;
+            }
+            await draft.removeTestCase(testCaseId);
+            persisted.push({ kind: "removed", ref: slug, testCaseId });
+        }
     }
 
     /** Find-or-create the folder investigation-authored tests are grouped under for this application. */

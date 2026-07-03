@@ -68,7 +68,10 @@ happen on the existing `web` worker via the generation activity.
   the in-app report) and upsert it on the PR via `postOrUpdateMarkerComment`. Idempotent: it scans the PR for
   a hidden `<!-- autonoma-investigation -->` marker and updates that comment in place instead of posting a
   duplicate on re-runs. The signed S3 report URL is never posted (it carries a token).
-- `persistInvestigationEdits` - write the agent's add/modify edits onto the twin snapshot (`EditPersister`).
+- `persistInvestigationEdits` - write the agent's add/modify/remove edits onto the twin snapshot (`EditPersister`).
+  Add/modify always run; `removals` (deleting a test whose feature the PR removed) is gated by the same
+  `investigationAutofixEnabled` org flag as recipe/test-fix writes - the workflow passes them only for opted-in
+  orgs, so off-flag orgs stay observe-only (the removal recommendation still shows in the report/PR comment).
 - `mergeInvestigationEdits` - after a PR merges, reconcile the twin's edits into main and apply the accepted
   ones onto a detached main-proposal snapshot (`MergeInputsReader` + `reconcileMerge` + `MergeApplier`). Carries
   BOTH test edits (add/modify) AND validated scenario-recipe `create`-graph edits: the recipe reconcile is a

@@ -203,9 +203,18 @@ async function runInvestigation(
         description: suggestion.description,
         plan: suggestion.validation?.finalPlan ?? suggestion.instruction,
     }));
+    // Deletions are gated behind the same org autofix flag as recipe/test-fix writes: removing a test the PR made
+    // obsolete is harder to walk back than an added/edited plan, so off-flag orgs stay observe-only here (the
+    // removal recommendations still surface in the report/PR comment). Add/modify above always persist to the twin.
+    const removals = selection.autofixEnabled ? selection.quarantine.map((q) => q.slug) : [];
     // Contained like runOneTest: a persist failure must never sink the report (the workflow's invariant).
     try {
-        const persisted = await investigation.persistInvestigationEdits({ snapshotId, modifications, newTests });
+        const persisted = await investigation.persistInvestigationEdits({
+            snapshotId,
+            modifications,
+            newTests,
+            removals,
+        });
         log.info("Investigation edits persisted", {
             ...ids,
             extra: { persisted: persisted.persistedCount, skipped: persisted.skipped.length },

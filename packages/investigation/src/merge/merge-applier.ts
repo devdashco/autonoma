@@ -94,8 +94,10 @@ export class MergeApplier {
             return { appliedCount: 0, skippedCount, recipeAppliedCount: 0, recipeSkippedCount: recipeSkippedFromPlan };
         }
 
+        // No removals on merge: the reconciler only accepts modification / new-test decisions today. Carrying
+        // twin deletions into the main-proposal is a separate 3-way concern (removed-on-branch vs still-on-main).
         const persist = hasTestEdits
-            ? await new EditPersister(this.db).persist(created.snapshotId, organizationId, modifications, newTests)
+            ? await new EditPersister(this.db).persist(created.snapshotId, organizationId, modifications, newTests, [])
             : undefined;
 
         // Write accepted recipe decisions onto the PROPOSAL snapshot's recipe versions (cloned from main by
