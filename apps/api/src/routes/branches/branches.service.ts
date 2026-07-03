@@ -183,6 +183,7 @@ export class BranchesService extends Service {
                     snapshotId: true,
                     clientBugCount: true,
                     status: true,
+                    stage: true,
                     snapshot: { select: { investigationParent: { select: { id: true } } } },
                 },
             });
@@ -198,6 +199,7 @@ export class BranchesService extends Service {
                     snapshotId: prSnapshotId,
                     clientBugCount: report.clientBugCount,
                     status: report.status,
+                    stage: report.stage ?? undefined,
                 });
             }
             return presence;

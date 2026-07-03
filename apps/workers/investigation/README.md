@@ -56,9 +56,14 @@ happen on the existing `web` worker via the generation activity.
   (branch-scoped) and create a fresh shadow generation to validate it. Returns `staged: false` when there's
   nothing to validate. The workflow re-runs the generation and reports whether the candidate passed; it never
   activates the candidate on main.
+- `markInvestigationProgress` - fast upsert of the report row's lifecycle fields (status + coarse stage) via
+  `InvestigationProgressMarker`, so the PR entry point shows a run is in flight / where it is / that it failed
+  before the report exists. The workflow calls it at each stage (`selecting` -> `running` -> `reporting`) and
+  flips the row to `failed` on an uncontained throw; the `completed` transition is `writeInvestigationReport`'s
+  job. Best-effort by contract: the activity swallows its own errors so a progress write never sinks the run.
 - `writeInvestigationReport` - `DeployedComparison` + `buildReportData` -> `InvestigationReportPersister` (island
-  tables). No S3 write. `scripts/backfill-report-island.ts` migrates pre-island reports (legacy S3 markdown)
-  into the tables.
+  tables), flipping the row to `completed` and clearing the stage. No S3 write. `scripts/backfill-report-island.ts`
+  migrates pre-island reports (legacy S3 markdown) into the tables.
 - `postInvestigationPrComment` - render a concise summary (category counts + client-bug headlines + a link to
   the in-app report) and upsert it on the PR via `postOrUpdateMarkerComment`. Idempotent: it scans the PR for
   a hidden `<!-- autonoma-investigation -->` marker and updates that comment in place instead of posting a

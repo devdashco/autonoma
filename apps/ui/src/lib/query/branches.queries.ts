@@ -37,9 +37,14 @@ export function useInvestigationReportData(snapshotId: string) {
  * users (the API procedure also enforces it), so non-internal users get an empty list and no entry points render.
  * The UI keys the result by snapshot id for O(1) lookup per row.
  */
-export function useInvestigationReportsBySnapshot(
-    snapshotIds: string[],
-): Map<string, { clientBugCount: number; status: string }> {
+export interface InvestigationPresence {
+    clientBugCount: number;
+    status: string;
+    /** The coarse in-flight stage while status is "running" (undefined once terminal). */
+    stage?: string;
+}
+
+export function useInvestigationReportsBySnapshot(snapshotIds: string[]): Map<string, InvestigationPresence> {
     const { user } = useAuth();
     const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
     const { data } = useQuery({
@@ -47,6 +52,25 @@ export function useInvestigationReportsBySnapshot(
         enabled: isInternal && snapshotIds.length > 0,
     });
     return new Map((data ?? []).map((entry) => [entry.snapshotId, entry]));
+}
+
+const INVESTIGATION_STAGE_LABEL: Record<string, string> = {
+    selecting: "selecting tests",
+    running: "running tests",
+    reporting: "writing report",
+};
+
+/**
+ * The short label shown on the PR entry point: the in-flight stage while running (e.g. "running tests"), the bug
+ * count once complete, or a neutral "view" for a clean completed report.
+ */
+export function investigationEntryLabel(presence: InvestigationPresence): string {
+    if (presence.status === "running") return INVESTIGATION_STAGE_LABEL[presence.stage ?? ""] ?? "running";
+    if (presence.status === "failed") return "failed";
+    if (presence.clientBugCount > 0) {
+        return `${presence.clientBugCount} ${presence.clientBugCount === 1 ? "bug" : "bugs"}`;
+    }
+    return "view";
 }
 
 export async function ensureInvestigationReportData(queryClient: QueryClient, snapshotId: string) {

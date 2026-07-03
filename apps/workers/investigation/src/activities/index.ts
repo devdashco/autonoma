@@ -3,6 +3,7 @@ import type { InvestigationActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { diagnoseInvestigationScenario as diagnoseScenarioImpl } from "./diagnose-scenario";
+import { markInvestigationProgress as markProgressImpl } from "./mark-progress";
 import { mergeInvestigationEdits as mergeEditsImpl } from "./merge-edits";
 import { persistInvestigationEdits as persistEditsImpl } from "./persist-edits";
 import { postInvestigationPrComment as postPrCommentImpl } from "./post-pr-comment";
@@ -52,6 +53,8 @@ export const proposeRecipeRepair = withHeartbeat(proposeRecipeRepairImpl);
 export const stageRecipeCandidateOnTwin = withHeartbeat(stageRecipeImpl);
 // A single branch-scoped DB write (restore the twin recipe version); fast, heartbeat for consistency.
 export const revertTwinRecipe = withHeartbeat(revertTwinRecipeImpl);
+// A single fast upsert of the report row's lifecycle fields; no heartbeat needed (well under any timeout).
+export const markInvestigationProgress = markProgressImpl;
 export const writeInvestigationReport = withHeartbeat(writeReportImpl);
 export const createValidationGeneration = withHeartbeat(createValidationImpl);
 export const postInvestigationPrComment = withHeartbeat(postPrCommentImpl);
@@ -69,6 +72,7 @@ const _activities: InvestigationActivities = {
     proposeRecipeRepair,
     stageRecipeCandidateOnTwin,
     revertTwinRecipe,
+    markInvestigationProgress,
     writeInvestigationReport,
     createValidationGeneration,
     postInvestigationPrComment,

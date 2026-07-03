@@ -82,6 +82,8 @@ export type {
     CreateValidationGenerationOutput,
     WriteInvestigationReportInput,
     WriteInvestigationReportOutput,
+    MarkInvestigationProgressInput,
+    InvestigationProgressStage,
     PostInvestigationPrCommentInput,
     PostInvestigationPrCommentOutput,
     InvestigationTestModification,

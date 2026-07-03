@@ -18,8 +18,10 @@ import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import {
+  type InvestigationPresence,
   type PullRequestStateFilter,
   ensureBranchesData,
+  investigationEntryLabel,
   useBranchDetail,
   useBranches,
   useInvestigationReportsBySnapshot,
@@ -211,15 +213,9 @@ function PRInvestigationCell({
 }: {
   prNumber: number;
   snapshotId?: string;
-  investigation?: { clientBugCount: number; status: string };
+  investigation?: InvestigationPresence;
 }) {
   if (investigation == null || snapshotId == null) return undefined;
-  const label =
-    investigation.status === "running"
-      ? "running"
-      : investigation.clientBugCount > 0
-        ? `${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
-        : "view";
   return (
     <AppLink
       to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
@@ -229,7 +225,7 @@ function PRInvestigationCell({
       className="inline-flex items-center gap-1 font-mono text-2xs text-text-secondary hover:text-text-primary hover:underline"
     >
       <MagnifyingGlassIcon size={12} />
-      {label}
+      {investigationEntryLabel(investigation)}
     </AppLink>
   );
 }

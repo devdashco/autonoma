@@ -2,6 +2,7 @@ import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type {
     GeneralActivities,
     InvestigationActivities,
+    InvestigationProgressStage,
     InvestigationSelectedTest,
     InvestigationTestResult,
     InvestigationVerdict,
@@ -83,8 +84,51 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
     const ids = { snapshot: { snapshotId } };
     log.info("Investigation workflow started", ids);
 
+    try {
+        await runInvestigation(input, ids);
+    } catch (error) {
+        // Any uncontained throw (selection or the report write, ultimately) ends the run without a report - flip
+        // the row to `failed` so the PR entry point stops showing "running", then rethrow so Temporal still fails
+        // the workflow. Best-effort: markProgress swallows its own errors.
+        await markProgress(snapshotId, "failed");
+        throw error;
+    }
+}
+
+/**
+ * Best-effort lifecycle write for the PR entry point (running / stage / failed). Fire-and-forget: a progress
+ * write must never sink the run, so both the activity and this wrapper swallow their errors.
+ */
+async function markProgress(
+    snapshotId: string,
+    status: "running" | "failed",
+    stage?: InvestigationProgressStage,
+): Promise<void> {
+    try {
+        await investigation.markInvestigationProgress({ snapshotId, status, stage });
+    } catch (error) {
+        log.warn("Investigation progress mark failed; continuing", {
+            snapshot: { snapshotId },
+            extra: { status, stage, message: rootFailureMessage(error) },
+        });
+    }
+}
+
+async function runInvestigation(
+    input: InvestigationWorkflowInput,
+    ids: { snapshot: { snapshotId: string } },
+): Promise<void> {
+    const { snapshotId } = input;
+
+    // Seed a bare `running` row so the PR entry point shows the investigation is in flight before any finding
+    // exists. The row is keyed to the twin, which is already paired to the PR snapshot at trigger time, so it
+    // resolves back to the PR row immediately.
+    await markProgress(snapshotId, "running", "selecting");
+
     const selection = await investigation.selectInvestigationTests({ snapshotId });
     log.info("Investigation selected tests", { ...ids, extra: { count: selection.tests.length } });
+
+    await markProgress(snapshotId, "running", "running");
 
     // Fan tests out in bounded waves (TEST_CONCURRENCY at a time) instead of one-at-a-time, preserving order.
     // A single test's failure is contained to its own slot - the workflow always proceeds to write the report.
@@ -173,6 +217,10 @@ export async function investigationWorkflow(input: InvestigationWorkflowInput): 
         });
     }
 
+    await markProgress(snapshotId, "running", "reporting");
+
+    // writeInvestigationReport flips the row to `completed` and clears the stage, so there is no explicit
+    // "completed" markProgress here - the report writer owns that terminal transition.
     const report = await investigation.writeInvestigationReport({
         snapshotId,
         results,

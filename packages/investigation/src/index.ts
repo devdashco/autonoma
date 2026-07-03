@@ -42,6 +42,8 @@ export { buildSelectorTools } from "./select/tools";
 export type { SelectorDeps } from "./select/dependencies";
 export { InvestigationReportPersister } from "./persist/report-persister";
 export type { PersistReportInput } from "./persist/report-persister";
+export { InvestigationProgressMarker } from "./persist/progress-marker";
+export type { InvestigationStage, MarkProgressInput } from "./persist/progress-marker";
 export { EditPersister } from "./persist/edit-persister";
 export type {
     TestModification,

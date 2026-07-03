@@ -74,6 +74,10 @@ src/
                                 the DB island is the source of truth - used only to parse pre-island reports)
   report/report-data.ts         buildReportData - the structured UI/DB contract (findings + suggested tests)
   persist/report-persister.ts   InvestigationReportPersister - persist the report into the queryable island tables
+  persist/progress-marker.ts    InvestigationProgressMarker - write ONLY the report row's lifecycle fields
+                                (status + coarse stage) so the PR entry point can show a run is in flight / where
+                                it is / that it failed, before the final report exists. Never touches the
+                                findings/header (the report writer owns the `completed` transition + stage clear).
 ```
 
 ## Conventions

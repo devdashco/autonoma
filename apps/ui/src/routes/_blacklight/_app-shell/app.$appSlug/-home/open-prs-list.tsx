@@ -3,15 +3,14 @@ import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { formatRelativeTime } from "lib/format";
-import { useInvestigationReportsBySnapshot } from "lib/query/branches.queries";
+import {
+  type InvestigationPresence,
+  investigationEntryLabel,
+  useInvestigationReportsBySnapshot,
+} from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
 import { AppLink } from "../../-app-link";
 import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
-
-interface InvestigationPresence {
-  clientBugCount: number;
-  status: string;
-}
 
 export function OpenPrsList() {
   const prs = useLatestPullRequests();
@@ -125,12 +124,6 @@ function InvestigationEntry({
   snapshotId: string;
   investigation: InvestigationPresence;
 }) {
-  const label =
-    investigation.status === "running"
-      ? "running"
-      : investigation.clientBugCount > 0
-        ? `${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
-        : undefined;
   return (
     <AppLink
       to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
@@ -141,7 +134,7 @@ function InvestigationEntry({
     >
       <MagnifyingGlassIcon size={11} />
       investigation
-      {label != null && <span className="text-text-secondary">· {label}</span>}
+      <span className="text-text-secondary">· {investigationEntryLabel(investigation)}</span>
     </AppLink>
   );
 }

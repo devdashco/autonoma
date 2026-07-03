@@ -252,6 +252,17 @@ export interface WriteInvestigationReportOutput {
     clientBugCount: number;
 }
 
+/** Coarse, de-escalated lifecycle stages surfaced while an investigation runs (the PR entry point shows these). */
+export type InvestigationProgressStage = "selecting" | "running" | "reporting";
+
+export interface MarkInvestigationProgressInput {
+    /** The investigation twin snapshot the report is keyed to. */
+    snapshotId: string;
+    status: "running" | "failed";
+    /** The current coarse stage while running; omitted (cleared) on a terminal failure. */
+    stage?: InvestigationProgressStage;
+}
+
 export interface PostInvestigationPrCommentInput {
     snapshotId: string;
     results: InvestigationTestResult[];
@@ -347,6 +358,7 @@ export interface InvestigationActivities {
     proposeRecipeRepair(input: ProposeRecipeRepairInput): Promise<ProposeRecipeRepairOutput>;
     stageRecipeCandidateOnTwin(input: StageRecipeCandidateInput): Promise<StageRecipeCandidateOutput>;
     revertTwinRecipe(input: RevertTwinRecipeInput): Promise<RevertTwinRecipeOutput>;
+    markInvestigationProgress(input: MarkInvestigationProgressInput): Promise<void>;
     writeInvestigationReport(input: WriteInvestigationReportInput): Promise<WriteInvestigationReportOutput>;
     createValidationGeneration(input: CreateValidationGenerationInput): Promise<CreateValidationGenerationOutput>;
     postInvestigationPrComment(input: PostInvestigationPrCommentInput): Promise<PostInvestigationPrCommentOutput>;
