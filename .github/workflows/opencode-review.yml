@@ -70,6 +70,19 @@ jobs:
               bounded `where` - an unbounded result set can OOM and crash the
               server as the table grows. Treat a missing limit on a
               potentially large table as [BUG][HIGH].
+            - Frontend UX states (changes under apps/ui): any view that
+              fetches data or renders a list/collection must handle all of its
+              states, not just the happy path. Flag missing loading states
+              (prefer skeletons that mirror the final layout over bare spinners
+              or nothing), missing empty states (a list/table/grid that renders
+              nothing - with no guiding message or call to action - when the
+              data is empty), and missing error states (a failed query that
+              shows a blank screen instead of a retry affordance). Also flag
+              layout shift from unreserved space, and interactive controls that
+              give no pending/disabled feedback while a mutation is in flight.
+              Use components from @autonoma/blacklight for these states rather
+              than hand-rolled markup. Treat a data-driven view with no
+              loading or empty handling as [UX][MED].
             - Convention violations: read the root CLAUDE.md and any nested
               CLAUDE.md under the changed packages/apps, and for changes under
               apps/ui read the ui-conventions skill
@@ -83,6 +96,7 @@ jobs:
               match. Flag docs the change left stale.
 
             Prefix each comment with a category and severity, e.g.
-            [BUG][HIGH], [SECURITY][MED], [CONVENTION][LOW], [DOCS][LOW].
+            [BUG][HIGH], [SECURITY][MED], [UX][MED], [CONVENTION][LOW],
+            [DOCS][LOW].
             Be concise. Skip nitpicks and style preferences. If you find
             nothing worth raising, say so in a single short comment.
