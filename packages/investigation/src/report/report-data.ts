@@ -1,10 +1,64 @@
-import type { InvestigationDeployedComparison, InvestigationFinding, InvestigationReportData } from "@autonoma/types";
+import type {
+    InvestigationDeployedComparison,
+    InvestigationEvidence,
+    InvestigationFinding,
+    InvestigationReportData,
+} from "@autonoma/types";
 import { diffLines } from "diff";
 import type { DeployedAgentComparison } from "../db/deployed-comparison";
-import type { InvestigationReportInput, ReportableVerdict, TestReport } from "./markdown";
+import type { InvestigationReportInput, ReportableScenarioDiagnosis, ReportableVerdict, TestReport } from "./markdown";
 
 /** Category we tag a test section with when the model failed to produce a verdict for it. */
 const CLASSIFICATION_ERROR = "classification_error";
+
+/** Human labels for the scenario-repair diagnoser's route (mirrors the markdown renderer's labels). */
+const SCENARIO_ROUTE_LABEL: Record<string, string> = {
+    fix_test: "Fix the test",
+    recipe_only: "Edit the scenario recipe",
+    recipe_and_sdk: "Client factory change needed",
+    unknown: "Not a scenario-data problem",
+};
+
+/**
+ * The scenario-repair diagnosis, as evidence pieces on the finding: the recommended lever (route) + the agent's
+ * reasoning, the concrete change it would make (recipe/factory/test edit, with the candidate `create` graph as a
+ * code snippet), the autofix outcome, and any give-up handoff. Observe-first: this surfaces WHAT the agent would
+ * do, alongside the run's other evidence. Empty when the finding has no scenario diagnosis.
+ */
+function scenarioDiagnosisEvidence(diagnosis: ReportableScenarioDiagnosis | undefined): InvestigationEvidence[] {
+    if (diagnosis == null) return [];
+    const label = SCENARIO_ROUTE_LABEL[diagnosis.route] ?? diagnosis.route;
+    const evidence: InvestigationEvidence[] = [
+        { source: "scenario repair", detail: `${label} (${diagnosis.confidence} confidence): ${diagnosis.reasoning}` },
+    ];
+
+    if (diagnosis.testFix != null && diagnosis.testFix !== "") {
+        evidence.push({ source: "test fix", detail: diagnosis.testFix });
+    }
+    if (diagnosis.recipeChange != null && diagnosis.recipeChange !== "") {
+        evidence.push({
+            source: "recipe change",
+            detail: diagnosis.proposedRecipeSummary ?? diagnosis.recipeChange,
+            snippet: diagnosis.proposedRecipeCreateGraph,
+        });
+    }
+    if (diagnosis.factoryIssue != null && diagnosis.factoryIssue !== "") {
+        evidence.push({ source: "factory change", detail: diagnosis.factoryIssue });
+    }
+    if (diagnosis.applied != null) {
+        const status = diagnosis.applied ? "validated on the twin (branch-scoped)" : "not validated";
+        const note = diagnosis.appliedNote != null && diagnosis.appliedNote !== "" ? ` - ${diagnosis.appliedNote}` : "";
+        evidence.push({ source: "autofix", detail: `${status}${note}` });
+    }
+    if (diagnosis.repairHandoff != null && diagnosis.repairHandoff !== "") {
+        evidence.push({
+            source: "repair handoff",
+            detail: "The agent could not produce a factory-accepted recipe - what it tried and what a human must change:",
+            snippet: diagnosis.repairHandoff,
+        });
+    }
+    return evidence;
+}
 
 /** A unified diff (no code fences) of a proposed test-plan change - the ready-to-render form for the UI. */
 function planDiff(original: string, suggested: string): string {
@@ -95,15 +149,24 @@ export function buildReportData(input: InvestigationReportInput): InvestigationR
     const findings: InvestigationFinding[] = [];
     const slugCounts = new Map<string, number>();
     for (const test of input.tests) {
+        // The scenario-repair diagnosis is a single per-test field (mirrors the markdown renderer, which emits it
+        // once per test section). Attach it to the FIRST finding for this test only - never per verdict - so a
+        // multi-model test doesn't carry N redundant copies of the same recommended lever across its findings.
+        const diagnosisEvidence = scenarioDiagnosisEvidence(test.scenarioDiagnosis);
+        let firstForTest = true;
         for (const entry of test.verdicts) {
             const seen = (slugCounts.get(test.slug) ?? 0) + 1;
             slugCounts.set(test.slug, seen);
             const id = seen === 1 ? test.slug : `${test.slug}-${seen}`;
-            findings.push(
+            const finding =
                 entry.verdict != null
                     ? findingFromVerdict(id, test, entry.verdict)
-                    : findingFromError(id, test, entry.error),
-            );
+                    : findingFromError(id, test, entry.error);
+            if (firstForTest) {
+                finding.evidence.push(...diagnosisEvidence);
+                firstForTest = false;
+            }
+            findings.push(finding);
         }
     }
     return {

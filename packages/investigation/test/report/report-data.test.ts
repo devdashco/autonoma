@@ -86,6 +86,71 @@ describe("buildReportData", () => {
         ).not.toThrow();
     });
 
+    it("carries the scenario-repair diagnosis onto the finding as evidence pieces", () => {
+        const withDiagnosis: InvestigationReportInput = {
+            ...INPUT,
+            tests: [
+                {
+                    ...INPUT.tests[0]!,
+                    scenarioDiagnosis: {
+                        route: "recipe_only",
+                        confidence: "high",
+                        reasoning: "the seeded tenant has no invoices, so the audit panel is legitimately empty",
+                        recipeChange: "add a paid invoice for the tenant",
+                        proposedRecipeSummary: "seed one paid invoice",
+                        proposedRecipeCreateGraph: '{"invoice":{"_factory":"invoice"}}',
+                        applied: true,
+                        appliedNote: "re-ran green on the twin",
+                    },
+                },
+            ],
+        };
+        const finding = buildReportData(withDiagnosis).findings[0];
+
+        const repair = finding?.evidence.find((e) => e.source === "scenario repair");
+        expect(repair?.detail).toContain("Edit the scenario recipe");
+        expect(repair?.detail).toContain("the seeded tenant has no invoices");
+
+        const recipe = finding?.evidence.find((e) => e.source === "recipe change");
+        expect(recipe?.detail).toContain("seed one paid invoice");
+        expect(recipe?.snippet).toContain('"invoice"');
+
+        const autofix = finding?.evidence.find((e) => e.source === "autofix");
+        expect(autofix?.detail).toContain("validated on the twin");
+        expect(autofix?.detail).toContain("re-ran green on the twin");
+
+        // The original verdict evidence is preserved alongside the diagnosis evidence.
+        expect(finding?.evidence.some((e) => e.source === "code")).toBe(true);
+    });
+
+    it("attaches the per-test scenario diagnosis to exactly one finding, not to every model verdict", () => {
+        const baseVerdict = INPUT.tests[0]!.verdicts[0]!;
+        const multiModel: InvestigationReportInput = {
+            ...INPUT,
+            tests: [
+                {
+                    ...INPUT.tests[0]!,
+                    // two model verdicts for the SAME test -> two findings (slug, slug-2)
+                    verdicts: [baseVerdict, { model: "second-model", verdict: baseVerdict.verdict }],
+                    scenarioDiagnosis: {
+                        route: "recipe_only",
+                        confidence: "high",
+                        reasoning: "the seeded tenant has no invoices",
+                        recipeChange: "add a paid invoice for the tenant",
+                        applied: true,
+                    },
+                },
+            ],
+        };
+        const findings = buildReportData(multiModel).findings;
+        expect(findings).toHaveLength(2);
+
+        const withDiagnosis = findings.filter((f) => f.evidence.some((e) => e.source === "scenario repair"));
+        expect(withDiagnosis).toHaveLength(1);
+        // it lands on the first finding for the test, not the trailing one
+        expect(withDiagnosis[0]?.id).toBe("audit-panel");
+    });
+
     it("renders a suggested test fix as a unified diff string", () => {
         const withFix: InvestigationReportInput = {
             ...INPUT,
