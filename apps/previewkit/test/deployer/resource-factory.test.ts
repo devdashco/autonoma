@@ -3,17 +3,10 @@ import type { AppConfig } from "../../src/config/schema";
 import {
     buildAppDeployment,
     buildAppHostname,
-    buildAppIngress,
     buildAppService,
-    buildGatekeeperConfigMap,
-    buildGatekeeperDeployment,
-    buildGatekeeperRole,
-    buildGatekeeperRoleBinding,
-    buildGatekeeperServiceAccount,
-    GATEKEEPER_APP_LABEL,
-    GATEKEEPER_CONTAINER_PORT,
-    GATEKEEPER_SERVICE_NAME,
-    GATEKEEPER_SERVICE_PORT,
+    buildCentralGatekeeperRole,
+    buildCentralGatekeeperRoleBinding,
+    MANAGED_SELECTOR,
 } from "../../src/deployer/resource-factory";
 
 const baseApp: AppConfig = {
@@ -36,109 +29,48 @@ const baseOpts = {
     publicUrl: "https://abc123def456.preview.autonoma.app",
 };
 
-const baseRouteOpts = {
-    app: baseApp,
-    namespace: "preview-my-org-my-repo-pr-42",
-    prNumber: 42,
-    repoFullName: "my-org/my-repo",
-    domain: "preview.autonoma.app",
-    secret: "test-secret",
-    ingressClassName: "nginx",
-};
-
-const gatekeeperOpts = {
-    apps: [
-        { name: "web", port: 3000, hostname: "web.preview.autonoma.app" },
-        { name: "api", port: 4000, hostname: "api.preview.autonoma.app" },
-    ],
-    namespace: "preview-my-org-my-repo-pr-42",
-    prNumber: 42,
-    bypassToken: "deadbeefcafe",
-    cookieDomain: "preview.autonoma.app",
-    appUrl: "https://app.autonoma.app",
-    image: "public.ecr.aws/autonoma/gatekeeper:latest",
-    idleTimeout: "45m",
-};
-
-describe("buildGatekeeperConfigMap", () => {
-    it("builds a host -> {service, port} routing table as routes.json", () => {
-        const cm = buildGatekeeperConfigMap({
-            apps: gatekeeperOpts.apps,
-            namespace: gatekeeperOpts.namespace,
-            prNumber: 42,
-        });
-        const routes = JSON.parse(cm.data!["routes.json"]!);
-        expect(routes["web.preview.autonoma.app"]).toEqual({ service: "web", port: 3000 });
-        expect(routes["api.preview.autonoma.app"]).toEqual({ service: "api", port: 4000 });
+describe("MANAGED_SELECTOR", () => {
+    it("matches the central Gatekeeper's TARGET_SELECTOR contract", () => {
+        // BASE_LABELS is the source of truth for previewkit's workload label,
+        // but two out-of-band artifacts hardcode the resulting selector string:
+        // the central install's TARGET_SELECTOR (deployment/previewkit/cluster/
+        // gatekeeper/gatekeeper.yaml) and the migration script's ingress sweep
+        // (migrate-existing-previews.sh). This is the one assertion tying them
+        // together - if the labels ever change, both must move in lockstep or
+        // previews silently stop sleeping/waking.
+        expect(MANAGED_SELECTOR).toBe("previewkit.dev/managed-by=previewkit");
     });
 });
 
-describe("buildGatekeeperDeployment", () => {
-    it("runs as the gatekeeper service account and self-excludes via the app label", () => {
-        const dep = buildGatekeeperDeployment(gatekeeperOpts);
-        expect(dep.spec!.template.spec!.serviceAccountName).toBe("gatekeeper");
-        expect(dep.metadata?.labels?.["app"]).toBe(GATEKEEPER_APP_LABEL);
-        // It carries managed-by like every workload, so the scaler must exclude it by app label.
-        expect(dep.metadata?.labels?.["previewkit.dev/managed-by"]).toBe("previewkit");
-    });
+describe("central Gatekeeper per-namespace RBAC", () => {
+    it("grants exactly the workload verbs the proxy needs, namespaced", () => {
+        const role = buildCentralGatekeeperRole("preview-my-org-my-repo-pr-42", 42);
+        expect(role.metadata?.namespace).toBe("preview-my-org-my-repo-pr-42");
 
-    it("listens on the container port and injects config via env", () => {
-        const dep = buildGatekeeperDeployment(gatekeeperOpts);
-        const c = dep.spec!.template.spec!.containers[0]!;
-        expect(c.image).toBe("public.ecr.aws/autonoma/gatekeeper:latest");
-        expect(c.ports![0]!.containerPort).toBe(GATEKEEPER_CONTAINER_PORT);
-
-        const env = c.env ?? [];
-        const get = (name: string) => env.find((e) => e.name === name);
-        expect(get("TARGET_SELECTOR")?.value).toBe("previewkit.dev/managed-by=previewkit");
-        expect(get("SELF_NAME")?.value).toBe("gatekeeper");
-        expect(get("HEALTH_PATH")?.value).toBe("/gatekeeper-health");
-        expect(get("IDLE_TIMEOUT")?.value).toBe("45m");
-        expect(get("NAMESPACE")?.valueFrom?.fieldRef?.fieldPath).toBe("metadata.namespace");
-        expect(get("ROUTES_JSON")?.valueFrom?.configMapKeyRef?.key).toBe("routes.json");
-    });
-
-    it("targets the dedicated gatekeeper NodePool by label and tolerates its taint", () => {
-        const dep = buildGatekeeperDeployment(gatekeeperOpts);
-        const podSpec = dep.spec!.template.spec!;
-        expect(podSpec.nodeSelector?.["pool"]).toBe("gatekeeper");
-        expect(podSpec.tolerations).toContainEqual({
-            key: "pool",
-            operator: "Equal",
-            value: "gatekeeper",
-            effect: "NoSchedule",
-        });
-    });
-});
-
-describe("buildGatekeeperServiceAccount", () => {
-    it("creates the gatekeeper service account in the namespace", () => {
-        const sa = buildGatekeeperServiceAccount("preview-my-org-my-repo-pr-42", 42);
-        expect(sa.metadata?.name).toBe("gatekeeper");
-        expect(sa.metadata?.namespace).toBe("preview-my-org-my-repo-pr-42");
-    });
-});
-
-describe("buildGatekeeperRole", () => {
-    it("grants patch on workloads and read on pods to scale + detect readiness", () => {
-        const role = buildGatekeeperRole("preview-my-org-my-repo-pr-42", 42);
         const appsRule = role.rules!.find((r) => r.apiGroups?.includes("apps"))!;
         expect(appsRule.resources).toEqual(expect.arrayContaining(["deployments", "statefulsets"]));
         expect(appsRule.verbs).toEqual(expect.arrayContaining(["get", "list", "watch", "patch"]));
 
         const podRule = role.rules!.find((r) => r.resources?.includes("pods"))!;
-        expect(podRule.apiGroups).toContain("");
-        expect(podRule.verbs).toContain("list");
+        expect(podRule.verbs).toEqual(["list"]);
     });
-});
 
-describe("buildGatekeeperRoleBinding", () => {
-    it("binds the gatekeeper Role to the gatekeeper ServiceAccount", () => {
-        const rb = buildGatekeeperRoleBinding("preview-my-org-my-repo-pr-42", 42);
+    it("binds to the central ServiceAccount in the gatekeeper namespace", () => {
+        const rb = buildCentralGatekeeperRoleBinding("preview-my-org-my-repo-pr-42", "system", 42);
         expect(rb.roleRef.kind).toBe("Role");
-        expect(rb.roleRef.name).toBe("gatekeeper");
-        expect(rb.subjects![0]!.kind).toBe("ServiceAccount");
-        expect(rb.subjects![0]!.name).toBe("gatekeeper");
+        expect(rb.subjects).toEqual([{ kind: "ServiceAccount", name: "gatekeeper", namespace: "system" }]);
+    });
+
+    it("uses a name the legacy migration sweep will never delete", () => {
+        // The migration script (migrate-existing-previews.sh) deletes the old
+        // in-namespace Role/RoleBinding by their literal name "gatekeeper"; the
+        // central grant must not share it or the sweep would revoke the very
+        // RBAC it just stamped for that namespace.
+        const role = buildCentralGatekeeperRole("ns", 1);
+        const rb = buildCentralGatekeeperRoleBinding("ns", "system", 1);
+        expect(role.metadata?.name).not.toBe("gatekeeper");
+        expect(rb.metadata?.name).not.toBe("gatekeeper");
+        expect(role.metadata?.name).toBe(rb.metadata?.name);
     });
 });
 
@@ -291,41 +223,6 @@ describe("buildAppHostname", () => {
     it("does not expose service name or repo name in the subdomain", () => {
         const host = buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret");
         const subdomain = host.split(".")[0]!;
-        expect(subdomain).not.toContain("web");
-        expect(subdomain).not.toContain("my-org");
-    });
-});
-
-describe("buildAppIngress", () => {
-    it("creates an nginx-class Ingress in the preview namespace", () => {
-        const ing = buildAppIngress(baseRouteOpts);
-        expect(ing.apiVersion).toBe("networking.k8s.io/v1");
-        expect(ing.kind).toBe("Ingress");
-        expect(ing.metadata?.name).toBe("web");
-        expect(ing.metadata?.namespace).toBe("preview-my-org-my-repo-pr-42");
-        expect(ing.spec?.ingressClassName).toBe("nginx");
-    });
-
-    it("declares no TLS block — the ALB terminates TLS upstream", () => {
-        const ing = buildAppIngress(baseRouteOpts);
-        expect(ing.spec?.tls).toBeUndefined();
-    });
-
-    it("routes the masked single-label host to the Gatekeeper Service", () => {
-        const ing = buildAppIngress(baseRouteOpts);
-        const rule = ing.spec!.rules![0]!;
-        expect(rule.host).toBe(buildAppHostname("web", 42, "my-org/my-repo", "preview.autonoma.app", "test-secret"));
-
-        const path = rule.http!.paths[0]!;
-        expect(path.path).toBe("/");
-        expect(path.pathType).toBe("Prefix");
-        expect(path.backend.service!.name).toBe(GATEKEEPER_SERVICE_NAME);
-        expect(path.backend.service!.port!.number).toBe(GATEKEEPER_SERVICE_PORT);
-    });
-
-    it("does not leak the service or repo name into the routed host", () => {
-        const ing = buildAppIngress(baseRouteOpts);
-        const subdomain = ing.spec!.rules![0]!.host!.split(".")[0]!;
         expect(subdomain).not.toContain("web");
         expect(subdomain).not.toContain("my-org");
     });

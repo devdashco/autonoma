@@ -59,14 +59,13 @@ export const env = createEnv({
         // per (app, PR, repo) but unguessable without this secret.
         PREVIEW_URL_SECRET: z.string().min(1),
 
-        // Shared in-cluster ingress controller. Every preview gets a plain Ingress
-        // with this class; ingress-nginx (running in INGRESS_NAMESPACE) fans out by
-        // Host header. The shared ALB Gateway forwards *.preview.autonoma.app to this
-        // controller through a single static HTTPRoute, so per-preview routing never
-        // touches the ALB's per-load-balancer 100-rule / 100-target-group quotas.
-        // INGRESS_NAMESPACE doubles as the NetworkPolicy ingress source for preview
-        // pods; it shares the Gateway's `system` namespace so both live together.
-        INGRESS_CLASS_NAME: z.string().default("nginx"),
+        // Namespace of the shared edge: the ALB Gateway, ingress-nginx, AND the
+        // central Gatekeeper all live here. Preview routing is one static
+        // wildcard chain (ALB HTTPRoute -> ingress-nginx wildcard Ingress ->
+        // Gatekeeper, which fans out by Host from each preview namespace's
+        // routes annotation), so nothing per-preview ever touches the ALB's
+        // 100-rule / 100-target-group quotas. Doubles as the NetworkPolicy
+        // ingress source preview pods must accept traffic from.
         INGRESS_NAMESPACE: z.string().default("system"),
 
         // Kubernetes. Empty means use in-cluster config.
@@ -85,12 +84,12 @@ export const env = createEnv({
         // Required only when AWS secret registrations are present for any organization.
         CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
 
-        // Gatekeeper image: the per-namespace auth + scale-to-zero proxy deployed
-        // into every preview namespace (replaces the old stock-nginx proxy). Built
-        // and published by the standalone gatekeeper repo.
-        GATEKEEPER_IMAGE: z.string().default("public.ecr.aws/autonoma/gatekeeper:latest"),
-        // How long a preview environment may sit with no requests before Gatekeeper
-        // scales all its workloads to zero. Go duration string (e.g. "30m", "1h").
+        // How long a preview environment may sit with no requests before the
+        // central Gatekeeper (deployment/previewkit/cluster/gatekeeper/) scales
+        // its workloads to zero. Written per namespace as the
+        // gatekeeper.dev/idle-timeout annotation, so it applies on the next
+        // deploy without touching the central install. Go duration string
+        // (e.g. "30m", "1h"); "0" disables auto-sleep for new deploys.
         GATEKEEPER_IDLE_TIMEOUT: z.string().default("30m"),
         APP_URL: z.string().url().default("https://beta.autonoma.app"),
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),

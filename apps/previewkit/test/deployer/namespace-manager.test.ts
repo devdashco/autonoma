@@ -1,6 +1,6 @@
 import type * as k8s from "@kubernetes/client-node";
 import { describe, expect, it } from "vitest";
-import { NamespaceManager } from "../../src/deployer/namespace-manager";
+import { type GatekeeperRoute, NamespaceManager } from "../../src/deployer/namespace-manager";
 
 // buildNamespaceName is a pure function; the constructor wires a CoreV1Api
 // client we never call here. A no-op `makeApiClient` is enough to let the
@@ -76,5 +76,68 @@ describe("NamespaceManager.buildNamespaceName", () => {
             expect(name).toMatch(dnsLabelRegex);
             expect(name.length).toBeLessThanOrEqual(63);
         }
+    });
+});
+
+// Fake CoreV1Api capturing the replaceNamespace body, seeded with an existing
+// namespace object the way readNamespace would return it.
+function managerWithNamespace(existing: k8s.V1Namespace): {
+    manager: NamespaceManager;
+    replaced: () => k8s.V1Namespace | undefined;
+} {
+    let replacedBody: k8s.V1Namespace | undefined;
+    const fakeCore = {
+        readNamespace: () => Promise.resolve(structuredClone(existing)),
+        replaceNamespace: ({ body }: { name: string; body: k8s.V1Namespace }) => {
+            replacedBody = body;
+            return Promise.resolve(body);
+        },
+    };
+    const kc = { makeApiClient: () => fakeCore } as unknown as k8s.KubeConfig;
+    return { manager: new NamespaceManager(kc), replaced: () => replacedBody };
+}
+
+describe("NamespaceManager.ensureGatekeeperManagement", () => {
+    const routes: Record<string, GatekeeperRoute> = {
+        "abc123def456.preview.autonoma.app": { service: "web", port: 3000 },
+        "fed654cba321.preview.autonoma.app": { service: "api", port: 4000 },
+    };
+
+    it("labels the namespace for discovery and writes routes + idle-timeout annotations", async () => {
+        const { manager, replaced } = managerWithNamespace({
+            metadata: { name: "preview-acme-web-pr-42" },
+        });
+
+        await manager.ensureGatekeeperManagement("preview-acme-web-pr-42", routes, "45m");
+
+        const ns = replaced();
+        expect(ns?.metadata?.labels?.["gatekeeper.dev/managed"]).toBe("true");
+        expect(ns?.metadata?.annotations?.["gatekeeper.dev/idle-timeout"]).toBe("45m");
+        const written: unknown = JSON.parse(ns?.metadata?.annotations?.["gatekeeper.dev/routes"] ?? "{}");
+        expect(written).toEqual(routes);
+    });
+
+    it("preserves existing labels and annotations (previewkit status metadata lives there too)", async () => {
+        const { manager, replaced } = managerWithNamespace({
+            metadata: {
+                name: "preview-acme-web-pr-42",
+                labels: { "previewkit.dev/managed-by": "previewkit", "previewkit.dev/pr-number": "42" },
+                annotations: {
+                    "previewkit.dev/status": "deploying",
+                    // A previous deploy's routes: must be overwritten, not merged.
+                    "gatekeeper.dev/routes": JSON.stringify({ "old.host": { service: "gone", port: 1 } }),
+                },
+            },
+        });
+
+        await manager.ensureGatekeeperManagement("preview-acme-web-pr-42", routes, "30m");
+
+        const ns = replaced();
+        expect(ns?.metadata?.labels?.["previewkit.dev/managed-by"]).toBe("previewkit");
+        expect(ns?.metadata?.labels?.["previewkit.dev/pr-number"]).toBe("42");
+        expect(ns?.metadata?.labels?.["gatekeeper.dev/managed"]).toBe("true");
+        expect(ns?.metadata?.annotations?.["previewkit.dev/status"]).toBe("deploying");
+        const written: unknown = JSON.parse(ns?.metadata?.annotations?.["gatekeeper.dev/routes"] ?? "{}");
+        expect(written).toEqual(routes);
     });
 });

@@ -28,7 +28,7 @@ PR opened/updated
   Load per-app secrets, merge with config env, resolve templates
       |
       v
-  Deploy app containers + Ingress
+  Deploy app containers + Services
       |
       v
   Run post-deploy hooks (migrations, seeds)
@@ -253,10 +253,8 @@ Defined and validated in `src/env.ts`, which also extends `@autonoma/storage/env
 | `DOCKER_HUB_MIRROR` | No | `140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub` | ECR pull-through cache prefix. Every platform-managed image that resolves to Docker Hub (service recipes, the nginx access proxy) is rewritten to pull through it; official images get the `library/` namespace. Other registries are never rewritten. Empty string disables mirroring |
 | `BUILDKIT_WARM_HOST` | No | `tcp://buildkit.buildkit.svc.cluster.local:1234` | Endpoint of the long-lived warm buildkitd pool every build dials (`deployment/buildkit/buildkitd-warm.yaml`) |
 | `BUILD_TIMEOUT_MS` | No | `1800000` | Per-build timeout (30 min) |
-| `INGRESS_CLASS_NAME` | No | `nginx` | Ingress class for preview Ingresses |
-| `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared ingress controller |
-| `GATEKEEPER_IMAGE` | No | `public.ecr.aws/autonoma/gatekeeper:latest` | Image for the per-namespace Gatekeeper auth + scale-to-zero proxy |
-| `GATEKEEPER_IDLE_TIMEOUT` | No | `30m` | Idle duration before Gatekeeper scales an env's workloads to zero (Go duration string) |
+| `INGRESS_NAMESPACE` | No | `system` | Namespace of the shared edge (Gateway, ingress-nginx, and the central Gatekeeper) |
+| `GATEKEEPER_IDLE_TIMEOUT` | No | `30m` | Idle duration before the central Gatekeeper scales an env's workloads to zero; written per namespace as the `gatekeeper.dev/idle-timeout` annotation (Go duration string). The Gatekeeper install itself lives in `deployment/previewkit/cluster/gatekeeper/` |
 | `CLUSTER_SECRET_STORE_NAME` | No | `aws-secretsmanager` | ClusterSecretStore (External Secrets Operator) pointing at AWS Secrets Manager |
 | `APP_URL` | No | `https://beta.autonoma.app` | autonoma app base URL (used in PR comments) |
 | `BYPASS_TOKEN_KEY` | No | | AES-256-GCM key (64 hex chars) for encrypting bypass tokens; must match the API's `PREVIEWKIT_BYPASS_TOKEN_KEY` |
@@ -308,7 +306,7 @@ Recipes are built-in definitions for common infrastructure services deployed alo
 | `api-gateway` | `nginx:{version}-alpine` | 80 | Deployment. Routes requests to backend services. Default version `1.27-alpine` |
 | `docker-image` | Configured via `options.image` | Configured via `options.port` | Generic recipe for any service; see below |
 
-**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly; the per-namespace Gatekeeper proxy runs from `public.ecr.aws`, so it is pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
+**Docker Hub mirroring:** every recipe image that resolves to Docker Hub (including a `docker-image` `options.image` like `minio/minio`) is transparently rewritten to pull through the ECR pull-through cache (`DOCKER_HUB_MIRROR`), avoiding Docker Hub rate limits. Images on other registries (`ghcr.io`, ECR, ...) are pulled directly. Images built from your repo are pushed to and pulled from our own registry and are never rewritten.
 
 ### `api-gateway`
 
@@ -432,12 +430,17 @@ Each preview environment gets its own namespace with full isolation:
 
 ```
 Namespace: preview-{owner}-{repo}-pr-{N}
-  ├── StatefulSet + Service + PVC    (per infrastructure service)
-  ├── Deployment + Service + Ingress (per app)
-  └── Labels: previewkit.dev/managed-by, previewkit.dev/pr-number, previewkit.dev/repo
+  ├── StatefulSet + Service + PVC        (per infrastructure service)
+  ├── Deployment + Service               (per app; no per-app Ingress)
+  ├── Role + RoleBinding                 (central-gatekeeper: the central proxy's workload grant)
+  └── Labels: previewkit.dev/managed-by, previewkit.dev/pr-number, previewkit.dev/repo,
+              gatekeeper.dev/managed (+ gatekeeper.dev/routes & idle-timeout annotations)
 ```
 
-Namespace annotations store state (comment ID, last deployed SHA) so the service is stateless.
+Routing is owned by the central Gatekeeper in `system` (one wildcard Ingress for
+`*.preview.autonoma.app`); it discovers each namespace by the `gatekeeper.dev/managed`
+label and routes by the `gatekeeper.dev/routes` annotation, so no per-app Ingress exists.
+Namespace annotations also store state (comment ID, last deployed SHA) so the service is stateless.
 
 On PR close, the entire namespace is deleted, cascading to all resources.
 
@@ -459,6 +462,7 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
   - `secrets-manager/` -- `cluster-secret-store.yaml` + `service-account.yaml` (External Secrets Operator -> AWS Secrets Manager)
   - `karpenter/` -- `nodepool.yaml` (default spot pool + gatekeeper pool), `nodeclass.yaml`
   - `ingress/` -- ingress-nginx values and the shared gateway HTTPRoute
+  - `gatekeeper/` -- the central Gatekeeper (3-replica leader-elected proxy: sleep/wake + routing for every preview) and its wildcard Ingress, plus `migrate-existing-previews.sh` -- the one-time rollout tool that moves already-running previews off their old per-namespace gatekeepers (dry-run by default; run with `--apply` after applying the manifests, and re-run for stragglers)
   - `logging/` -- `alloy.yaml` (DaemonSet shipping preview pod logs to Loki)
   - `monitoring/` -- `prometheus.yaml` + `opencost.yaml` (per-namespace/per-PR cost attribution; see the file headers for access)
 - `deployment/previewkit/cronjobs/delete-old-ns.yaml` -- nightly reaper deleting preview namespaces older than 7 days (main-branch `*-pr-0` environments excluded)

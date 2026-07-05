@@ -9,21 +9,16 @@ import type { AppSecretInfo, AwsExternalSecretManager } from "../secrets/aws-ext
 import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict, isNotFound } from "./k8s-errors";
-import { NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
-import { buildGatekeeperApiEgressPolicy, buildNetworkPolicies } from "./network-policy-factory";
+import { type GatekeeperRoute, NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
+import { buildNetworkPolicies } from "./network-policy-factory";
 import { findTerminalPodFailure, summarizePodStates } from "./pod-failure";
 import { PostgresRestorer } from "./postgres-restorer";
 import {
     buildAppDeployment,
     buildAppHostname,
-    buildAppIngress,
     buildAppService,
-    buildGatekeeperConfigMap,
-    buildGatekeeperDeployment,
-    buildGatekeeperRole,
-    buildGatekeeperRoleBinding,
-    buildGatekeeperService,
-    buildGatekeeperServiceAccount,
+    buildCentralGatekeeperRole,
+    buildCentralGatekeeperRoleBinding,
 } from "./resource-factory";
 
 /**
@@ -104,16 +99,14 @@ export class Deployer {
         private domain: string,
         private secret: string,
         private awsExternalSecretManager?: AwsExternalSecretManager,
-        private gatekeeperImage: string = "public.ecr.aws/autonoma/gatekeeper:latest",
-        private appUrl: string = "https://app.autonoma.app",
-        // Shared in-cluster ingress controller. Per-preview Ingresses carry this
-        // class and ingress-nginx (in ingressNamespace) routes them by Host; the
-        // ALB only ever sees the one static wildcard route to this controller.
-        // ingressNamespace shares the Gateway's `system` namespace and is also the
-        // NetworkPolicy ingress source allowed to reach preview pods.
-        private ingressClassName: string = "nginx",
+        // Shared edge namespace: the Gateway, ingress-nginx, AND the central
+        // Gatekeeper live in `system`, which is also the NetworkPolicy ingress
+        // source allowed to reach preview pods - so the central Gatekeeper's
+        // cross-namespace proxying needs no extra allowance.
         private ingressNamespace: string = "system",
         private deployTimeoutMs: number = 600_000,
+        // Written per namespace as the gatekeeper.dev/idle-timeout annotation;
+        // overrides the central install's cluster-wide IDLE_TIMEOUT default.
         private idleTimeout: string = "30m",
         // Docker Hub pull-through cache prefix (see DOCKER_HUB_MIRROR in env.ts).
         // Applied to every platform-managed image: service recipes and the nginx
@@ -211,46 +204,41 @@ export class Deployer {
         // 6.5 Restore postgres from backup if configured (runs before apps boot)
         await this.restorePostgresDatabases(namespace, config);
 
-        // 7. Deploy Gatekeeper: the per-namespace auth + scale-to-zero proxy. It needs
-        //    its own ServiceAccount/Role/RoleBinding (to scale workloads from inside the
-        //    namespace) plus an egress NetworkPolicy to reach the API server, then the
-        //    routing ConfigMap, Deployment, and Service the per-app Ingress targets.
+        // 7. Hand the namespace to the CENTRAL Gatekeeper (cluster mode): the
+        //    gatekeeper.dev/managed label + routes annotation on the Namespace
+        //    are the whole contract - the shared install in `system`
+        //    (deployment/previewkit/cluster/gatekeeper/) discovers them within
+        //    milliseconds and the wildcard Ingress there carries every preview
+        //    host, so no per-namespace proxy or per-app Ingress is stamped.
         const domain = config.domain ?? this.domain;
-        const gatekeeperApps = config.apps.map((a) => ({
-            name: a.name,
-            port: a.port,
-            hostname: buildAppHostname(a.name, prNumber, repoFullName, domain, this.secret),
-        }));
-        await this.applyServiceAccount(namespace, buildGatekeeperServiceAccount(namespace, prNumber));
-        await this.applyRole(namespace, buildGatekeeperRole(namespace, prNumber));
-        await this.applyRoleBinding(namespace, buildGatekeeperRoleBinding(namespace, prNumber));
-        await this.applyNetworkPolicy(namespace, buildGatekeeperApiEgressPolicy(namespace));
-        await this.applyCoreResource(
+        const routes: Record<string, GatekeeperRoute> = {};
+        for (const app of config.apps) {
+            routes[buildAppHostname(app.name, prNumber, repoFullName, domain, this.secret)] = {
+                service: app.name,
+                port: app.port,
+            };
+        }
+        // Grant the central Gatekeeper's ServiceAccount workload access HERE,
+        // namespaced, BEFORE the label makes it discover the namespace: RBAC
+        // cannot scope to label selectors, so its ClusterRole carries no
+        // workload verbs and this per-namespace Role is the only thing letting
+        // it sleep/wake this preview - and nothing else in the cluster.
+        await this.applyRole(namespace, buildCentralGatekeeperRole(namespace, prNumber));
+        await this.applyRoleBinding(
             namespace,
-            buildGatekeeperConfigMap({ apps: gatekeeperApps, namespace, prNumber }),
-            "configmaps",
+            buildCentralGatekeeperRoleBinding(namespace, this.ingressNamespace, prNumber),
         );
-        // Gatekeeper is the namespace's singleton ingress/auth proxy, so it goes
-        // through the create-or-replace path (rolling update - the replicas=1
-        // Deployment surges a new pod before retiring the old one, so ingress
-        // stays up) rather than applyDeployment's delete-then-create. That clean
-        // slate is only wanted for app pods; using it here would black out
-        // ingress for the whole namespace on every redeploy while gatekeeper drains.
-        await this.applyServiceDeployment(
-            namespace,
-            buildGatekeeperDeployment({
-                apps: gatekeeperApps,
-                namespace,
-                prNumber,
-                bypassToken,
-                cookieDomain: domain,
-                appUrl: this.appUrl,
-                image: this.gatekeeperImage,
-                idleTimeout: this.idleTimeout,
-            }),
-        );
-        await this.applyService(namespace, buildGatekeeperService(namespace, prNumber));
-        logger.info("Deployed Gatekeeper proxy", { namespace });
+        await this.namespaceManager.ensureGatekeeperManagement(namespace, routes, this.idleTimeout);
+        // Previews created before cluster mode still carry an in-namespace
+        // gatekeeper + per-app Ingresses. Their one-time removal is NOT done
+        // here - it lives in deployment/previewkit/cluster/gatekeeper/
+        // migrate-existing-previews.sh, run once (and re-run for stragglers)
+        // during rollout. The sweep and this handoff must be atomic per
+        // namespace (else the central gatekeeper sees no traffic and sleeps a
+        // namespace the old one is serving), so the script does BOTH together;
+        // run it promptly after shipping this so no existing preview is
+        // redeployed into that half-migrated state. Brand-new namespaces have
+        // no old footprint, so this handoff alone fully sets them up.
 
         // 7. Deploy apps wave by wave; apps within each wave are deployed in parallel.
         //    Each app is its own failure domain — one app's failure (build skip
@@ -631,19 +619,9 @@ export class Deployer {
             secretVersion: secretInfo?.secretVersion,
         });
         const service = buildAppService({ app, namespace, imageTag, resolvedEnv, prNumber, publicUrl: url });
-        const ingress = buildAppIngress({
-            app,
-            namespace,
-            prNumber,
-            repoFullName,
-            domain,
-            secret,
-            ingressClassName: this.ingressClassName,
-        });
 
         await this.applyDeployment(namespace, deployment);
         await this.applyService(namespace, service);
-        await this.applyIngress(namespace, ingress);
 
         await this.waitForDeploymentReady(namespace, app.name);
 
@@ -1007,19 +985,6 @@ export class Deployer {
         }
     }
 
-    private async applyServiceAccount(namespace: string, serviceAccount: k8s.V1ServiceAccount): Promise<void> {
-        const name = serviceAccount.metadata!.name!;
-        try {
-            await this.coreApi.createNamespacedServiceAccount({ namespace, body: serviceAccount });
-        } catch (err: unknown) {
-            if (isConflict(err)) {
-                await this.coreApi.replaceNamespacedServiceAccount({ name, namespace, body: serviceAccount });
-            } else {
-                throw err;
-            }
-        }
-    }
-
     private async applyRole(namespace: string, role: k8s.V1Role): Promise<void> {
         const name = role.metadata!.name!;
         try {
@@ -1040,19 +1005,6 @@ export class Deployer {
         } catch (err: unknown) {
             if (isConflict(err)) {
                 await this.rbacApi.replaceNamespacedRoleBinding({ name, namespace, body: roleBinding });
-            } else {
-                throw err;
-            }
-        }
-    }
-
-    private async applyIngress(namespace: string, ingress: k8s.V1Ingress): Promise<void> {
-        const name = ingress.metadata!.name!;
-        try {
-            await this.networkingApi.createNamespacedIngress({ namespace, body: ingress });
-        } catch (err: unknown) {
-            if (isConflict(err)) {
-                await this.networkingApi.replaceNamespacedIngress({ name, namespace, body: ingress });
             } else {
                 throw err;
             }

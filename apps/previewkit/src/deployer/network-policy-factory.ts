@@ -1,6 +1,5 @@
 import type * as k8s from "@kubernetes/client-node";
 import { LABEL_ORGANIZATION } from "./namespace-manager";
-import { GATEKEEPER_APP_LABEL } from "./resource-factory";
 
 export interface NetworkPolicyFactoryOptions {
     namespace: string;
@@ -8,6 +7,12 @@ export interface NetworkPolicyFactoryOptions {
     ingressControllerNamespace: string;
 }
 
+// No Gatekeeper-specific policies anymore: the central Gatekeeper proxies from
+// the `system` namespace, which buildIngressControllerPolicy already admits
+// (it is the same namespace ingress-nginx lives in), and its API-server egress
+// is handled where it runs (deployment/previewkit/cluster/gatekeeper/). The
+// old in-namespace proxy needed a dedicated apiserver-egress policy and an
+// exclusion from the internet-egress policy; both are gone with it.
 export function buildNetworkPolicies(opts: NetworkPolicyFactoryOptions): k8s.V1NetworkPolicy[] {
     return [
         buildDefaultDenyPolicy(opts.namespace),
@@ -16,38 +21,6 @@ export function buildNetworkPolicies(opts: NetworkPolicyFactoryOptions): k8s.V1N
         buildDnsEgressPolicy(opts.namespace),
         buildInternetEgressPolicy(opts.namespace),
     ];
-}
-
-/**
- * Gatekeeper must reach the in-cluster Kubernetes API server to scale workloads.
- * The strict tenant-isolation policies above (default-deny + allow-internet-egress,
- * which excludes RFC1918 ranges) would otherwise block it - the API server sits on
- * a ClusterIP / VPC address inside those excluded ranges - so every scale call would
- * hang. This is applied separately (NOT part of buildNetworkPolicies) and selects only
- * the Gatekeeper pod, so user app pods keep their strict egress unchanged.
- */
-export function buildGatekeeperApiEgressPolicy(namespace: string): k8s.V1NetworkPolicy {
-    return {
-        apiVersion: "networking.k8s.io/v1",
-        kind: "NetworkPolicy",
-        metadata: {
-            name: "allow-gatekeeper-apiserver-egress",
-            namespace,
-        },
-        spec: {
-            podSelector: { matchLabels: { app: GATEKEEPER_APP_LABEL } },
-            policyTypes: ["Egress"],
-            egress: [
-                {
-                    to: [{ ipBlock: { cidr: "0.0.0.0/0" } }],
-                    ports: [
-                        { protocol: "TCP", port: 443 },
-                        { protocol: "TCP", port: 6443 },
-                    ],
-                },
-            ],
-        },
-    };
 }
 
 function buildDefaultDenyPolicy(namespace: string): k8s.V1NetworkPolicy {
@@ -152,17 +125,15 @@ function buildInternetEgressPolicy(namespace: string): k8s.V1NetworkPolicy {
             namespace,
         },
         spec: {
-            // Applies to every pod EXCEPT Gatekeeper. The AWS VPC CNI network-policy agent
-            // enforces each `except` CIDR below as a longest-prefix-match deny, which shadows
-            // Gatekeeper's separate `allow-gatekeeper-apiserver-egress` (a 0.0.0.0/0 allow):
-            // the API server ClusterIP sits in 172.16/12, so the /12 deny beats the /0 allow
-            // and Gatekeeper can't reach the API server (scale calls time out). Excluding
-            // Gatekeeper here leaves it governed only by default-deny + DNS + same-org + its
-            // API-egress policy - no excepted range to shadow the allow. Gatekeeper never needs
-            // arbitrary internet egress (only the API server, DNS, and in-cluster app Services).
-            podSelector: {
-                matchExpressions: [{ key: "app", operator: "NotIn", values: [GATEKEEPER_APP_LABEL] }],
-            },
+            // CAUTION for anything running in preview namespaces that must reach
+            // the in-cluster API server: the AWS VPC CNI network-policy agent
+            // enforces each `except` CIDR below as a longest-prefix-match deny
+            // that shadows even a separate 0.0.0.0/0 allow selecting the same
+            // pod (the API server ClusterIP sits in 172.16/12). The old
+            // in-namespace Gatekeeper hit exactly this and needed a NotIn
+            // exclusion here; the central Gatekeeper runs in `system`, outside
+            // these policies, so plain "every pod" is correct again.
+            podSelector: {},
             policyTypes: ["Egress"],
             egress: [
                 {

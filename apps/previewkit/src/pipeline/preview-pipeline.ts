@@ -723,7 +723,7 @@ export class PreviewPipeline {
         });
 
         await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "deploying-services");
-        logger.info("Deploy step 1/7 deploying infra (namespace, services, gatekeeper)", {
+        logger.info("Deploy step 1/7 deploying infra (namespace, services, gatekeeper handoff)", {
             repo: repoFullName,
             pr: prNumber,
         });
@@ -946,9 +946,10 @@ export class PreviewPipeline {
     /**
      * Per-app redeploy (rebuild mode): deploy a SINGLE app into a live
      * environment and merge its outcome in, leaving siblings running untouched.
-     * Infra is (re)applied with the FULL config so sibling Gatekeeper routes and
-     * external secrets are preserved (idempotent - unchanged resources are a
-     * no-op); only the target app is (re)deployed, only its hooks run, and the
+     * Infra is (re)applied with the FULL config so the namespace's Gatekeeper
+     * routes annotation keeps every sibling's host and external secrets are
+     * preserved (idempotent - unchanged resources are a no-op); only the target
+     * app is (re)deployed, only its hooks run, and the
      * environment row's status/urls are MERGED (`recordAppRedeployOutcome`),
      * never overwritten. The caller skips `finalize`, so there is no PR-comment
      * or commit-status churn.

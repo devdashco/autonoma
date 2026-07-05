@@ -7,7 +7,21 @@ const LABEL_PR_NUMBER = "previewkit.dev/pr-number";
 const LABEL_REPO = "previewkit.dev/repo";
 const LABEL_ORGANIZATION = "previewkit.dev/organization";
 
-export { LABEL_MANAGED_BY, LABEL_ORGANIZATION, LABEL_PR_NUMBER, LABEL_REPO };
+// The central Gatekeeper's discovery contract (deployment/previewkit/cluster/
+// gatekeeper/): the label opts the namespace into management, the routes
+// annotation carries its host -> upstream table, and the idle-timeout
+// annotation overrides the cluster-wide default per namespace.
+const LABEL_GATEKEEPER_MANAGED = "gatekeeper.dev/managed";
+const ANN_GATEKEEPER_ROUTES = "gatekeeper.dev/routes";
+const ANN_GATEKEEPER_IDLE_TIMEOUT = "gatekeeper.dev/idle-timeout";
+
+export { LABEL_GATEKEEPER_MANAGED, LABEL_MANAGED_BY, LABEL_ORGANIZATION, LABEL_PR_NUMBER, LABEL_REPO };
+
+/** One Gatekeeper route target: the in-namespace Service serving a hostname. */
+export interface GatekeeperRoute {
+    service: string;
+    port: number;
+}
 
 const ANN_COMMENT_ID = "previewkit.dev/comment-id";
 const ANN_LAST_SHA = "previewkit.dev/last-deployed-sha";
@@ -88,6 +102,38 @@ export class NamespaceManager {
         }
 
         return name;
+    }
+
+    /**
+     * Hands the namespace to the central Gatekeeper: the gatekeeper.dev/managed
+     * label opts it into discovery and the routes annotation carries the
+     * host -> upstream table (the same JSON shape the per-namespace ROUTES_JSON
+     * used; entries must NOT name a namespace - annotation routes always target
+     * their own). Gatekeeper picks changes up within milliseconds, so calling
+     * this on every deploy keeps sibling apps' routes current the same way
+     * re-applying the old ConfigMap did.
+     */
+    async ensureGatekeeperManagement(
+        namespace: string,
+        routes: Record<string, GatekeeperRoute>,
+        idleTimeout: string,
+    ): Promise<void> {
+        const existing = await this.coreApi.readNamespace({ name: namespace });
+        existing.metadata = {
+            ...existing.metadata,
+            labels: { ...existing.metadata?.labels, [LABEL_GATEKEEPER_MANAGED]: "true" },
+            annotations: {
+                ...existing.metadata?.annotations,
+                [ANN_GATEKEEPER_ROUTES]: JSON.stringify(routes),
+                [ANN_GATEKEEPER_IDLE_TIMEOUT]: idleTimeout,
+            },
+        };
+        await this.coreApi.replaceNamespace({ name: namespace, body: existing });
+        logger.info("Namespace handed to central Gatekeeper", {
+            namespace,
+            hosts: Object.keys(routes).length,
+            idleTimeout,
+        });
     }
 
     async updateAnnotations(namespace: string, annotations?: NamespaceAnnotations): Promise<void> {
