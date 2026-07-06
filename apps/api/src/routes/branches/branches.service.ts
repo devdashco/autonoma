@@ -47,7 +47,7 @@ const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
 
 /**
  * A report should surface an entry point only when it leads somewhere useful: it either has renderable island
- * data (`appSlug` is set - `getInvestigationReportData` returns undefined otherwise) or is actively running (the
+ * data (`appSlug` is set - `getInvestigationReportData` returns null otherwise) or is actively running (the
  * live-progress state). This deliberately hides pre-island reports (appSlug null, S3-markdown only) until the
  * backfill migrates them in, and failed rows that never produced a report - both would otherwise open an empty
  * "not available" page. Applied to BOTH presence reads so the entry point and the report page never disagree.
@@ -257,13 +257,17 @@ export class BranchesService extends Service {
      * tables the worker persists (InvestigationReport + findings/suggested) and re-signs each finding's s3://
      * media into browser-openable URLs - the DB is the single source of truth (no S3 report blob). Reports
      * written before the island cutover have no denormalized header until the backfill script runs; those return
-     * undefined here (the page shows a graceful "not available"). Internal/@autonoma.app only; degrades to
-     * undefined on any failure. Org-scoped.
+     * null here (the page shows a graceful "not available"). Internal/@autonoma.app only; degrades to null on any
+     * failure. Org-scoped.
+     *
+     * Returns `null`, never `undefined`, for absence: this is consumed by a React Query query whose queryFn must
+     * not resolve to `undefined` (React Query throws "data is undefined" and crashes the page's error boundary,
+     * before the component's graceful `data == null` branch can render). `null` is a valid resolved value.
      */
     async getInvestigationReportData(
         snapshotId: string,
         organizationId: string,
-    ): Promise<InvestigationReportData | undefined> {
+    ): Promise<InvestigationReportData | null> {
         this.logger.info("Getting investigation report data", { extra: { snapshotId } });
         try {
             // Twin's report (post-#1204) or a legacy report keyed directly to the PR snapshot (pre-#1204), so
@@ -289,12 +293,12 @@ export class BranchesService extends Service {
                     suggestedTests: { orderBy: { displayOrder: "asc" }, select: investigationSuggestedTestSelect },
                 },
             });
-            if (report == null) return undefined;
+            if (report == null) return null;
 
             // The island persister always writes the denormalized header (appSlug is a required field of the
             // report data), so appSlug != null reliably marks an island report - even one with zero findings.
             // Pre-island rows never had a header; they render only once the backfill script migrates them in.
-            if (report.appSlug == null) return undefined;
+            if (report.appSlug == null) return null;
 
             const findings = await Promise.all(
                 report.findings.map((finding) => this.signFindingMedia(rowToFinding(finding))),
@@ -330,7 +334,7 @@ export class BranchesService extends Service {
                 extra: { snapshotId },
                 err: error,
             });
-            return undefined;
+            return null;
         }
     }
 
