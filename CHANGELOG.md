@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.19](https://github.com/Autonoma-AI/agent/compare/v1.8.18...v1.8.19) (2026-07-06)
+
+
+### Features
+
+* **previewkit:** split onboarding steps and add service/env suggestions ([#1222](https://github.com/Autonoma-AI/agent/issues/1222)) ([52cf7ab](https://github.com/Autonoma-AI/agent/commit/52cf7ab7074f6785228ebcb7683390c54868e364))
+* single-column bug page shell (meta strip, collapsed text repro) ([#1275](https://github.com/Autonoma-AI/agent/issues/1275)) ([d7fa699](https://github.com/Autonoma-AI/agent/commit/d7fa699684d98c8901e1725e90ccae33c85823ca))
+
+
+### Bug Fixes
+
+* **investigation:** stop flagging input-scroll as an overflow defect (false positive) ([#1308](https://github.com/Autonoma-AI/agent/issues/1308)) ([eeeb625](https://github.com/Autonoma-AI/agent/commit/eeeb625dde26f59a933f293e8199b89b22e1c07a))
+
+
+### Reverts
+
+* **investigation:** remove secondaryObservations - too FP-prone ([#1310](https://github.com/Autonoma-AI/agent/issues/1310)) ([1755c11](https://github.com/Autonoma-AI/agent/commit/1755c111a59716a8b239f10454021647f7ee1299))
+
 ## [1.8.18](https://github.com/Autonoma-AI/agent/compare/v1.8.17...v1.8.18) (2026-07-05)
 
 
