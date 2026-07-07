@@ -104,12 +104,6 @@ function FindingBody({
         </Section>
       )}
 
-      {finding.runSteps != null && finding.runSteps.length > 0 && (
-        <Section title="Run trace - what the run actually did">
-          <RunTrace steps={finding.runSteps} />
-        </Section>
-      )}
-
       {finding.remediation != null && (
         <Section title="Remediation">
           <p className="text-sm leading-relaxed text-text-primary">{finding.remediation}</p>
@@ -131,12 +125,24 @@ function FindingBody({
         </Section>
       )}
 
-      {finding.evidence.length > 0 && (
-        <Section title="Code evidence">
-          <div className="flex flex-col gap-3">
-            {finding.evidence.map((item, i) => (
-              <EvidenceItem key={i} item={item} repoFullName={repoFullName} commitSha={commitSha} />
-            ))}
+      {(finding.evidence.length > 0 || (finding.runSteps != null && finding.runSteps.length > 0)) && (
+        <Section title="Evidence">
+          <div className="flex flex-col gap-4">
+            {finding.evidence.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {finding.evidence.map((item, i) => (
+                  <EvidenceItem key={i} item={item} repoFullName={repoFullName} commitSha={commitSha} />
+                ))}
+              </div>
+            )}
+            {finding.runSteps != null && finding.runSteps.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
+                  Run trace - what the run actually did
+                </h3>
+                <RunTrace steps={finding.runSteps} />
+              </div>
+            )}
           </div>
         </Section>
       )}
