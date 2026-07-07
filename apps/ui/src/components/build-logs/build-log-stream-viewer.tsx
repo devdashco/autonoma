@@ -3,6 +3,7 @@ import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { useEffect, useRef } from "react";
 import { env } from "../../env";
+import { parseAnsi } from "./parse-ansi";
 import { type BuildLogConnection, type BuildLogEntry, useBuildLogStream } from "./use-build-log-stream";
 
 interface BuildLogStreamViewerProps {
@@ -98,13 +99,18 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
           <span className="w-24 shrink-0 select-none text-text-secondary/70" title={timestamp?.full}>
             {timestamp?.time ?? ""}
           </span>
+          {/* stderr sets the row's base color; ANSI segments override per span, plain text inherits. */}
           <span
             className={cn(
               "min-w-0 flex-1 whitespace-pre-wrap break-words",
               entry.stream === "stderr" ? "text-status-critical" : "text-text-secondary",
             )}
           >
-            {line}
+            {parseAnsi(line).map((segment, segmentIndex) => (
+              <span key={segmentIndex} className={segment.className}>
+                {segment.text}
+              </span>
+            ))}
           </span>
         </div>
       ))}
