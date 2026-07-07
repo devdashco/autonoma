@@ -1077,6 +1077,9 @@ importers:
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../../../packages/workflow
+      '@ffmpeg-installer/ffmpeg':
+        specifier: ^1.1.0
+        version: 1.1.0
       '@sentry/node':
         specifier: 'catalog:'
         version: 10.39.0

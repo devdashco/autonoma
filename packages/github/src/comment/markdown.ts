@@ -42,11 +42,18 @@ const STATUS_DOT_ASSETS: Record<AutonomaCommentState, string> = {
 const CTA_ASSETS: Record<string, string> = {
     "Open in Autonoma": "open-in-autonoma-button-v2.svg",
     "See preview": "see-preview-button-v2.svg",
+    // Per-bug action buttons (secondary, dark style).
+    "Watch replay": "watch-replay-button-v2.svg",
+    "See full report": "see-full-report-button-v2.svg",
+    "Open preview": "open-preview-button-v2.svg",
 };
 
 const CTA_TEXT_PREFIXES: Record<string, string> = {
     "Open in Autonoma": "↗ ",
     "See preview": "👁 ",
+    "Watch replay": "🎬 ",
+    "See full report": "📄 ",
+    "Open preview": "👁 ",
 };
 
 export function renderMarkdown(payload: AutonomaCommentPayload): string {
@@ -196,7 +203,7 @@ function renderBugList(payload: AutonomaCommentPayload): string {
     // Rich bugs (the investigation comment) each expand into a <details> with screenshot + remediation +
     // nested evidence; the diffs comment's plain bugs stay one-liners (top 3) - fully backward-compatible.
     if (payload.bugs.some(isRichBug)) {
-        return payload.bugs.map((bug) => renderBugDetails(bug, dotUrl)).join("\n");
+        return payload.bugs.map((bug) => renderBugDetails(bug, dotUrl, payload.assetBaseUrl)).join("\n");
     }
     return payload.bugs
         .slice(0, 3)
@@ -214,7 +221,11 @@ function isRichBug(bug: AutonomaCommentBug): boolean {
 }
 
 /** One bug as an expandable section: collapsed it's a one-line title; expanded it shows the evidence. */
-function renderBugDetails(bug: AutonomaCommentBug, dotUrl: string | undefined): string {
+function renderBugDetails(
+    bug: AutonomaCommentBug,
+    dotUrl: string | undefined,
+    assetBaseUrl: string | undefined,
+): string {
     const occurrence = bug.occurrenceCount != null ? ` <code>×${bug.occurrenceCount}</code>` : "";
     const summary = `${renderBugMarker(dotUrl)} ${escapeHtml(bug.title)}${occurrence}`;
     const body: string[] = [];
@@ -223,12 +234,12 @@ function renderBugDetails(bug: AutonomaCommentBug, dotUrl: string | undefined): 
         const img = `<img src="${escapeHtmlAttribute(bug.screenshotUrl)}" alt="Run screenshot" />`;
         body.push(bug.replayHref != null ? `<a href="${escapeHtmlAttribute(bug.replayHref)}">${img}</a>` : img);
     }
-    if (bug.replayHref != null) body.push(`🎬 [Watch replay](${escapeUrl(bug.replayHref)})`);
+    if (bug.replayHref != null) body.push(renderCta(assetBaseUrl, "Watch replay", bug.replayHref));
     if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));
     if (bug.remediation != null) body.push(`**Remediation:** ${sanitizeRichMarkdown(bug.remediation)}`);
     if (bug.evidence != null && bug.evidence.length > 0) body.push(renderEvidence(bug.evidence));
 
-    const links = renderBugLinks(bug);
+    const links = renderBugLinks(bug, assetBaseUrl);
     if (links !== "") body.push(links);
 
     return ["<details>", `<summary>${summary}</summary>`, "", body.join("\n\n"), "</details>"].join("\n");
@@ -240,7 +251,9 @@ function renderBugDetails(bug: AutonomaCommentBug, dotUrl: string | undefined): 
  * real markdown rather than one monospace blob.
  */
 function renderEvidence(items: AutonomaCommentEvidence[]): string {
-    const lines: string[] = ["<details>", "<summary>Evidence</summary>", ""];
+    // Bold (not GitHub's faint default triangle text) so the section - which carries the code evidence - stands
+    // out. An <img> chip here would hijack the click to open the image instead of toggling the <details>.
+    const lines: string[] = ["<details>", "<summary><strong>Evidence</strong></summary>", ""];
     for (const item of items) {
         const location =
             item.file != null
@@ -281,11 +294,13 @@ function languageForFile(source: string, file: string | undefined): string {
     return ext != null ? (byExt[ext] ?? "") : "";
 }
 
-function renderBugLinks(bug: AutonomaCommentBug): string {
-    const links: string[] = [];
-    if (bug.href != null) links.push(`[See full report](${escapeUrl(bug.href)})`);
-    if (bug.previewHref != null) links.push(`[Open preview](${escapeUrl(bug.previewHref)})`);
-    return links.join(" · ");
+function renderBugLinks(bug: AutonomaCommentBug, assetBaseUrl: string | undefined): string {
+    const buttons: string[] = [];
+    if (bug.href != null) buttons.push(renderCta(assetBaseUrl, "See full report", bug.href));
+    if (bug.previewHref != null) buttons.push(renderCta(assetBaseUrl, "Open preview", bug.previewHref));
+    // Button images sit side by side; the " · " separator is only for the text-link fallback.
+    const hasAssets = assetBaseUrl != null && assetBaseUrl !== "";
+    return buttons.join(hasAssets ? "&nbsp;&nbsp;" : " · ");
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 const context: InvestigationCommentContext = {
     prNumber: 42,
     commitSha: "e5d627abcdef",
+    prUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/",
     reportBaseUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/investigation",
     previewUrl: "https://preview.example.com",
     assetBaseUrl: "https://beta.autonoma.app/github-comment/",
@@ -102,6 +103,8 @@ describe("buildInvestigationCommentPayload", () => {
     it("adds the preview CTA only when a preview URL is present", async () => {
         const withPreview = await buildInvestigationCommentPayload([result("ok", "passed")], context, noSign);
         expect(withPreview.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma", "See preview"]);
+        // "Open in Autonoma" lands on the PR overview page, not the investigation report.
+        expect(withPreview.ctas[0]).toEqual({ label: "Open in Autonoma", href: context.prUrl });
 
         const withoutPreview = await buildInvestigationCommentPayload(
             [result("ok", "passed")],

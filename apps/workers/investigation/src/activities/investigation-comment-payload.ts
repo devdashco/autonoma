@@ -12,7 +12,9 @@ const ACTIONABLE_CATEGORIES = new Set(["scenario_issue", "environment_failure", 
 export interface InvestigationCommentContext {
     prNumber: number;
     commitSha: string;
-    /** The in-app report base URL for this snapshot (".../investigation"); per-finding links append the slug. */
+    /** The in-app PR overview page URL (".../pull-requests/<n>/"); the top-level "Open in Autonoma" CTA lands here. */
+    prUrl: string;
+    /** The in-app report base URL for this snapshot (".../investigation"); per-finding "See full report" links append the slug. */
     reportBaseUrl: string;
     /** The preview environment URL for the branch, if deployed. */
     previewUrl?: string;
@@ -39,7 +41,7 @@ export async function buildInvestigationCommentPayload(
 
     const bugs = await Promise.all(shown.map((result) => toBug(result, context, signScreenshot)));
 
-    const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: context.reportBaseUrl }];
+    const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: context.prUrl }];
     if (context.previewUrl != null && context.previewUrl !== "") {
         ctas.push({ label: "See preview", href: context.previewUrl });
     }
@@ -105,8 +107,10 @@ async function toBug(
 ): Promise<AutonomaCommentBug> {
     const verdict = result.verdict;
     const findingUrl = `${context.reportBaseUrl}/${encodeURIComponent(result.slug)}`;
-    const screenshotUrl =
-        result.finalScreenshotUrl != null ? await signScreenshot(result.finalScreenshotUrl) : undefined;
+    // Prefer the animated GIF clip of the failure (client bugs) over the static final screenshot; both embed
+    // as an <img> in the comment, and GitHub renders animated GIFs inline.
+    const mediaKey = result.clipUrl ?? result.finalScreenshotUrl;
+    const screenshotUrl = mediaKey != null ? await signScreenshot(mediaKey) : undefined;
     return {
         title: verdict?.headline ?? result.slug,
         href: findingUrl,

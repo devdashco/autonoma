@@ -43,19 +43,26 @@ export async function postInvestigationPrComment(
     }
 
     const previewUrl = await resolvePreviewUrl(snapshotId);
+    // The investigation runs on a detached shadow snapshot, but its in-app report is navigable under the PARENT
+    // checkpoint - so report/finding links must use the checkpoint id (the shadow is not a navigable checkpoint).
+    const reportSnapshotId = await resolveReportSnapshotId(snapshotId);
     const storage = getStorage();
     const payload = await buildInvestigationCommentPayload(
         input.results,
         {
             prNumber: prMeta.prNumber,
             commitSha: meta.headSha,
-            reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, snapshotId),
+            prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
+            reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, reportSnapshotId),
             previewUrl,
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
         },
         async (s3Url) => {
+            // Serve the correct content type so GitHub's image proxy renders the animated GIF clip (client bugs)
+            // instead of mislabeling it as a PNG; static screenshots stay image/png.
+            const contentType = s3Url.endsWith(".gif") ? "image/gif" : "image/png";
             try {
-                return await storage.getSignedUrl(s3Url, SCREENSHOT_TTL_SECONDS, "image/png");
+                return await storage.getSignedUrl(s3Url, SCREENSHOT_TTL_SECONDS, contentType);
             } catch (err) {
                 logger.warn("Failed to sign investigation screenshot for the PR comment", { extra: { s3Url, err } });
                 return undefined;
@@ -96,6 +103,25 @@ async function resolvePreviewUrl(snapshotId: string): Promise<string | undefined
         },
     });
     return snapshot?.branch.deployment?.webDeployment?.url ?? undefined;
+}
+
+/**
+ * The investigation runs on a detached shadow snapshot, but its in-app report is navigable under the PARENT
+ * checkpoint (the shadow is not itself a navigable checkpoint). Resolve the checkpoint id for the report/finding
+ * links; fall back to the given id when this snapshot has no investigation parent (already a checkpoint).
+ */
+async function resolveReportSnapshotId(snapshotId: string): Promise<string> {
+    const snapshot = await db.branchSnapshot.findUnique({
+        where: { id: snapshotId },
+        select: { investigationParent: { select: { id: true } } },
+    });
+    return snapshot?.investigationParent?.id ?? snapshotId;
+}
+
+/** Absolute URL of the in-app PR overview page; the "Open in Autonoma" CTA lands here. */
+function buildPrUrl(appSlug: string, prNumber: number): string {
+    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/`;
+    return new URL(path, resolveAppUrl()).toString();
 }
 
 /** Absolute base URL of the in-app investigation report for this snapshot; per-finding links append the slug. */

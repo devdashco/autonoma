@@ -229,4 +229,28 @@ describe("payloadBuilder", () => {
         // so the original `\`\`\`secret\`\`\`` content survives intact in the rendered comment.
         expect(markdown).toContain("````\n```secret```\n````");
     });
+
+    it("renders the Evidence disclosure summary in bold, never as an image", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "critical",
+                prNumber: 42,
+                assetBaseUrl: "https://cdn.autonoma.app/github-comment/",
+                bugs: [
+                    {
+                        title: "Checkout button is hidden",
+                        href: "https://autonoma.app/bug/1",
+                        evidence: [
+                            { source: "diff", detail: "removed the button", file: "src/checkout.tsx", lines: "10-12" },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        // Bold text, not an <img> chip: an image summary hijacks the click to open the image instead of
+        // toggling the <details>.
+        expect(markdown).toContain("<summary><strong>Evidence</strong></summary>");
+        expect(markdown).not.toContain("evidence-chip");
+    });
 });

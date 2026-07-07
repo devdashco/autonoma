@@ -8,11 +8,12 @@ import {
     classifyRun,
     persistInvestigationCosts,
 } from "@autonoma/investigation";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
 import { resolvePrMeta } from "../codebase/pr-meta";
 import { withSnapshotContext } from "../codebase/resolve";
 import { env } from "../env";
+import { webmToGif } from "../media/webm-to-gif";
 import { createModelSession, getStorage } from "../services";
 
 type AttemptRow = {
@@ -128,8 +129,10 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         await persistInvestigationCosts(db, snapshotId, session.costCollector, logger);
 
         // The report features the frame the classifier judged most descriptive (verdict.keyStepIndex), not
-        // mechanically the last/failed one; fall back to the final screenshot when it named no step.
+        // mechanically the last/failed one. When it named no step we show no screenshot rather than falling back
+        // to the run's final frame, which is often a setup/blank/home screen and reads as a misleading "failure".
         const keyScreenshot = resolveKeyScreenshot(generation.attempts, verdict.keyStepIndex);
+        const clipUrl = await maybeGenerateClip(verdict.category, runArtifacts.video, testGenerationId, logger);
         logger.info("Shadow run classified", {
             extra: { category: verdict.category, confidence: verdict.confidence, keyStepIndex: verdict.keyStepIndex },
         });
@@ -141,9 +144,34 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             runSteps: runArtifacts.steps,
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
-            finalScreenshotUrl: keyScreenshot ?? generation.finalScreenshot ?? undefined,
+            finalScreenshotUrl: keyScreenshot ?? undefined,
+            clipUrl,
         };
     });
+}
+
+/**
+ * For a confirmed client bug with a run recording, render a short GIF of the failure and upload it, so the
+ * investigation PR comment can embed an inline clip. Best-effort and client-bug-only: any failure (no video,
+ * ffmpeg error, upload error) returns undefined and the comment falls back to the key-frame screenshot, if the
+ * classifier named one.
+ */
+async function maybeGenerateClip(
+    category: string,
+    video: Uint8Array | undefined,
+    testGenerationId: string,
+    logger: Logger,
+): Promise<string | undefined> {
+    if (category !== "client_bug" || video == null) return undefined;
+    const gif = await webmToGif(video, logger);
+    if (gif == null) return undefined;
+    const key = `test-generation/${testGenerationId}/clip.gif`;
+    try {
+        return await getStorage().upload(key, gif, "image/gif");
+    } catch (error) {
+        logger.warn("Could not upload GIF clip", { extra: { key }, err: error });
+        return undefined;
+    }
 }
 
 /**

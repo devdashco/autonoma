@@ -20,6 +20,7 @@
         "@autonoma/storage": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
+        "@ffmpeg-installer/ffmpeg": "^1.1.0",
         "@sentry/node": "catalog:",
         "@t3-oss/env-core": "catalog:",
         "@temporalio/activity": "catalog:",
