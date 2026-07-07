@@ -83,22 +83,40 @@ function LogRow({ entry }: { entry: BuildLogEntry }) {
       </div>
     );
   }
+  // A single log entry can carry a multi-line chunk - build tools (and any process that
+  // writes several lines in one flush) emit them as one Loki entry. Render each physical
+  // line as its own timestamped row so lines aren't clumped under one timestamp.
   const timestamp = formatLogTimestamp(entry.id);
   return (
-    <div className="flex items-start gap-3">
-      <span className="w-24 shrink-0 select-none text-text-secondary/70" title={timestamp?.full}>
-        {timestamp?.time ?? ""}
-      </span>
-      <span
-        className={cn(
-          "min-w-0 flex-1 whitespace-pre-wrap break-words",
-          entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
-        )}
-      >
-        {entry.message}
-      </span>
-    </div>
+    <>
+      {splitLines(entry.message).map((line, index) => (
+        <div key={`${entry.id}-${index}`} className="flex items-start gap-3">
+          <span className="w-24 shrink-0 select-none text-text-secondary/70" title={timestamp?.full}>
+            {timestamp?.time ?? ""}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 whitespace-pre-wrap break-words",
+              entry.stream === "stderr" ? "text-status-warn" : "text-text-secondary",
+            )}
+          >
+            {line}
+          </span>
+        </div>
+      ))}
+    </>
   );
+}
+
+/**
+ * Split a log entry's message into physical lines. Nearly every log write ends in a
+ * newline, so a single trailing empty line is dropped to avoid a spurious blank row;
+ * interior blank lines are kept, since build output uses them for spacing.
+ */
+function splitLines(message: string): string[] {
+  const lines = message.split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
 }
 
 /**
