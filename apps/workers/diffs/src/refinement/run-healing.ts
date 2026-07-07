@@ -34,7 +34,7 @@ export async function runRefinementHealing(
     logger.info("Running refinement healing agent", {
         extra: {
             iterationNumber: input.iteration,
-            failureCount: input.failuresAtGeneration.length + input.failuresAtReplay.length,
+            failureCount: input.failuresAtGeneration.length,
         },
     });
 
@@ -56,7 +56,6 @@ export async function runRefinementHealing(
         maxIterations: input.maxIterations,
         snapshotId: input.snapshotId,
         failuresAtGeneration: input.failuresAtGeneration,
-        failuresAtReplay: input.failuresAtReplay,
     });
 
     const session = openModelSession();

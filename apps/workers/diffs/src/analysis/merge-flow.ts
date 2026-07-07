@@ -46,9 +46,9 @@ export interface MergeFlowResult {
     preClassifiedConflicts: PreClassifiedConflictInfo[];
     /**
      * Tests classified as `unilateral_update` or `new_test` whose winning plan
-     * has already been written into the target snapshot's assignments. These
-     * should be dispatched to replay with `affectedReason: merge_plan_imported`
-     * and merged with the agent's affectedTests before calling `prepareRuns`.
+     * has already been written into the target snapshot's assignments. These are
+     * marked `affectedReason: merge_plan_imported` and merged with the agent's
+     * affectedTests before calling `prepareAffectedTestGenerations`.
      */
     importedAffectedTests: AffectedTest[];
 }

@@ -1,18 +1,15 @@
 import { Badge, Button, Separator, Skeleton, stepInstruction as getStepInstruction } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
-import { Play } from "@phosphor-icons/react/Play";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { DetailRow } from "components/detail-row";
 import { formatDate } from "lib/format";
 import { ensureBranchSnapshotId } from "lib/query/branches.queries";
-import { useRunTest } from "lib/query/runs.queries";
 import { ensureTestDetailData, useRenameTest } from "lib/query/tests.queries";
 import { trpc } from "lib/trpc";
 import { useMainBranch } from "../-use-main-branch";
 import { AppLink } from "../../-app-link";
-import { useAppNavigate } from "../../-use-app-navigate";
 import { useCurrentApplication } from "../../-use-current-application";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/tests/$testSlug")({
@@ -56,28 +53,12 @@ function TestDetailPanel({ slug }: { slug: string }) {
   const currentApp = useCurrentApplication();
   const branch = useMainBranch();
   const snapshotId = branch.activeSnapshot.id;
-  const navigate = useAppNavigate();
 
   const { data: test } = useSuspenseQuery(
     trpc.tests.detail.queryOptions({ applicationId: currentApp.id, slug, snapshotId }),
   );
 
   const _renameTest = useRenameTest();
-  const runTest = useRunTest();
-
-  function handleRunTest() {
-    runTest.mutate(
-      { testCaseId: test.id, snapshotId },
-      {
-        onSuccess: ({ runId }) => {
-          void navigate({
-            to: "/app/$appSlug/runs/$runId",
-            params: { runId },
-          });
-        },
-      },
-    );
-  }
 
   return (
     <div className="p-6">
@@ -88,19 +69,6 @@ function TestDetailPanel({ slug }: { slug: string }) {
             <p className="mt-2 max-w-4xl text-sm leading-relaxed text-text-secondary">{test.description}</p>
           )}
         </div>
-        {test.steps.length > 0 && (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={handleRunTest}
-            disabled={runTest.isPending}
-            className="shrink-0"
-            aria-label="trigger-test-run"
-          >
-            <Play size={14} />
-            Run test
-          </Button>
-        )}
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row">

@@ -147,90 +147,21 @@ apiTestSuite({
         return { application, testCase, assignment, stepOutputList, si0, si1, testCaseNoSteps, snapshotId };
     },
     cases: (test) => {
-        test("trigger creates a run and calls workflow", async ({ harness, seedResult: { testCase, snapshotId } }) => {
-            harness.triggerWorkflow.mockClear();
-
-            const result = await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+        test("list returns all runs for the organization", async ({ harness, seedResult: { assignment } }) => {
+            await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
-
-            expect(result.runId).toBeDefined();
-            expect(harness.triggerWorkflow).toHaveBeenCalledOnce();
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith(expect.objectContaining({ runId: result.runId }));
-
-            const run = await harness.db.run.findUnique({ where: { id: result.runId } });
-            expect(run?.status).toBe("pending");
-        });
-
-        test("trigger throws NOT_FOUND when test case does not exist", async ({
-            harness,
-            seedResult: { snapshotId },
-        }) => {
-            await expect(
-                harness.request().runs.trigger({
-                    testCaseId: "non-existent-id",
-                    snapshotId,
-                }),
-            ).rejects.toThrowError();
-        });
-
-        test("trigger throws NOT_FOUND when test case has no steps", async ({
-            harness,
-            seedResult: { testCaseNoSteps, snapshotId },
-        }) => {
-            await expect(
-                harness.request().runs.trigger({
-                    testCaseId: testCaseNoSteps.id,
-                    snapshotId,
-                }),
-            ).rejects.toThrowError();
-        });
-
-        test("trigger marks run as failed when workflow throws", async ({
-            harness,
-            seedResult: { testCase, snapshotId },
-        }) => {
-            harness.triggerWorkflow.mockRejectedValueOnce(new Error("Temporal unavailable"));
-
-            await expect(
-                harness.request().runs.trigger({
-                    testCaseId: testCase.id,
-                    snapshotId,
-                }),
-            ).rejects.toThrowError("Temporal unavailable");
-
-            const runs = await harness.db.run.findMany({
-                where: { assignment: { testCaseId: testCase.id } },
-                orderBy: { createdAt: "desc" },
-            });
-            expect(runs[0]?.status).toBe("failed");
-        });
-
-        test("list returns all runs for the organization", async ({
-            harness,
-            seedResult: { testCase, snapshotId },
-        }) => {
-            await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
-            });
-            await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+            await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
 
             const runs = await harness.request().runs.list();
             expect(runs.length).toBeGreaterThanOrEqual(2);
         });
 
-        test("list filters by applicationId", async ({
-            harness,
-            seedResult: { application, testCase, snapshotId },
-        }) => {
-            await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+        test("list filters by applicationId", async ({ harness, seedResult: { application, assignment } }) => {
+            await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
 
             const all = await harness.request().runs.list();
@@ -242,32 +173,31 @@ apiTestSuite({
             expect(otherApp).toHaveLength(0);
         });
 
-        test("list returns correct shape", async ({ harness, seedResult: { testCase, snapshotId } }) => {
-            const { runId } = await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+        test("list returns correct shape", async ({ harness, seedResult: { assignment } }) => {
+            const run = await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
 
             const runs = await harness.request().runs.list();
-            const run = runs.find((r) => r.id === runId);
+            const listed = runs.find((r) => r.id === run.id);
 
-            expect(run).toBeDefined();
-            expect(run?.shortId).toBe(runId.slice(0, 8));
-            expect(run?.status).toBe("pending");
-            expect(run?.name).toBe("Login flow test");
-            expect(run?.tags).toEqual([]);
-            expect(run?.stepCount).toBe(0);
-            expect(run?.duration).toBeNull();
+            expect(listed).toBeDefined();
+            expect(listed?.shortId).toBe(run.id.slice(0, 8));
+            expect(listed?.status).toBe("pending");
+            expect(listed?.name).toBe("Login flow test");
+            expect(listed?.tags).toEqual([]);
+            expect(listed?.stepCount).toBe(0);
+            expect(listed?.duration).toBeNull();
         });
 
         test("detail returns run with steps after completion", async ({
             harness,
-            seedResult: { testCase, stepOutputList, snapshotId },
+            seedResult: { assignment, stepOutputList },
         }) => {
-            const { runId } = await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+            const run = await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
+            const runId = run.id;
 
             // Simulate the run completing with output steps
             await harness.db.stepOutputList.update({
@@ -335,11 +265,10 @@ apiTestSuite({
 
         test("detail returns null for run belonging to another organization", async ({
             harness,
-            seedResult: { testCase, snapshotId },
+            seedResult: { assignment },
         }) => {
-            const { runId } = await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
+            const run = await harness.db.run.create({
+                data: { assignmentId: assignment.id, organizationId: harness.organizationId, status: "pending" },
             });
 
             const otherOrg = await harness.db.organization.create({
@@ -354,83 +283,8 @@ apiTestSuite({
                 },
             });
 
-            const detail = await harness.request(otherSession).runs.detail({ runId });
+            const detail = await harness.request(otherSession).runs.detail({ runId: run.id });
             expect(detail).toBeNull();
-        });
-
-        test("restart creates a new run, triggers workflow with new id, and leaves original run untouched", async ({
-            harness,
-            seedResult: { testCase, stepOutputList, snapshotId },
-        }) => {
-            const { runId: originalRunId } = await harness.request().runs.trigger({
-                testCaseId: testCase.id,
-                snapshotId,
-            });
-
-            await harness.db.stepOutputList.update({
-                where: { id: stepOutputList.id },
-                data: { runId: originalRunId },
-            });
-            const completedAt = new Date();
-            await harness.db.run.update({
-                where: { id: originalRunId },
-                data: {
-                    status: "success",
-                    startedAt: new Date(Date.now() - 60000),
-                    completedAt,
-                    reasoning: "original reasoning",
-                },
-            });
-
-            harness.triggerWorkflow.mockClear();
-
-            const result = await harness.request().runs.restart({ runId: originalRunId });
-
-            expect(result.runId).toBeDefined();
-            expect(result.runId).not.toBe(originalRunId);
-            expect(harness.triggerWorkflow).toHaveBeenCalledOnce();
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith(expect.objectContaining({ runId: result.runId }));
-
-            const newRun = await harness.db.run.findUnique({ where: { id: result.runId } });
-            expect(newRun?.status).toBe("pending");
-            expect(newRun?.assignmentId).toBeDefined();
-
-            const originalRun = await harness.db.run.findUnique({
-                where: { id: originalRunId },
-                include: { outputs: true },
-            });
-            expect(originalRun?.status).toBe("success");
-            expect(originalRun?.reasoning).toBe("original reasoning");
-            expect(originalRun?.outputs?.id).toBe(stepOutputList.id);
-
-            const preservedOutputs = await harness.db.stepOutputList.findUnique({
-                where: { id: stepOutputList.id },
-            });
-            expect(preservedOutputs).not.toBeNull();
-        });
-
-        test("trigger throws when test case belongs to another organization", async ({
-            harness,
-            seedResult: { testCase, snapshotId },
-        }) => {
-            const otherOrg = await harness.db.organization.create({
-                data: { name: "Other Org 2", slug: `other-org-2-${crypto.randomUUID()}` },
-            });
-            const otherSession = await harness.db.session.create({
-                data: {
-                    token: `other-session-2-${crypto.randomUUID()}`,
-                    expiresAt: new Date(Date.now() + 86400000),
-                    userId: harness.userId,
-                    activeOrganizationId: otherOrg.id,
-                },
-            });
-
-            await expect(
-                harness.request(otherSession).runs.trigger({
-                    testCaseId: testCase.id,
-                    snapshotId,
-                }),
-            ).rejects.toThrowError();
         });
     },
 });

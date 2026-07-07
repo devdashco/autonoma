@@ -1,4 +1,4 @@
-import { type PrismaClient, type RunStatus, applyMigrations, createClient } from "@autonoma/db";
+import { type GenerationStatus, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { type TestAPI, expect } from "vitest";
@@ -102,30 +102,26 @@ class CutoverHarness implements IntegrationHarness {
         return { testCaseId: testCase.id, planId: plan.id };
     }
 
-    /** Mark a test case affected, optionally linking a replay run against its plan. */
+    /** Mark a test case affected, optionally queuing a generation against its plan. */
     async createAffectedTest(args: {
         organizationId: string;
         snapshotId: string;
         testCaseId: string;
         planId?: string;
-        runStatus?: RunStatus;
-    }): Promise<{ runId?: string }> {
-        let runId: string | undefined;
-        if (args.planId != null && args.runStatus != null) {
-            const assignment = await this.db.testCaseAssignment.findUniqueOrThrow({
-                where: { snapshotId_testCaseId: { snapshotId: args.snapshotId, testCaseId: args.testCaseId } },
-                select: { id: true },
-            });
-            const run = await this.db.run.create({
+        generationStatus?: GenerationStatus;
+    }): Promise<{ generationId?: string }> {
+        let generationId: string | undefined;
+        if (args.planId != null && args.generationStatus != null) {
+            const generation = await this.db.testGeneration.create({
                 data: {
-                    assignmentId: assignment.id,
-                    planId: args.planId,
+                    testPlanId: args.planId,
+                    snapshotId: args.snapshotId,
                     organizationId: args.organizationId,
-                    status: args.runStatus,
+                    status: args.generationStatus,
                 },
                 select: { id: true },
             });
-            runId = run.id;
+            generationId = generation.id;
         }
 
         await this.db.affectedTest.create({
@@ -135,10 +131,10 @@ class CutoverHarness implements IntegrationHarness {
                 organizationId: args.organizationId,
                 affectedReason: "code_change",
                 reasoning: "touched by the diff",
-                runId,
+                generationId,
             },
         });
-        return { runId };
+        return { generationId };
     }
 
     async createPendingGeneration(args: {
@@ -245,13 +241,14 @@ function cutoverSuite(cases: (test: TestAPI<SuiteContext>) => void) {
 }
 
 cutoverSuite((test) => {
-    test("diffs init seeds iteration 1 from affected-test replays; no new tests means no pipeline", async ({
+    test("diffs init seeds iteration 1 from the affected + authored pending generations and fires the pipeline", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
         const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
 
-        const replayed = await harness.createPlanWithAssignment({
+        // An affected test: analysis queued a pending generation from its committed plan.
+        const affected = await harness.createPlanWithAssignment({
             organizationId,
             applicationId,
             folderId,
@@ -260,43 +257,9 @@ cutoverSuite((test) => {
         await harness.createAffectedTest({
             organizationId,
             snapshotId,
-            testCaseId: replayed.testCaseId,
-            planId: replayed.planId,
-            runStatus: "failed",
-        });
-
-        // An affected test that never got a run must be left out of the seed - it
-        // has neither a generation nor a run.
-        const noRun = await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
-        await harness.createAffectedTest({ organizationId, snapshotId, testCaseId: noRun.testCaseId });
-
-        const result = await initRefinementLoop({ snapshotId, triggeredBy: "diffs" });
-
-        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([replayed.planId]);
-        // No new tests were authored, so the snapshot has no pending generations:
-        // iter 1 only analyzes the replays that already ran, never fires the pipeline.
-        expect(result.runFirstIterationPipeline).toBe(false);
-    });
-
-    test("diffs init seeds the diffs-authored new tests into iteration 1 and fires the pipeline", async ({
-        harness,
-        seedResult: { organizationId, applicationId, folderId },
-    }) => {
-        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
-
-        // An affected test whose replay already ran (no pending generation).
-        const replayed = await harness.createPlanWithAssignment({
-            organizationId,
-            applicationId,
-            folderId,
-            snapshotId,
-        });
-        await harness.createAffectedTest({
-            organizationId,
-            snapshotId,
-            testCaseId: replayed.testCaseId,
-            planId: replayed.planId,
-            runStatus: "failed",
+            testCaseId: affected.testCaseId,
+            planId: affected.planId,
+            generationStatus: "pending",
         });
 
         // A test the diffs agent authored during analysis: a plan with a pending
@@ -311,10 +274,24 @@ cutoverSuite((test) => {
 
         const result = await initRefinementLoop({ snapshotId, triggeredBy: "diffs" });
 
-        // Iteration 1's scope is the union of the affected replay plan and the
-        // authored test's plan; the pipeline fires because a pending generation exists.
-        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([replayed.planId, authored.planId].sort());
+        // Both affected and authored tests are just pending generations now, so
+        // iteration 1's scope is their union and the pipeline fires.
+        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([affected.planId, authored.planId].sort());
         expect(result.runFirstIterationPipeline).toBe(true);
+    });
+
+    test("init with no pending generations seeds nothing and skips the pipeline", async ({
+        harness,
+        seedResult: { organizationId, applicationId, folderId },
+    }) => {
+        const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
+        // A plan-linked assignment but no pending generation for it.
+        await harness.createPlanWithAssignment({ organizationId, applicationId, folderId, snapshotId });
+
+        const result = await initRefinementLoop({ snapshotId, triggeredBy: "diffs" });
+
+        expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([]);
+        expect(result.runFirstIterationPipeline).toBe(false);
     });
 
     test("onboarding init seeds iteration 1 from pending generations and fires the pipeline", async ({
@@ -330,8 +307,7 @@ cutoverSuite((test) => {
 
         const result = await initRefinementLoop({ snapshotId, triggeredBy: "onboarding" });
 
-        // Onboarding still seeds from pending generations and fires the pipeline -
-        // the opposite of the diffs branch above, which seeds replays and skips it.
+        // Both triggers seed identically from the snapshot's pending generations.
         expect(await harness.inputPlanIds(result.firstIterationId)).toEqual([a.planId, b.planId].sort());
         expect(result.runFirstIterationPipeline).toBe(true);
     });
@@ -388,9 +364,9 @@ cutoverSuite((test) => {
     }) => {
         const snapshotId = await harness.createSnapshotWithDiffsJob(organizationId, applicationId);
 
-        // An affected test whose replay failed: healing updates its plan, which
-        // queues a regeneration. applyUpdatePlan must link the AffectedTest row to
-        // that fresh generation (no first-turn reconciliation tail involved).
+        // An affected test whose generation review failed: healing updates its
+        // plan, which queues a regeneration. applyUpdatePlan must link the
+        // AffectedTest row to that fresh generation.
         const affected = await harness.createPlanWithAssignment({
             organizationId,
             applicationId,
@@ -402,7 +378,6 @@ cutoverSuite((test) => {
             snapshotId,
             testCaseId: affected.testCaseId,
             planId: affected.planId,
-            runStatus: "failed",
         });
 
         await applyUpdatePlan({

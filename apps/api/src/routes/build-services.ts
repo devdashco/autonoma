@@ -10,11 +10,7 @@ import type {
     TriggerPreviewRedeployAppParams,
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
-import type {
-    TriggerDiffsJobParams,
-    TriggerInvestigationJobParams,
-    TriggerRunWorkflowParams,
-} from "@autonoma/workflow";
+import type { TriggerDiffsJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
@@ -80,7 +76,6 @@ export interface ServicesParams {
     conn: PrismaClient;
     auth: Auth;
     storageProvider: StorageProvider;
-    triggerRunWorkflow: (params: TriggerRunWorkflowParams) => Promise<void>;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
     generationProvider: GenerationProvider;
@@ -98,7 +93,6 @@ export function buildServices({
     conn,
     auth,
     storageProvider,
-    triggerRunWorkflow,
     scenarioManager,
     encryptionHelper,
     generationProvider,
@@ -158,7 +152,7 @@ export function buildServices({
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
-        runs: new RunsService(conn, storageProvider, triggerRunWorkflow, billingService),
+        runs: new RunsService(conn, storageProvider),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn, storageProvider),
         folders: new FoldersService(conn),

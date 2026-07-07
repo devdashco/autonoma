@@ -106,25 +106,25 @@ interface SeededFirstIteration {
     planIds: string[];
     /**
      * Whether iteration 1 has pending generations the iter-1 pipeline must
-     * generate + run. True iff the snapshot has any pending generation.
+     * generate. True iff the snapshot has any pending generation.
      */
     runFirstIterationPipeline: boolean;
 }
 
 /**
- * Seed iteration 1's input plan ids by trigger.
+ * Seed iteration 1's input plan ids from the snapshot's pending generations.
  *
- *   - Diffs: the union of (a) the affected tests' committed plans, taken from
- *     the replays the diffs analysis step already ran, and (b) the new tests the
- *     diffs agent authored during analysis, which have pending generations. Only
- *     affected tests with a plan-linked run are seeded; one without a run has
- *     neither a generation nor a run and would trip the bucketer's "neither"
- *     invariant. The new tests are generated + run by the iter-1 pipeline.
- *   - Onboarding: the snapshot's pending generations (the work the loop must
+ * Both triggers now seed identically, because both stage their iter-1 work as
+ * pending generations before the loop starts:
+ *
+ *   - Diffs: analysis queues a pending generation for every affected test (from
+ *     its committed plan) as well as the new tests the diffs agent authored.
+ *   - Onboarding: the planner's pending generations (the work the loop must
  *     finish before activating the snapshot).
  *
- * `runFirstIterationPipeline` is true iff the snapshot has any pending
- * generation - the new tests (diffs) or the planner's gens (onboarding).
+ * A generation passing its review is the definition of "validated" - there is no
+ * replay step. `runFirstIterationPipeline` is true iff the snapshot has any
+ * pending generation.
  */
 async function seedFirstIterationPlanIds(
     tx: Prisma.TransactionClient,
@@ -134,31 +134,10 @@ async function seedFirstIterationPlanIds(
 ): Promise<SeededFirstIteration> {
     const pendingGenPlanIds = await pendingGenerationPlanIds(tx, snapshotId);
     const runFirstIterationPipeline = pendingGenPlanIds.length > 0;
-
-    if (triggeredBy === "onboarding") {
-        return { planIds: pendingGenPlanIds, runFirstIterationPipeline };
-    }
-
-    const replayPlanIds = await diffsReplayPlanIds(tx, snapshotId);
-    const planIds = [...new Set([...replayPlanIds, ...pendingGenPlanIds])];
-    logger.info("Seeded diffs iteration 1", {
-        extra: {
-            replayPlanIds: replayPlanIds.length,
-            newTestPlanIds: pendingGenPlanIds.length,
-            planIds: planIds.length,
-        },
+    logger.info("Seeded iteration 1", {
+        extra: { triggeredBy, planIds: pendingGenPlanIds.length },
     });
-    return { planIds, runFirstIterationPipeline };
-}
-
-/** The plans the affected-test replays ran against (deduped). */
-async function diffsReplayPlanIds(tx: Prisma.TransactionClient, snapshotId: string): Promise<string[]> {
-    const affected = await tx.affectedTest.findMany({
-        where: { snapshotId, runId: { not: null } },
-        select: { run: { select: { planId: true } } },
-    });
-
-    return [...new Set(affected.map((a) => a.run?.planId).filter((id): id is string => id != null))];
+    return { planIds: pendingGenPlanIds, runFirstIterationPipeline };
 }
 
 /** The snapshot's pending generations, one plan id per generation (deduped + invariant-checked). */

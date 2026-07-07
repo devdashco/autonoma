@@ -6,7 +6,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./env": "./src/env.ts",
-        "./prepare-runs": "./src/callbacks/trigger-tests.ts"
+        "./prepare-affected-tests": "./src/callbacks/trigger-tests.ts"
     },
     "scripts": {
         "test": "vitest",

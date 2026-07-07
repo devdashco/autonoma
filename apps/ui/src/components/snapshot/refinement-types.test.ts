@@ -12,7 +12,6 @@ function iteration(input: Partial<RefinementIteration>): RefinementIteration {
         outcomes: {
             validated: [],
             failedAtGeneration: [],
-            failedAtReplay: [],
             awaiting: [],
         },
         actions: [],

@@ -17,7 +17,6 @@ import type { RefinementLoop } from "./refinement-types";
 import { StageAnalysis } from "./stage-analysis";
 import { StageFinalization } from "./stage-finalization";
 import { StageGeneration } from "./stage-generation";
-import { StageReplay } from "./stage-replay";
 
 interface PipelineStripProps {
   diffsJob: DiffsJob;
@@ -29,7 +28,6 @@ interface PipelineStripProps {
 
 const STAGES: Array<{ key: StageKey; title: string }> = [
   { key: "analysis", title: "Analysis" },
-  { key: "replay", title: "Replay" },
   { key: "generation", title: "Generation" },
   { key: "finalization", title: "Finalization" },
 ];
@@ -196,8 +194,6 @@ function StageDetail({
   switch (stageKey) {
     case "analysis":
       return <StageAnalysis job={diffsJob} createdTests={createdTests} />;
-    case "replay":
-      return <StageReplay job={diffsJob} />;
     case "generation":
       return <StageGeneration job={diffsJob} refinementLoop={refinementLoop} snapshotId={snapshotId} />;
     case "finalization":

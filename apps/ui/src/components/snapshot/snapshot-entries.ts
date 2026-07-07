@@ -97,7 +97,7 @@ export function buildSections({
     }
 
     // Tests flagged as potentially affected by the diff but never edited (no "updated"
-    // change was emitted for them). They were replayed to confirm the change did not
+    // change was emitted for them). They were regenerated to confirm the change did not
     // break them, so they are "checked", not "modified".
     for (const affected of affectedTests) {
         if (surfaced.has(affected.testCase.id)) continue;
@@ -118,7 +118,7 @@ export function buildSections({
         { title: "Modified", entries: modified },
         {
             title: "Checked",
-            hint: "Replayed because the change might affect them; their definitions were not modified.",
+            hint: "Regenerated because the change might affect them; their definitions were not modified.",
             entries: checked,
         },
         { title: "Removed", entries: removed },

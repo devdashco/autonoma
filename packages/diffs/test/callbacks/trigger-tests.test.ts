@@ -1,7 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import { expect, vi } from "vitest";
-import type { AffectedTestSpec, PrepareRunsParams } from "../../src/callbacks/trigger-tests";
-import { prepareRuns } from "../../src/callbacks/trigger-tests";
+import type { AffectedTestSpec, PrepareAffectedTestsParams } from "../../src/callbacks/trigger-tests";
+import { prepareAffectedTestGenerations } from "../../src/callbacks/trigger-tests";
 import type { DiffsCallbackHarness } from "./harness";
 import { diffsCallbackSuite } from "./harness";
 
@@ -17,7 +17,7 @@ function createMockBillingService(overrides?: Partial<BillingService>): BillingS
         getBillingStatus: vi.fn(),
         updateAutoTopUp: vi.fn(),
         checkCreditsGate: vi.fn(),
-        deductCreditsForGeneration: vi.fn(),
+        deductCreditsForGeneration: vi.fn().mockResolvedValue(true),
         deductCreditsForRun: vi.fn().mockResolvedValue(true),
         refundCreditsForGeneration: vi.fn(),
         redeemPromoCode: vi.fn(),
@@ -31,8 +31,8 @@ function buildParams(
     organizationId: string,
     applicationId: string,
     snapshotId: string,
-    overrides?: Partial<PrepareRunsParams>,
-): PrepareRunsParams {
+    overrides?: Partial<PrepareAffectedTestsParams>,
+): PrepareAffectedTestsParams {
     return {
         db: harness.db,
         snapshotId,
@@ -44,7 +44,7 @@ function buildParams(
 }
 
 diffsCallbackSuite({
-    name: "prepareRuns",
+    name: "prepareAffectedTestGenerations",
     cases: (test) => {
         test("returns empty array for unknown slug", async ({
             harness,
@@ -57,27 +57,8 @@ diffsCallbackSuite({
                 "Placeholder",
             );
 
-            const results = await prepareRuns(
+            const results = await prepareAffectedTestGenerations(
                 specs("nonexistent-slug"),
-                buildParams(harness, organizationId, applicationId, snapshotId),
-            );
-
-            expect(results).toHaveLength(0);
-        });
-
-        test("returns empty array when test has no runnable assignment", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const { snapshotId } = await harness.setupBranchWithTest(
-                organizationId,
-                applicationId,
-                "no-steps-test",
-                "No Steps Test",
-            );
-
-            const results = await prepareRuns(
-                specs("no-steps-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
@@ -88,14 +69,14 @@ diffsCallbackSuite({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            const { snapshotId } = await harness.setupRunnableTest(
+            const { snapshotId } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
                 "billing-test",
                 "Billing Test",
             );
 
-            const results = await prepareRuns(
+            const results = await prepareAffectedTestGenerations(
                 specs("billing-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId, {
                     billingService: createMockBillingService({
@@ -107,61 +88,70 @@ diffsCallbackSuite({
             expect(results).toHaveLength(0);
         });
 
-        test("creates run records and returns prepared results", async ({
+        test("creates pending generation records and returns prepared results", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            const { snapshotId } = await harness.setupRunnableTest(
+            const { snapshotId, testCaseId } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
                 "success-test",
                 "Success Test",
             );
 
-            const results = await prepareRuns(
+            const results = await prepareAffectedTestGenerations(
                 specs("success-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
             expect(results).toHaveLength(1);
             expect(results[0]!.slug).toBe("success-test");
-            expect(results[0]!.runId).toBeDefined();
+            expect(results[0]!.generationId).toBeDefined();
             expect(results[0]!.architecture).toBe("WEB");
 
-            // Verify run record exists in DB with pending status
-            const run = await harness.db.run.findUniqueOrThrow({
-                where: { id: results[0]!.runId },
-                select: { status: true },
+            // The generation exists in DB, pending, on the target snapshot.
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: results[0]!.generationId },
+                select: { status: true, snapshotId: true },
             });
-            expect(run.status).toBe("pending");
+            expect(generation.status).toBe("pending");
+            expect(generation.snapshotId).toBe(snapshotId);
+
+            // The AffectedTest row links the generation (not a run).
+            const affected = await harness.db.affectedTest.findUniqueOrThrow({
+                where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
+                select: { generationId: true, runId: true },
+            });
+            expect(affected.generationId).toBe(results[0]!.generationId);
+            expect(affected.runId).toBeNull();
         });
 
         test("handles mixed batch with known and unknown slugs", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            const { snapshotId } = await harness.setupRunnableTest(
+            const { snapshotId } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
                 "exists-test",
                 "Exists Test",
             );
 
-            const results = await prepareRuns(
+            const results = await prepareAffectedTestGenerations(
                 specs("nonexistent-slug", "exists-test"),
                 buildParams(harness, organizationId, applicationId, snapshotId),
             );
 
-            // Only the known slug with a runnable assignment gets a run
+            // Only the known slug with a plan-linked assignment gets a generation.
             expect(results).toHaveLength(1);
             expect(results[0]!.slug).toBe("exists-test");
         });
 
-        test("marks run as failed when deductCreditsForRun throws", async ({
+        test("marks generation as failed when deductCreditsForGeneration throws", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            const { snapshotId } = await harness.setupRunnableTest(
+            const { snapshotId } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
                 "deduct-fail",
@@ -169,40 +159,38 @@ diffsCallbackSuite({
             );
 
             const billingService = createMockBillingService({
-                deductCreditsForRun: vi.fn().mockRejectedValue(new Error("Payment failed")),
+                deductCreditsForGeneration: vi.fn().mockRejectedValue(new Error("Payment failed")),
             });
 
-            const results = await prepareRuns(
+            const results = await prepareAffectedTestGenerations(
                 specs("deduct-fail"),
                 buildParams(harness, organizationId, applicationId, snapshotId, { billingService }),
             );
 
-            // Run was created but deduction failed, so it's not in results
+            // Generation was created but deduction failed, so it's not in results.
             expect(results).toHaveLength(0);
 
-            // Verify run was marked as failed in DB
-            const run = await harness.db.run.findFirstOrThrow({
-                where: {
-                    assignment: { testCase: { slug: "deduct-fail" } },
-                },
+            // Verify a generation was marked as failed in DB.
+            const generation = await harness.db.testGeneration.findFirstOrThrow({
+                where: { testPlan: { testCase: { slug: "deduct-fail" } }, status: "failed" },
                 select: { status: true },
             });
-            expect(run.status).toBe("failed");
+            expect(generation.status).toBe("failed");
         });
 
         test("skips test case with assignment from a different snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            // Set up a runnable test in snapshot A
-            const { snapshotId: snapshotA } = await harness.setupRunnableTest(
+            // Set up a test in snapshot A.
+            const { snapshotId: snapshotA } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
                 "cross-snapshot-test",
                 "Cross Snapshot Test",
             );
 
-            // Create a fresh branch with a different snapshot (no assignment for cross-snapshot-test)
+            // Create a fresh branch with a different snapshot (no assignment for cross-snapshot-test).
             const { snapshotId: snapshotB } = await harness.setupBranchWithTest(
                 organizationId,
                 applicationId,
@@ -210,16 +198,16 @@ diffsCallbackSuite({
                 "Other Placeholder",
             );
 
-            // Request the test from snapshot A against snapshot B: no assignment exists in B
-            const results = await prepareRuns(
+            // Request the test from snapshot A against snapshot B: no assignment exists in B.
+            const results = await prepareAffectedTestGenerations(
                 specs("cross-snapshot-test"),
                 buildParams(harness, organizationId, applicationId, snapshotB),
             );
 
             expect(results).toHaveLength(0);
 
-            // Sanity check: using snapshot A, the test is runnable
-            const resultsA = await prepareRuns(
+            // Sanity check: using snapshot A, the test is regenerable.
+            const resultsA = await prepareAffectedTestGenerations(
                 specs("cross-snapshot-test"),
                 buildParams(harness, organizationId, applicationId, snapshotA),
             );

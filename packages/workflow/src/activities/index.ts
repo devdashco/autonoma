@@ -32,12 +32,6 @@ export type {
     PrepareGenerationQueueOutput,
     GenerationOutcomeFailure,
     GenerationOutcomeSuccess,
-    CreatedRun,
-    PrepareRunsForGenerationsInput,
-    PrepareRunsForGenerationsOutput,
-    RunOutcomeFailure,
-    RunOutcomeSuccess,
-    RunOutcome,
     SystemBlockedOutcome,
     PersistedHealingAction,
     RunHealingAgentForRefinementInput,
@@ -48,8 +42,6 @@ export type {
 export type {
     DiffsActivities,
     AnalyzeDiffsInput,
-    AnalyzeDiffsOutput,
-    PreparedRunInfo,
     MarkDiffsGeneratingInput,
     FinalizeDiffsInput,
 } from "./diffs-activities";

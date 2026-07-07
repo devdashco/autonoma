@@ -4,10 +4,10 @@ import type { MarkDiffsGeneratingInput } from "@autonoma/workflow/activities";
 
 /**
  * Transitions the DiffsJob into its `generating` stage just before the diffs
- * workflow starts the refinement loop. The loop now subsumes what the
- * standalone resolution step used to do (its first turn) plus the regeneration
- * turns, so `generating` is the single status that covers the loop's run - it
- * keeps the snapshot timeline advancing past `replaying` while the loop works.
+ * workflow starts the refinement loop. The loop generates + heals both the
+ * affected tests and the tests the diffs agent authored, so `generating` is the
+ * single status that covers the loop's run and keeps the snapshot timeline
+ * advancing while the loop works.
  */
 export async function markDiffsGenerating({ snapshotId }: MarkDiffsGeneratingInput): Promise<void> {
     const logger = rootLogger.child({ name: "markDiffsGenerating" });

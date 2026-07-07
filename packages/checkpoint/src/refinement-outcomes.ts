@@ -1,4 +1,4 @@
-import type { GenerationReviewVerdict, GenerationStatus, RunReviewVerdict, RunStatus } from "@autonoma/db";
+import type { GenerationReviewVerdict, GenerationStatus } from "@autonoma/db";
 
 export interface TestCaseLite {
     id: string;
@@ -10,7 +10,6 @@ export interface OutcomeValidated {
     planId: string;
     testCase: TestCaseLite;
     generationId: string;
-    runId: string;
 }
 
 export interface OutcomeFailedAtGeneration {
@@ -22,15 +21,6 @@ export interface OutcomeFailedAtGeneration {
     reviewReasoning?: string;
 }
 
-export interface OutcomeFailedAtReplay {
-    planId: string;
-    testCase: TestCaseLite;
-    runId: string;
-    runStatus: RunStatus;
-    verdictKind?: RunReviewVerdict;
-    reviewReasoning?: string;
-}
-
 export interface OutcomeAwaiting {
     planId: string;
     testCase: TestCaseLite;
@@ -39,7 +29,6 @@ export interface OutcomeAwaiting {
 export interface RefinementIterationOutcomes {
     validated: OutcomeValidated[];
     failedAtGeneration: OutcomeFailedAtGeneration[];
-    failedAtReplay: OutcomeFailedAtReplay[];
     awaiting: OutcomeAwaiting[];
 }
 
@@ -51,29 +40,23 @@ export interface RefinementGenerationRow {
     generationReview: { verdict: GenerationReviewVerdict | null; reasoning: string | null; status: string } | null;
 }
 
-export interface RefinementRunRow {
-    id: string;
-    planId: string | null;
-    status: RunStatus;
-    createdAt: Date;
-    runReview: { verdict: RunReviewVerdict | null; reasoning: string | null; status: string } | null;
-}
-
+/**
+ * Buckets each input plan's outcome as of a cutoff, from the plan's latest
+ * generation. A generation passing its review is the definition of "validated" -
+ * there is no replay step.
+ */
 export function computeIterationOutcomes({
     inputs,
     cutoff,
     generations,
-    runs,
 }: {
     inputs: Array<{ planId: string; testCase: TestCaseLite }>;
     cutoff: Date;
     generations: RefinementGenerationRow[];
-    runs: RefinementRunRow[];
 }): RefinementIterationOutcomes {
     const outcomes: RefinementIterationOutcomes = {
         validated: [],
         failedAtGeneration: [],
-        failedAtReplay: [],
         awaiting: [],
     };
 
@@ -91,45 +74,22 @@ export function computeIterationOutcomes({
         const genSuccess =
             gen.status === "success" && review != null && review.status === "completed" && review.verdict === "success";
 
-        if (!genSuccess) {
-            outcomes.failedAtGeneration.push({
-                planId: input.planId,
-                testCase: input.testCase,
-                generationId: gen.id,
-                generationStatus: gen.status,
-                verdictKind: review?.verdict ?? undefined,
-                reviewReasoning: review?.reasoning ?? undefined,
-            });
-            continue;
-        }
-
-        const run = latestBeforeCutoff(
-            runs.filter((r) => r.planId === input.planId),
-            cutoff,
-        );
-        if (run == null) {
-            outcomes.awaiting.push({ planId: input.planId, testCase: input.testCase });
-            continue;
-        }
-
-        if (run.status === "success") {
+        if (genSuccess) {
             outcomes.validated.push({
                 planId: input.planId,
                 testCase: input.testCase,
                 generationId: gen.id,
-                runId: run.id,
             });
             continue;
         }
 
-        const runReview = run.runReview;
-        outcomes.failedAtReplay.push({
+        outcomes.failedAtGeneration.push({
             planId: input.planId,
             testCase: input.testCase,
-            runId: run.id,
-            runStatus: run.status,
-            verdictKind: runReview?.verdict ?? undefined,
-            reviewReasoning: runReview?.reasoning ?? undefined,
+            generationId: gen.id,
+            generationStatus: gen.status,
+            verdictKind: review?.verdict ?? undefined,
+            reviewReasoning: review?.reasoning ?? undefined,
         });
     }
 

@@ -8,14 +8,16 @@ export type CreatedTest = SnapshotDetail["createdTests"][number];
 export type SnapshotChange = SnapshotDetail["changes"][number];
 export type ExecutedTest = SnapshotDetail["executedTests"][number];
 
-export const STAGE_KEYS = ["analysis", "replay", "generation", "finalization"] as const;
+export const STAGE_KEYS = ["analysis", "generation", "finalization"] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
 
 export type StageStatus = "upcoming" | "current" | "done" | "failed";
 
 const ACTIVE_STAGE_OF_STATUS: Partial<Record<DiffsJobStatus, StageKey>> = {
     analyzing: "analysis",
-    replaying: "replay",
+    // `replaying` is a legacy status: the pipeline no longer replays, but historical
+    // jobs may still carry it - surface them at the generation stage.
+    replaying: "generation",
     generating: "generation",
     finalizing: "finalization",
 };
@@ -24,8 +26,6 @@ function stageEvidence(stage: StageKey, job: DiffsJob): boolean {
     switch (stage) {
         case "analysis":
             return job.analysisReasoning != null || job.affectedTests.length > 0;
-        case "replay":
-            return job.affectedTests.some((t) => t.run != null);
         case "generation":
             return job.affectedTests.some((t) => t.generation != null);
         case "finalization":
@@ -37,7 +37,6 @@ export function computeStageStatuses(job: DiffsJob): Record<StageKey, StageStatu
     if (job.status === "completed") {
         return {
             analysis: "done",
-            replay: "done",
             generation: "done",
             finalization: "done",
         };
@@ -46,7 +45,6 @@ export function computeStageStatuses(job: DiffsJob): Record<StageKey, StageStatu
     if (job.status === "pending") {
         return {
             analysis: "upcoming",
-            replay: "upcoming",
             generation: "upcoming",
             finalization: "upcoming",
         };

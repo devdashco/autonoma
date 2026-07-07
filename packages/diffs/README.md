@@ -108,5 +108,5 @@ Tools classify their failures explicitly:
 | Path | Purpose |
 |---|---|
 | `./` | Public surface listed above |
-| `./prepare-runs` | `prepareRuns` callback that fires replays once the agent has marked tests affected |
+| `./prepare-affected-tests` | `prepareAffectedTestGenerations` callback that queues a generation for each test the agent marked affected |
 | `./env` | `@t3-oss/env-core` schema for required env vars |

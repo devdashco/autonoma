@@ -1,4 +1,4 @@
-import { executeChild, log, ParentClosePolicy, proxyActivities } from "@temporalio/workflow";
+import { executeChild, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, RunGenerationPipelineInput } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "./workflow-types";
@@ -11,21 +11,17 @@ const general = proxyActivities<GeneralActivities>({
 });
 
 /**
- * Runs the gen-then-replay pipeline for everything currently pending in the
- * snapshot:
+ * Runs the generation pipeline for everything currently pending in the snapshot:
  *
  *   1. Queue every pending gen (`prepareGenerationQueue`).
  *   2. Fire `batchGenerationWorkflow` and wait. After the batch returns, every
  *      generation row is in a terminal status and its review activity has run
  *      (single-generation's finally block awaits the review).
- *   3. Create Run records for the gens that passed gen-review
- *      (`prepareRunsForGenerations`).
- *   4. Fire `runReplayWorkflow` per Run in parallel and wait. After each
- *      replay returns, its review activity has run too.
  *
- * Reviews are awaited inside the gen/replay finally blocks, so by the time
- * this workflow returns every gen/run row's review row has a terminal status.
- * The next iteration's analyzeResults can safely read them.
+ * A generation passing its review is the definition of "validated" - there is
+ * no replay step. Reviews are awaited inside the gen finally block, so by the
+ * time this workflow returns every generation row's review has a terminal
+ * status and the next iteration's analyzeResults can safely read them.
  *
  * Pre: the set of pending gens in the snapshot at call time equals the scope
  * the current iteration owns. The refinement loop maintains this invariant.
@@ -58,30 +54,4 @@ export async function runGenerationPipelineWorkflow(input: RunGenerationPipeline
             },
         ],
     });
-
-    const { runs } = await general.prepareRunsForGenerations({
-        generationIds: generations.map((g) => g.testGenerationId),
-    });
-
-    if (runs.length === 0) return;
-
-    const results = await Promise.allSettled(
-        runs.map((run) =>
-            executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
-                workflowId: `run-replay-${run.runId}`,
-                taskQueue: TaskQueue.GENERAL,
-                parentClosePolicy: ParentClosePolicy.REQUEST_CANCEL,
-                args: [{ runId: run.runId, architecture: run.architecture, scenarioId: run.scenarioId }],
-            }),
-        ),
-    );
-
-    for (const [index, result] of results.entries()) {
-        if (result.status === "rejected") {
-            log.warn("Child run-replay workflow failed", {
-                runId: runs[index]!.runId,
-                reason: String(result.reason),
-            });
-        }
-    }
 }

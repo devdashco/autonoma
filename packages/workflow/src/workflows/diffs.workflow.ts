@@ -2,7 +2,6 @@ import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
-import type { WorkflowArchitecture } from "../types";
 import { WORKFLOW_TYPE } from "./workflow-types";
 
 const longRunning = proxyActivities<DiffsActivities>({
@@ -23,39 +22,21 @@ export interface DiffsAnalysisInput {
     snapshotId: string;
 }
 
-interface RunReplayArgs {
-    runId: string;
-    architecture: WorkflowArchitecture;
-    scenarioId?: string;
-}
-
-function dispatchReplay({ runId, architecture, scenarioId }: RunReplayArgs): Promise<void> {
-    return executeChild(WORKFLOW_TYPE.RUN_REPLAY, {
-        workflowId: `run-replay-${runId}`,
-        taskQueue: TaskQueue.GENERAL,
-        args: [{ runId, architecture, scenarioId }],
-    });
-}
-
 export async function diffsAnalysisWorkflow(input: DiffsAnalysisInput): Promise<void> {
     const { snapshotId } = input;
     const ids = { snapshot: { snapshotId } };
 
     log.info("Diffs analysis workflow started", ids);
 
-    const step1 = await longRunning.analyzeDiffs({ snapshotId });
-    log.info("Diffs analysis step finished", { ...ids, extra: { replayCount: step1.replays.length } });
+    await longRunning.analyzeDiffs({ snapshotId });
+    log.info("Diffs analysis step finished", ids);
 
-    if (step1.replays.length > 0) {
-        log.info("Dispatching affected-test replays", { ...ids, extra: { replayCount: step1.replays.length } });
-        await Promise.allSettled(step1.replays.map((run) => dispatchReplay(run)));
-    }
-
-    // The refinement loop validates the suite: iteration 1 heals the affected-test
-    // replay failures and generates+runs+heals the new tests the diffs agent
-    // authored during analysis; later iterations heal whatever still fails. Both
-    // flows use the default 3-iteration budget. Marking + the loop share the catch
-    // so any failure finalizes the job rather than leaving it stuck.
+    // The refinement loop validates the suite: analysis seeds a pending generation
+    // for every affected test (plus any new tests the diffs agent authored), and
+    // iteration 1 generates+heals them; later iterations heal whatever still fails.
+    // A generation passing its review is the definition of "validated" - there is
+    // no replay step. Marking + the loop share the catch so any failure finalizes
+    // the job rather than leaving it stuck.
     try {
         await shortLived.markDiffsGenerating({ snapshotId });
         log.info("Diffs job marked generating; starting refinement loop child workflow", ids);

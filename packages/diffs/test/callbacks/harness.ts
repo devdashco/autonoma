@@ -71,8 +71,12 @@ export class DiffsCallbackHarness implements IntegrationHarness {
     }
 
     /**
-     * Creates a branch with an active snapshot that has a test case assigned.
-     * Returns the branchId and testCaseId for use in tests.
+     * Creates a branch with a `processing` snapshot that has a test case assigned
+     * (test case + plan + assignment). The snapshot is deliberately left open, not
+     * finalized: this mirrors what the diffs analysis flow sees, since
+     * `prepareAffectedTestGenerations` regenerates affected tests on the still-open
+     * snapshot (via `continueUpdateBySnapshot`), which requires it to be pending.
+     * Returns the branchId, snapshotId, and testCaseId for use in tests.
      */
     async setupBranchWithTest(
         organizationId: string,
@@ -91,59 +95,8 @@ export class DiffsCallbackHarness implements IntegrationHarness {
         const snapshotId = updater.snapshotId;
         await this.db.diffsJob.create({ data: { snapshotId, organizationId, status: "pending" } });
 
-        // Mark all pending generations as complete so we can finalize
-        await this.db.testGeneration.updateMany({ where: { status: "pending" }, data: { status: "success" } });
-        await updater.finalize();
-
         const testCase = await this.db.testCase.findFirstOrThrow({ where: { slug: testSlug, applicationId } });
         return { branchId, snapshotId, testCaseId: testCase.id };
-    }
-
-    /**
-     * Creates a runnable test case with an assignment that has stepsId set.
-     * This is required for prepareRuns to find a runnable assignment.
-     */
-    async setupRunnableTest(
-        organizationId: string,
-        applicationId: string,
-        testSlug: string,
-        testName: string,
-    ): Promise<{ branchId: string; snapshotId: string; testCaseId: string; assignmentId: string }> {
-        const { branchId, snapshotId, testCaseId } = await this.setupBranchWithTest(
-            organizationId,
-            applicationId,
-            testSlug,
-            testName,
-        );
-
-        // Create a StepInputList and link it to the assignment so findAssignmentWithSteps finds it
-        const plan = await this.db.testPlan.findFirstOrThrow({ where: { testCaseId } });
-        const stepInputList = await this.db.stepInputList.create({
-            data: {
-                planId: plan.id,
-                organizationId,
-                list: {
-                    create: {
-                        order: 0,
-                        interaction: "click",
-                        params: { target: "button" },
-                        organizationId,
-                    },
-                },
-            },
-        });
-
-        const assignment = await this.db.testCaseAssignment.findFirstOrThrow({
-            where: { testCaseId },
-            orderBy: { createdAt: "desc" },
-        });
-
-        await this.db.testCaseAssignment.update({
-            where: { id: assignment.id },
-            data: { stepsId: stepInputList.id },
-        });
-
-        return { branchId, snapshotId, testCaseId, assignmentId: assignment.id };
     }
 }
 

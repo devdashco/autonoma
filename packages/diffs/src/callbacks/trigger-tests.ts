@@ -1,10 +1,10 @@
 import type { BillingService } from "@autonoma/billing";
 import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
-import type { Logger } from "@autonoma/logger";
 import { logger as rootLogger } from "@autonoma/logger";
+import { RegenerateSteps, TestSuiteUpdater } from "@autonoma/test-updates";
 import type { AffectedReason } from "../agents/diffs/affected-test";
 
-export interface PrepareRunsParams {
+export interface PrepareAffectedTestsParams {
     db: PrismaClient;
     snapshotId: string;
     applicationId: string;
@@ -18,25 +18,32 @@ export interface AffectedTestSpec {
     reasoning: string;
 }
 
-export interface PreparedRunResult {
-    runId: string;
+export interface PreparedGenerationResult {
+    generationId: string;
     slug: string;
     architecture: ApplicationArchitecture;
-    scenarioId?: string;
 }
 
 /**
- * Creates a Run record (and matching AffectedTest row) for each affected test
- * whose slug resolves to a runnable assignment in the snapshot. Slugs without
- * a corresponding test case, without a runnable assignment, or whose billing
- * check fails are skipped silently.
+ * Regenerates each affected test whose slug resolves to a plan-linked assignment
+ * in the snapshot, and links a matching AffectedTest row. Regeneration goes
+ * through the canonical path: applying a `RegenerateSteps` change queues a
+ * pending generation from the test's committed plan (via the generation manager,
+ * which dedupes any existing pending generation for the test case) - there is no
+ * replay, and a generation passing its review is the definition of "validated".
+ * Slugs without a corresponding test case, without a plan-linked assignment, or
+ * whose billing check fails are skipped silently.
+ *
+ * The generations are created `pending` and non-shadow, so the refinement loop's
+ * iteration 1 seeds itself from the snapshot's pending generations and generates
+ * them alongside the tests the diffs agent authored.
  */
-export async function prepareRuns(
+export async function prepareAffectedTestGenerations(
     affectedTests: AffectedTestSpec[],
-    params: PrepareRunsParams,
-): Promise<PreparedRunResult[]> {
-    const logger = rootLogger.child({ name: "prepareRuns", snapshotId: params.snapshotId });
-    logger.info("Preparing runs for affected tests", { count: affectedTests.length });
+    params: PrepareAffectedTestsParams,
+): Promise<PreparedGenerationResult[]> {
+    const logger = rootLogger.child({ name: "prepareAffectedTestGenerations", snapshotId: params.snapshotId });
+    logger.info("Preparing generations for affected tests", { count: affectedTests.length });
 
     const { db, snapshotId, applicationId, organizationId, billingService } = params;
     const slugs = affectedTests.map((t) => t.slug);
@@ -50,150 +57,115 @@ export async function prepareRuns(
             application: { select: { architecture: true } },
         },
     });
-
     const testCaseBySlug = new Map(testCases.map((tc) => [tc.slug, tc]));
 
-    interface InternalPreparedRun {
+    // Only affected tests with a plan-linked assignment can be regenerated:
+    // `RegenerateSteps` resolves the committed plan from the assignment, so one
+    // without a plan would throw. Resolve them in a single batched lookup.
+    const assignments = await db.testCaseAssignment.findMany({
+        where: { snapshotId, testCaseId: { in: testCases.map((tc) => tc.id) }, planId: { not: null } },
+        select: { testCaseId: true },
+    });
+    const planLinkedTestCaseIds = new Set(assignments.map((a) => a.testCaseId));
+
+    interface RegenerableTest {
         slug: string;
         testCaseId: string;
-        testCaseName: string;
-        assignmentId: string;
-        planId?: string;
         architecture: ApplicationArchitecture;
-        scenarioId?: string;
         affectedReason: AffectedReason;
         reasoning: string;
     }
 
-    const preparedRuns: InternalPreparedRun[] = [];
-
+    const regenerable: RegenerableTest[] = [];
     for (const affected of affectedTests) {
         const testCase = testCaseBySlug.get(affected.slug);
         if (testCase == null) {
             logger.warn("Test case not found for slug", { slug: affected.slug, applicationId });
             continue;
         }
-
-        const assignment = await findAssignmentWithSteps(db, snapshotId, testCase.id, affected.slug, logger);
-        if (assignment == null) continue;
-
-        preparedRuns.push({
+        if (!planLinkedTestCaseIds.has(testCase.id)) {
+            logger.warn("Test case has no plan-linked assignment in this snapshot; skipping", {
+                slug: affected.slug,
+                testCaseId: testCase.id,
+                snapshotId,
+            });
+            continue;
+        }
+        regenerable.push({
             slug: affected.slug,
             testCaseId: testCase.id,
-            testCaseName: testCase.name,
-            assignmentId: assignment.id,
-            planId: assignment.planId,
             architecture: testCase.application.architecture,
-            scenarioId: assignment.scenarioId,
             affectedReason: affected.affectedReason,
             reasoning: affected.reasoning,
         });
     }
 
-    if (preparedRuns.length === 0) {
-        logger.info("No runnable tests found");
+    if (regenerable.length === 0) {
+        logger.info("No regenerable tests found");
         return [];
     }
 
-    // Check billing for all runs at once
-    const sampleArchitecture = preparedRuns[0]!.architecture;
+    // Check billing for all generations at once.
+    const sampleArchitecture = regenerable[0]!.architecture;
     try {
-        await billingService.checkCreditsGate(organizationId, preparedRuns.length, sampleArchitecture, "run");
+        await billingService.checkCreditsGate(organizationId, regenerable.length, sampleArchitecture);
     } catch (error) {
         logger.error("Billing credits check failed for batch", error, {
             organizationId,
-            runCount: preparedRuns.length,
+            generationCount: regenerable.length,
         });
         return [];
     }
 
-    // Create Run records, deduct credits, and persist AffectedTest rows
-    const results: PreparedRunResult[] = [];
+    // Queue a pending generation per affected test, deduct credits, and link the
+    // AffectedTest row.
+    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId, organizationId });
+    const results: PreparedGenerationResult[] = [];
 
-    for (const prepared of preparedRuns) {
-        const run = await db.run.create({
-            data: {
-                assignmentId: prepared.assignmentId,
-                organizationId,
-                status: "pending",
-                planId: prepared.planId,
-            },
-            select: { id: true },
+    for (const test of regenerable) {
+        const generationId = await updater.apply(new RegenerateSteps({ testCaseId: test.testCaseId }));
+
+        logger.info("Generation record created", {
+            generationId,
+            slug: test.slug,
+            testCaseId: test.testCaseId,
         });
 
-        logger.info("Run record created", { runId: run.id, slug: prepared.slug, assignmentId: prepared.assignmentId });
-
         try {
-            await billingService.deductCreditsForRun(run.id);
+            await billingService.deductCreditsForGeneration(generationId, {
+                organizationId,
+                architecture: test.architecture,
+            });
         } catch (error) {
-            logger.error("Failed to deduct credits for run", error, { runId: run.id, slug: prepared.slug });
-            await db.run.update({ where: { id: run.id }, data: { status: "failed" } });
+            logger.error("Failed to deduct credits for generation", error, { generationId, slug: test.slug });
+            await db.testGeneration.update({ where: { id: generationId }, data: { status: "failed" } });
             continue;
         }
 
         await db.affectedTest.upsert({
-            where: { snapshotId_testCaseId: { snapshotId, testCaseId: prepared.testCaseId } },
+            where: { snapshotId_testCaseId: { snapshotId, testCaseId: test.testCaseId } },
             create: {
                 snapshotId,
-                testCaseId: prepared.testCaseId,
+                testCaseId: test.testCaseId,
                 organizationId,
-                affectedReason: prepared.affectedReason,
-                reasoning: prepared.reasoning,
-                runId: run.id,
+                affectedReason: test.affectedReason,
+                reasoning: test.reasoning,
+                generationId,
             },
             update: {
-                affectedReason: prepared.affectedReason,
-                reasoning: prepared.reasoning,
-                runId: run.id,
+                affectedReason: test.affectedReason,
+                reasoning: test.reasoning,
+                generationId,
             },
         });
 
         results.push({
-            runId: run.id,
-            slug: prepared.slug,
-            architecture: prepared.architecture,
-            scenarioId: prepared.scenarioId,
+            generationId,
+            slug: test.slug,
+            architecture: test.architecture,
         });
     }
 
-    logger.info("Runs prepared", { total: affectedTests.length, prepared: results.length });
+    logger.info("Generations prepared", { total: affectedTests.length, prepared: results.length });
     return results;
-}
-
-async function findAssignmentWithSteps(
-    db: PrismaClient,
-    snapshotId: string,
-    testCaseId: string,
-    slug: string,
-    logger: Logger,
-): Promise<{ id: string; planId?: string; scenarioId?: string } | undefined> {
-    const assignment = await db.testCaseAssignment.findUnique({
-        where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
-        select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
-    });
-
-    if (assignment == null) {
-        logger.warn("Test case has no assignment in this snapshot; skipping run", {
-            snapshotId,
-            testCaseId,
-            slug,
-        });
-        return;
-    }
-
-    if (assignment.stepsId == null) {
-        logger.warn("Test case assignment has no steps; skipping run", {
-            snapshotId,
-            testCaseId,
-            slug,
-            assignmentId: assignment.id,
-        });
-        return;
-    }
-
-    return {
-        id: assignment.id,
-        planId: assignment.planId ?? undefined,
-        scenarioId: assignment.plan?.scenarioId ?? undefined,
-    };
 }

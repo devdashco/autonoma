@@ -72,7 +72,6 @@ export async function captureHealing(params: CaptureHealingParams): Promise<stri
         maxIterations,
         snapshotId: outcomes.snapshotId,
         failuresAtGeneration: outcomes.failuresAtGeneration,
-        failuresAtReplay: outcomes.failuresAtReplay,
     });
 
     const frozenInput = serializeHealingInput(coords, agentInput, agentInput.planAuthoring.scenarios.toArray());

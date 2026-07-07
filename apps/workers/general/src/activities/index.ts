@@ -14,7 +14,6 @@ export {
     initRefinementLoop,
     markRefinementIterationRunning,
     prepareGenerationQueue,
-    prepareRunsForGenerations,
     finalizePendingSnapshot,
 } from "./refinement";
 
@@ -32,7 +31,6 @@ import {
     initRefinementLoop,
     markRefinementIterationRunning,
     prepareGenerationQueue,
-    prepareRunsForGenerations,
 } from "./refinement";
 import { scenarioDown, scenarioUp } from "./scenario";
 
@@ -52,6 +50,5 @@ import { scenarioDown, scenarioUp } from "./scenario";
     finishErroredRefinementIterations,
     finishRefinementLoop,
     prepareGenerationQueue,
-    prepareRunsForGenerations,
     finalizePendingSnapshot,
 }) satisfies GeneralActivities;

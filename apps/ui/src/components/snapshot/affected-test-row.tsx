@@ -63,9 +63,8 @@ export function AffectedTestRow({
     );
 
   const whyAffected = showReasoning ? test.reasoning.trim() : "";
-  const replayReview = test.run?.runReview?.reasoning?.trim() ?? "";
   const generationReview = test.generation?.generationReview?.reasoning?.trim() ?? "";
-  const hasDetails = whyAffected.length > 0 || replayReview.length > 0 || generationReview.length > 0;
+  const hasDetails = whyAffected.length > 0 || generationReview.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-raised">
@@ -87,7 +86,6 @@ export function AffectedTestRow({
       {hasDetails && (
         <div className="flex flex-col gap-3 border-t border-border-dim bg-surface-base px-4 py-3">
           {whyAffected.length > 0 && <ReasoningSection label="Why this test is affected" content={whyAffected} />}
-          {replayReview.length > 0 && <ReasoningSection label="Replay review" content={replayReview} />}
           {generationReview.length > 0 && <ReasoningSection label="Generation review" content={generationReview} />}
         </div>
       )}

@@ -9,7 +9,6 @@ import type {
     HealingReviewLink,
     IssueReport,
     ReplayVerdict,
-    ReplayVerdictKind,
     SuspectedCause,
 } from "@autonoma/types";
 
@@ -178,58 +177,13 @@ export interface GenerationOutcomeSuccess {
 }
 export type GenerationOutcome = GenerationOutcomeFailure | GenerationOutcomeSuccess;
 
-export interface CreatedRun {
-    runId: string;
-    architecture: WorkflowArchitecture;
-    scenarioId?: string;
-}
-
-/**
- * Given a set of completed generations, the activity reads each gen's status
- * and review verdict, and creates a Run for each that passed. Failures are
- * dropped on the floor - the next iteration's `analyzeResults` reads them
- * from DB via the iteration's RefinementIterationInput rows.
- */
-export interface PrepareRunsForGenerationsInput {
-    generationIds: string[];
-}
-export interface PrepareRunsForGenerationsOutput {
-    /** Run records created for the gens that passed gen-review, ready for replay. */
-    runs: CreatedRun[];
-}
-
-export interface RunOutcomeFailure {
-    bucket: "failed_at_replay";
-    failureKey: string;
-    testCaseId: string;
-    testCaseSlug: string;
-    testCaseName: string;
-    planId: string;
-    planPrompt: string;
-    sourceId: string;
-    sourceStatus: string;
-    verdict?: ReplayVerdict;
-    verdictKind?: ReplayVerdictKind;
-    reviewReasoning?: string;
-    runReviewId?: string;
-}
-export interface RunOutcomeSuccess {
-    bucket: "validated";
-    runId: string;
-    testCaseId: string;
-}
-export type RunOutcome = RunOutcomeFailure | RunOutcomeSuccess;
-
 /**
  * A failure routed out of the healable buckets because healing cannot fix it -
  * currently only `scenario_setup` infra failures. The loop records these for
  * observability but never feeds them to the healing agent, so an iteration
  * whose only failures are system-blocked converges without churning.
- *
- * Reuses the existing failure records; their `bucket` discriminator still
- * identifies generation- vs replay-origin.
  */
-export type SystemBlockedOutcome = GenerationOutcomeFailure | RunOutcomeFailure;
+export type SystemBlockedOutcome = GenerationOutcomeFailure;
 
 /**
  * Persisted refinement action with its row id. The healing-actions activity
@@ -327,14 +281,12 @@ export interface AnalyzeResultsInput {
     iterationId: string;
 }
 export interface AnalyzeResultsOutput {
-    /** Test case ids whose run completed with status=success. */
+    /** Test case ids whose generation review passed for this iteration. */
     validatedTestCaseIds: string[];
     /** Plans whose generation (or its review) failed for this iteration. */
     failuresAtGeneration: GenerationOutcomeFailure[];
-    /** Plans whose generation succeeded but whose run (or its review) failed. */
-    failuresAtReplay: RunOutcomeFailure[];
     /**
-     * Plans whose generation/run failed with an un-healable infra failure
+     * Plans whose generation failed with an un-healable infra failure
      * (`scenario_setup`). Routed out of the healable buckets so the loop ignores
      * them for convergence.
      */
@@ -342,11 +294,12 @@ export interface AnalyzeResultsOutput {
 }
 
 /**
- * Runs the full per-batch generation pipeline against whatever is currently
- * pending in the snapshot: queue them, dispatch batch generation, create runs
- * for successful gens, fire replays. Outcomes land in DB; the next iteration's
- * `analyzeResults` reads them back via the iteration's RefinementIterationInput
- * rows.
+ * Runs the per-batch generation pipeline against whatever is currently pending
+ * in the snapshot: queue the pending generations and dispatch batch generation.
+ * Each generation's review runs inside the batch, so by the time this returns
+ * every generation row is terminal and reviewed. Outcomes land in DB; the next
+ * iteration's `analyzeResults` reads them back via the iteration's
+ * RefinementIterationInput rows.
  *
  * Pre: the set of pending gens at call time equals the scope this iteration
  * owns. The refinement loop maintains this invariant - init writes iter 1's
@@ -375,7 +328,6 @@ export interface RunHealingAgentForRefinementInput {
     snapshotId: string;
     organizationId: string;
     failuresAtGeneration: GenerationOutcomeFailure[];
-    failuresAtReplay: RunOutcomeFailure[];
 }
 export interface RunHealingAgentForRefinementOutput {
     persistedActions: PersistedHealingAction[];
@@ -397,6 +349,5 @@ export interface GeneralActivities {
     finishErroredRefinementIterations(input: FinishErroredRefinementIterationsInput): Promise<void>;
     finishRefinementLoop(input: FinishRefinementLoopInput): Promise<void>;
     prepareGenerationQueue(input: PrepareGenerationQueueInput): Promise<PrepareGenerationQueueOutput>;
-    prepareRunsForGenerations(input: PrepareRunsForGenerationsInput): Promise<PrepareRunsForGenerationsOutput>;
     finalizePendingSnapshot(input: FinalizePendingSnapshotInput): Promise<void>;
 }

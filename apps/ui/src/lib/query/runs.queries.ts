@@ -51,33 +51,6 @@ export function useBranchRuns(applicationId: string, snapshotId?: string) {
     });
 }
 
-export function useRunTest() {
-    const queryClient = useQueryClient();
-    return useAPIMutation({
-        ...trpc.runs.trigger.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.runs.list.queryKey() });
-            },
-        }),
-        successToast: { title: "Run started", description: "The test is now running." },
-        errorToast: { title: "Failed to start run" },
-    });
-}
-
-export function useRestartRun(runId: string) {
-    const queryClient = useQueryClient();
-    return useAPIMutation({
-        ...trpc.runs.restart.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.runs.detail.queryKey({ runId }) });
-                void queryClient.invalidateQueries({ queryKey: trpc.runs.list.queryKey() });
-            },
-        }),
-        successToast: { title: "Run restarted" },
-        errorToast: { title: "Failed to restart run" },
-    });
-}
-
 export function useDeleteRun(runId: string) {
     const queryClient = useQueryClient();
     return useAPIMutation({

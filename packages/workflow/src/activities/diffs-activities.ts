@@ -1,4 +1,3 @@
-import type { WorkflowArchitecture } from "../types";
 import type {
     ReviewGenerationInput,
     ReviewGenerationOutput,
@@ -10,17 +9,6 @@ import type {
 
 export interface AnalyzeDiffsInput {
     snapshotId: string;
-}
-
-export interface PreparedRunInfo {
-    runId: string;
-    slug: string;
-    architecture: WorkflowArchitecture;
-    scenarioId?: string;
-}
-
-export interface AnalyzeDiffsOutput {
-    replays: PreparedRunInfo[];
 }
 
 export interface MarkDiffsGeneratingInput {
@@ -39,7 +27,7 @@ export interface FinalizeDiffsInput {
  * pool already provisioned for diffs.
  */
 export interface DiffsActivities {
-    analyzeDiffs(input: AnalyzeDiffsInput): Promise<AnalyzeDiffsOutput>;
+    analyzeDiffs(input: AnalyzeDiffsInput): Promise<void>;
     markDiffsGenerating(input: MarkDiffsGeneratingInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;
     reviewGeneration(input: ReviewGenerationInput): Promise<ReviewGenerationOutput>;

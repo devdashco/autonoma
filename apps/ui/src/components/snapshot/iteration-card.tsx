@@ -5,12 +5,7 @@ import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { PipelineIds } from "./pipeline-ids";
 import { ReasoningBlock } from "./reasoning-block";
 import { RefinementActionRow } from "./refinement-action-row";
-import type {
-  IterationFailedAtGeneration,
-  IterationFailedAtReplay,
-  IterationValidated,
-  RefinementIteration,
-} from "./refinement-types";
+import type { IterationFailedAtGeneration, IterationValidated, RefinementIteration } from "./refinement-types";
 import { StageEmpty } from "./stage-empty";
 
 interface IterationCardProps {
@@ -67,11 +62,7 @@ function InputsSection({ inputs }: { inputs: RefinementIteration["inputs"] }) {
 }
 
 function OutcomesSection({ outcomes }: { outcomes: RefinementIteration["outcomes"] }) {
-  const total =
-    outcomes.validated.length +
-    outcomes.failedAtGeneration.length +
-    outcomes.failedAtReplay.length +
-    outcomes.awaiting.length;
+  const total = outcomes.validated.length + outcomes.failedAtGeneration.length + outcomes.awaiting.length;
 
   if (total === 0) {
     return (
@@ -95,13 +86,6 @@ function OutcomesSection({ outcomes }: { outcomes: RefinementIteration["outcomes
           <Bucket label="Failed at generation" count={outcomes.failedAtGeneration.length} variant="critical">
             {outcomes.failedAtGeneration.map((row) => (
               <FailedGenRow key={row.planId} row={row} />
-            ))}
-          </Bucket>
-        )}
-        {outcomes.failedAtReplay.length > 0 && (
-          <Bucket label="Failed at replay" count={outcomes.failedAtReplay.length} variant="critical">
-            {outcomes.failedAtReplay.map((row) => (
-              <FailedReplayRow key={row.planId} row={row} />
             ))}
           </Bucket>
         )}
@@ -198,8 +182,8 @@ function ValidatedRow({ row }: { row: IterationValidated }) {
     <div className="border border-border-dim bg-surface-raised">
       <div className="flex items-center gap-3 px-4 py-2">
         <AppLink
-          to="/app/$appSlug/runs/$runId"
-          params={{ runId: row.runId }}
+          to="/app/$appSlug/generations/$generationId"
+          params={{ generationId: row.generationId }}
           className="min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline"
         >
           {row.testCase.name}
@@ -210,7 +194,6 @@ function ValidatedRow({ row }: { row: IterationValidated }) {
           { label: "plan", value: row.planId },
           { label: "test", value: row.testCase.id },
           { label: "generation", value: row.generationId },
-          { label: "run", value: row.runId },
         ]}
         className="border-t border-border-dim bg-surface-base px-4 py-2"
       />
@@ -222,7 +205,7 @@ function FailedGenRow({ row }: { row: IterationFailedAtGeneration }) {
   return (
     <FailedRow
       testCaseName={row.testCase.name}
-      link={{ kind: "generation", id: row.generationId }}
+      generationId={row.generationId}
       verdictLabel={row.verdictKind ?? row.generationStatus}
       reasoning={row.reviewReasoning}
       ids={[
@@ -234,50 +217,25 @@ function FailedGenRow({ row }: { row: IterationFailedAtGeneration }) {
   );
 }
 
-function FailedReplayRow({ row }: { row: IterationFailedAtReplay }) {
-  return (
-    <FailedRow
-      testCaseName={row.testCase.name}
-      link={{ kind: "run", id: row.runId }}
-      verdictLabel={row.verdictKind ?? row.runStatus}
-      reasoning={row.reviewReasoning}
-      ids={[
-        { label: "plan", value: row.planId },
-        { label: "test", value: row.testCase.id },
-        { label: "run", value: row.runId },
-      ]}
-    />
-  );
-}
-
 function FailedRow({
   testCaseName,
-  link,
+  generationId,
   verdictLabel,
   reasoning,
   ids,
 }: {
   testCaseName: string;
-  link: { kind: "generation" | "run"; id: string };
+  generationId: string;
   verdictLabel: string;
   reasoning?: string;
   ids: React.ComponentProps<typeof PipelineIds>["ids"];
 }) {
   const nameClassName = "min-w-0 flex-1 truncate font-mono text-sm text-text-primary hover:underline";
-  const nameNode =
-    link.kind === "generation" ? (
-      <AppLink
-        to="/app/$appSlug/generations/$generationId"
-        params={{ generationId: link.id }}
-        className={nameClassName}
-      >
-        {testCaseName}
-      </AppLink>
-    ) : (
-      <AppLink to="/app/$appSlug/runs/$runId" params={{ runId: link.id }} className={nameClassName}>
-        {testCaseName}
-      </AppLink>
-    );
+  const nameNode = (
+    <AppLink to="/app/$appSlug/generations/$generationId" params={{ generationId }} className={nameClassName}>
+      {testCaseName}
+    </AppLink>
+  );
 
   return (
     <div className="border border-border-dim bg-surface-raised">

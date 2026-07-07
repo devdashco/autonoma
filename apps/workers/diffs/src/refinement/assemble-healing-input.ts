@@ -14,7 +14,7 @@ import {
 } from "@autonoma/diffs";
 import { logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
-import type { GenerationOutcomeFailure, RunOutcomeFailure } from "@autonoma/workflow/activities";
+import type { GenerationOutcomeFailure } from "@autonoma/workflow/activities";
 import { loadScenarioIndex } from "../load-scenario-index";
 import { DiffJobContextLoader } from "../review/diff-job-context-loader";
 
@@ -36,7 +36,6 @@ export interface AssembleHealingInputParams {
     maxIterations: number;
     snapshotId: string;
     failuresAtGeneration: GenerationOutcomeFailure[];
-    failuresAtReplay: RunOutcomeFailure[];
 }
 
 export interface AssembledHealingInput {
@@ -80,18 +79,18 @@ export interface AssembledHealingInput {
  */
 export async function assembleHealingInput(params: AssembleHealingInputParams): Promise<AssembledHealingInput> {
     const logger = rootLogger.child({ name: "assembleHealingInput" });
-    const { iterationId, iterationNumber, maxIterations, snapshotId, failuresAtGeneration, failuresAtReplay } = params;
+    const { iterationId, iterationNumber, maxIterations, snapshotId, failuresAtGeneration } = params;
 
     logger.info("Loading healing assembly inputs", {
         extra: {
             iterationId,
             iterationNumber,
             snapshotId,
-            failureCount: failuresAtGeneration.length + failuresAtReplay.length,
+            failureCount: failuresAtGeneration.length,
         },
     });
 
-    const baseFailures = collectFailureRecords(failuresAtGeneration, failuresAtReplay);
+    const baseFailures = collectFailureRecords(failuresAtGeneration);
 
     // The diff-job context (per-failure lineage + scenario + affected facts, and
     // the snapshot's change facts + application/org) comes from the shared loader.
@@ -196,17 +195,14 @@ export async function loadPriorActions(currentIterationId: string): Promise<Heal
 }
 
 /**
- * Project bucketed gen/run failures into the {@link FailureRecord} shape the
+ * Project bucketed generation failures into the {@link FailureRecord} shape the
  * agent reads. Each record carries its own source review link (deterministic
- * failure metadata): a generation failure links to its generation review, a
- * replay failure to its run review. A failure with no review id carries no
- * link and so cannot be the target of a report action.
+ * failure metadata): a generation failure links to its generation review. A
+ * failure with no review id carries no link and so cannot be the target of a
+ * report action.
  */
-export function collectFailureRecords(
-    failuresAtGeneration: GenerationOutcomeFailure[],
-    failuresAtReplay: RunOutcomeFailure[],
-): FailureRecord[] {
-    const fromGen: FailureRecord[] = failuresAtGeneration.map((f) => ({
+export function collectFailureRecords(failuresAtGeneration: GenerationOutcomeFailure[]): FailureRecord[] {
+    return failuresAtGeneration.map((f) => ({
         key: f.failureKey,
         source: "generation",
         testCaseId: f.testCaseId,
@@ -222,23 +218,6 @@ export function collectFailureRecords(
         lineage: [],
         reviewLink: f.generationReviewId != null ? { generationReviewId: f.generationReviewId } : undefined,
     }));
-    const fromRun: FailureRecord[] = failuresAtReplay.map((f) => ({
-        key: f.failureKey,
-        source: "replay",
-        testCaseId: f.testCaseId,
-        testCaseSlug: f.testCaseSlug,
-        testCaseName: f.testCaseName,
-        planId: f.planId,
-        planPrompt: f.planPrompt,
-        verdict: f.verdict,
-        verdictKind: f.verdictKind,
-        sourceId: f.sourceId,
-        sourceStatus: f.sourceStatus,
-        reviewReasoning: f.reviewReasoning,
-        lineage: [],
-        reviewLink: f.runReviewId != null ? { runReviewId: f.runReviewId } : undefined,
-    }));
-    return [...fromGen, ...fromRun];
 }
 
 export async function loadPlanAuthoringInput({

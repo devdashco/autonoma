@@ -79,7 +79,6 @@ export class APITestHarness implements IntegrationHarness {
             conn: db,
             auth,
             storageProvider: storage,
-            triggerRunWorkflow: triggerWorkflow,
             scenarioManager,
             encryptionHelper,
             generationProvider,

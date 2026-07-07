@@ -86,10 +86,8 @@ export {
     computeIterationOutcomes,
     type RefinementIterationOutcomes,
     type RefinementGenerationRow,
-    type RefinementRunRow,
     type TestCaseLite,
     type OutcomeValidated,
     type OutcomeFailedAtGeneration,
-    type OutcomeFailedAtReplay,
     type OutcomeAwaiting,
 } from "./refinement-outcomes";

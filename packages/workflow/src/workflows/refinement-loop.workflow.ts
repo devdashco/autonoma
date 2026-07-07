@@ -118,14 +118,13 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
             const results = await general.analyzeResults({ iterationId: currentIterationId });
             for (const tcId of results.validatedTestCaseIds) validatedTestCaseIds.add(tcId);
 
-            const hasFailures = results.failuresAtGeneration.length > 0 || results.failuresAtReplay.length > 0;
+            const hasFailures = results.failuresAtGeneration.length > 0;
             log.info("Iteration analysis complete", {
                 ...iterIds,
                 extra: {
                     hasFailures,
                     validatedTestCaseCount: results.validatedTestCaseIds.length,
                     generationFailureCount: results.failuresAtGeneration.length,
-                    replayFailureCount: results.failuresAtReplay.length,
                     systemBlockedCount: results.systemBlocked.length,
                 },
             });
@@ -145,7 +144,6 @@ export async function refinementLoopWorkflow(input: RefinementLoopInput): Promis
                 snapshotId: input.snapshotId,
                 organizationId,
                 failuresAtGeneration: results.failuresAtGeneration,
-                failuresAtReplay: results.failuresAtReplay,
             });
 
             const applyResult = await general.applyHealingActions({

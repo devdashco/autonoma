@@ -5,6 +5,6 @@ export {
     initRefinementLoop,
     markRefinementIterationRunning,
 } from "./loop-lifecycle";
-export { prepareGenerationQueue, prepareRunsForGenerations } from "./plan-pipeline";
+export { prepareGenerationQueue } from "./plan-pipeline";
 export { analyzeResults } from "./analyze-results";
 export { finalizePendingSnapshot } from "./finalize-pending-snapshot";

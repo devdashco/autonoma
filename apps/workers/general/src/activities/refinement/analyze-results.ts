@@ -25,7 +25,6 @@ export async function analyzeResults(input: AnalyzeResultsInput): Promise<Analyz
     return {
         validatedTestCaseIds: outcomes.validatedTestCaseIds,
         failuresAtGeneration: outcomes.failuresAtGeneration,
-        failuresAtReplay: outcomes.failuresAtReplay,
         systemBlocked: outcomes.systemBlocked,
     };
 }

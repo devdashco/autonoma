@@ -1,9 +1,7 @@
-import type { BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import { Architecture } from "@autonoma/types";
-import { type TriggerRunWorkflowParams, type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
+import { type WorkflowRef, findLatestWorkflowByRunId } from "@autonoma/workflow";
 import { buildScenarioDebug } from "../scenario-debug";
 import { Service } from "../service";
 
@@ -17,101 +15,12 @@ function computeDuration(startedAt: Date | null, completedAt: Date | null): stri
     return `${minutes}m ${seconds}s`;
 }
 
-const architectureToTypes: Record<string, Architecture> = {
-    WEB: Architecture.web,
-    IOS: Architecture.ios,
-    ANDROID: Architecture.android,
-};
-
-type WorkflowTrigger = (params: TriggerRunWorkflowParams) => Promise<void>;
-
 export class RunsService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly storageProvider: StorageProvider,
-        private readonly triggerRunWorkflow: WorkflowTrigger,
-        private readonly billingService: BillingService,
     ) {
         super();
-    }
-
-    async triggerRun(testCaseId: string, snapshotId: string, organizationId: string) {
-        this.logger.info("Triggering run", { testCaseId, snapshotId, organizationId });
-
-        const testCase = await this.db.testCase.findFirst({
-            // shadow: false - an investigation validation probe is not a runnable customer test.
-            where: { id: testCaseId, organizationId, shadow: false },
-            select: {
-                id: true,
-                application: { select: { architecture: true } },
-            },
-        });
-        if (testCase == null) throw new NotFoundError("Test case not found");
-
-        const assignment = await this.db.testCaseAssignment.findUnique({
-            where: { snapshotId_testCaseId: { snapshotId, testCaseId } },
-            select: { id: true, stepsId: true, planId: true, plan: { select: { scenarioId: true } } },
-        });
-        if (assignment == null || assignment.stepsId == null) {
-            throw new NotFoundError("No steps for this test in this snapshot - run a generation first");
-        }
-
-        await this.billingService.checkCreditsGate(organizationId, 1, testCase.application.architecture, "run");
-
-        const run = await this.db.run.create({
-            data: {
-                assignmentId: assignment.id,
-                organizationId,
-                status: "pending",
-                planId: assignment.planId,
-            },
-            select: { id: true },
-        });
-
-        try {
-            await this.billingService.deductCreditsForRun(run.id);
-        } catch (error) {
-            this.logger.error("Failed to deduct credits for run", error, {
-                runId: run.id,
-                organizationId,
-                target: "run",
-                testCaseId,
-                architecture: testCase.application.architecture,
-            });
-            await this.db.run.update({
-                where: { id: run.id },
-                data: { status: "failed" },
-            });
-            throw error;
-        }
-
-        const architecture = architectureToTypes[testCase.application.architecture] ?? Architecture.web;
-        const scenarioId = assignment.plan?.scenarioId ?? undefined;
-
-        this.logger.info("Run created, triggering workflow", {
-            runId: run.id,
-            assignmentId: assignment.id,
-            architecture,
-            scenarioId,
-        });
-
-        try {
-            await this.triggerRunWorkflow({
-                runId: run.id,
-                architecture,
-                scenarioId,
-            });
-        } catch (error) {
-            this.logger.fatal("Failed to trigger run workflow", error, { runId: run.id });
-            await this.db.run.update({
-                where: { id: run.id },
-                data: { status: "failed" },
-            });
-            throw error;
-        }
-
-        this.logger.info("Run triggered successfully", { runId: run.id });
-        return { runId: run.id };
     }
 
     async getRunDetail(runId: string, organizationId: string, isAdmin: boolean) {
@@ -341,68 +250,6 @@ export class RunsService extends Service {
                 };
             }),
         );
-    }
-
-    async restartRun(runId: string, organizationId: string) {
-        this.logger.info("Restarting run", { runId, organizationId });
-
-        const run = await this.db.run.findFirst({
-            where: { id: runId, organizationId },
-            select: {
-                assignmentId: true,
-                planId: true,
-                assignment: {
-                    select: {
-                        snapshotId: true,
-                        testCaseId: true,
-                        planId: true,
-                        plan: { select: { scenarioId: true } },
-                        testCase: {
-                            select: { application: { select: { architecture: true } } },
-                        },
-                    },
-                },
-            },
-        });
-        if (run == null) throw new NotFoundError("Run not found");
-
-        const newRun = await this.db.run.create({
-            data: {
-                assignmentId: run.assignmentId,
-                organizationId,
-                status: "pending",
-                planId: run.planId ?? run.assignment.planId,
-            },
-            select: { id: true },
-        });
-
-        const architecture = architectureToTypes[run.assignment.testCase.application.architecture] ?? Architecture.web;
-        const scenarioId = run.assignment.plan?.scenarioId ?? undefined;
-
-        this.logger.info("New run created, triggering workflow", {
-            sourceRunId: runId,
-            newRunId: newRun.id,
-            architecture,
-            scenarioId,
-        });
-
-        try {
-            await this.triggerRunWorkflow({
-                runId: newRun.id,
-                architecture,
-                scenarioId,
-            });
-        } catch (error) {
-            this.logger.fatal("Failed to restart run workflow", error, { newRunId: newRun.id });
-            await this.db.run.update({
-                where: { id: newRun.id },
-                data: { status: "failed" },
-            });
-            throw error;
-        }
-
-        this.logger.info("Run restarted successfully", { sourceRunId: runId, newRunId: newRun.id });
-        return { runId: newRun.id };
     }
 
     async deleteRun(runId: string, organizationId: string) {

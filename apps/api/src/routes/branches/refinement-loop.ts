@@ -2,7 +2,6 @@ import {
     computeIterationOutcomes,
     type RefinementGenerationRow,
     type RefinementIterationOutcomes,
-    type RefinementRunRow,
     type TestCaseLite,
 } from "@autonoma/checkpoint";
 import type { Prisma, PrismaClient } from "@autonoma/db";
@@ -91,9 +90,9 @@ type ActionRow = IterationRow["actions"][number];
  *     malformed rows are dropped + logged rather than crashing the page).
  *   - Plans and test cases referenced by action.planId / action.testCaseId
  *     scalars resolved via batched lookups (RefinementAction has no relations).
- *   - Per-iteration outcomes (validated / failedAtGeneration / failedAtReplay /
- *     awaiting) derived from the latest gen + run that existed by the time the
- *     iteration completed (mirrors the activity-layer logic in
+ *   - Per-iteration outcomes (validated / failedAtGeneration / awaiting) derived
+ *     from the latest generation that existed by the time the iteration completed
+ *     (mirrors the activity-layer logic in
  *     `apps/workers/general/src/activities/refinement/analyze-results.ts` but
  *     batched across iterations).
  *
@@ -117,9 +116,8 @@ export async function loadRefinementLoop(
     const planIds = new Set<string>();
     for (const iter of loop.iterations) for (const input of iter.inputs) planIds.add(input.planId);
 
-    const [generations, runs, refLookups] = await Promise.all([
+    const [generations, refLookups] = await Promise.all([
         loadGenerations(db, snapshotId, planIds),
-        loadRuns(db, snapshotId, planIds),
         resolveActionRefs(db, loop.iterations),
     ]);
 
@@ -130,12 +128,11 @@ export async function loadRefinementLoop(
         // and mirror them verbatim, so short-circuit to all-awaiting until the workflow starts the iteration.
         const outcomes =
             iter.status === "pending"
-                ? { validated: [], failedAtGeneration: [], failedAtReplay: [], awaiting: inputs }
+                ? { validated: [], failedAtGeneration: [], awaiting: inputs }
                 : computeIterationOutcomes({
                       inputs,
                       cutoff: iter.finishedAt ?? new Date(),
                       generations,
-                      runs,
                   });
         return {
             id: iter.id,
@@ -233,21 +230,6 @@ async function loadGenerations(
             status: true,
             createdAt: true,
             generationReview: { select: { verdict: true, reasoning: true, status: true } },
-        },
-    });
-}
-
-async function loadRuns(db: PrismaClient, snapshotId: string, planIds: Set<string>): Promise<RefinementRunRow[]> {
-    if (planIds.size === 0) return [];
-    return await db.run.findMany({
-        where: { planId: { in: [...planIds] }, assignment: { snapshotId } },
-        orderBy: { createdAt: "asc" },
-        select: {
-            id: true,
-            planId: true,
-            status: true,
-            createdAt: true,
-            runReview: { select: { verdict: true, reasoning: true, status: true } },
         },
     });
 }

@@ -1,11 +1,10 @@
 import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import type { AffectedTest, Codebase, CreatedTest, FlowIndex } from "@autonoma/diffs";
-import { type AffectedTestSpec, prepareRuns } from "@autonoma/diffs/prepare-runs";
+import { type AffectedTestSpec, prepareAffectedTestGenerations } from "@autonoma/diffs/prepare-affected-tests";
 import { type Logger, logger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
-import type { PreparedRunInfo } from "@autonoma/workflow/activities";
 import { uploadConversation } from "../upload-conversation";
 import { assembleDiffsAgentInput } from "./assemble-input";
 import { runDiffsAgent } from "./run-diffs-agent";
@@ -17,8 +16,6 @@ export interface RunDiffsAnalysisParams {
 }
 
 export interface DiffsAnalysisResult {
-    /** Runs prepared for replay - one per affected test that resolved to a runnable assignment. */
-    replays: PreparedRunInfo[];
     /** The agent's analysis reasoning, persisted by the activity onto the DiffsJob. */
     reasoning: string;
     /** S3 URL of the persisted analysis conversation, or undefined if upload was skipped/failed. */
@@ -27,9 +24,11 @@ export interface DiffsAnalysisResult {
 
 /**
  * Analysis runner: runs the merge flow + DiffsAgent against the provided
- * codebase clone, then applies the result (mints the tests the agent authored
- * and prepares replay runs for the affected tests). Returns the reasoning +
- * conversation URL for the activity to record on the DiffsJob.
+ * codebase clone, then applies the result - mints the tests the agent authored
+ * and queues a pending generation for each affected test. Both feed the
+ * refinement loop's iteration 1 (which generates + heals them; there is no
+ * replay step). Returns the reasoning + conversation URL for the activity to
+ * record on the DiffsJob.
  */
 export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysisParams): Promise<DiffsAnalysisResult> {
     logger.info("Starting diffs analysis");
@@ -68,7 +67,7 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
         logger: logger.child({ name: "createAuthoredTests" }),
     });
 
-    const replays = await prepareReplays({
+    const preparedCount = await prepareAffectedGenerations({
         snapshotId,
         applicationId: branchData.applicationId,
         organizationId: branchData.organizationId,
@@ -76,10 +75,10 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
     });
 
     logger.info("Diffs analysis complete", {
-        extra: { preparedRuns: replays.length, reasoning: agentResult.reasoning.slice(0, 200) },
+        extra: { preparedGenerations: preparedCount, reasoning: agentResult.reasoning.slice(0, 200) },
     });
 
-    return { replays, reasoning: agentResult.reasoning, conversationUrl };
+    return { reasoning: agentResult.reasoning, conversationUrl };
 }
 
 /** Merge the deterministically-imported affected tests with the agent's, deduping by slug (imports win). */
@@ -136,20 +135,21 @@ async function createAuthoredTests(params: CreateAuthoredTestsParams): Promise<v
     }
 }
 
-interface PrepareReplaysParams {
+interface PrepareAffectedGenerationsParams {
     snapshotId: string;
     applicationId: string;
     organizationId: string;
     affectedTests: AffectedTest[];
 }
 
-async function prepareReplays({
+/** Queues a pending generation for each affected test; returns how many were prepared. */
+async function prepareAffectedGenerations({
     snapshotId,
     applicationId,
     organizationId,
     affectedTests,
-}: PrepareReplaysParams): Promise<PreparedRunInfo[]> {
-    if (affectedTests.length === 0) return [];
+}: PrepareAffectedGenerationsParams): Promise<number> {
+    if (affectedTests.length === 0) return 0;
 
     const billingService = createBillingService(db);
     const specs: AffectedTestSpec[] = affectedTests.map((t) => ({
@@ -158,7 +158,7 @@ async function prepareReplays({
         reasoning: t.reasoning,
     }));
 
-    const runs = await prepareRuns(specs, {
+    const prepared = await prepareAffectedTestGenerations(specs, {
         db,
         snapshotId,
         applicationId,
@@ -166,10 +166,5 @@ async function prepareReplays({
         billingService,
     });
 
-    return runs.map((r) => ({
-        runId: r.runId,
-        slug: r.slug,
-        architecture: r.architecture,
-        scenarioId: r.scenarioId,
-    }));
+    return prepared.length;
 }

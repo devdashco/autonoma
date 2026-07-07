@@ -105,11 +105,11 @@ export async function captureHealingFromSnapshot(params: CaptureHealingFromSnaps
  * baseline.
  */
 async function assembleFirstTurnInput(snapshotId: string, logger: Logger): Promise<HealingInputWithoutCodebase> {
-    const planIds = await seedReplayPlanIds(snapshotId);
+    const planIds = await seedAffectedPlanIds(snapshotId);
     const baselineSnapshotId = await resolveSuiteBaselineSnapshotId(snapshotId, logger);
 
     const buckets = await bucketPlanOutcomes(db, snapshotId, planIds, logger);
-    const baseFailures = collectFailureRecords(buckets.failuresAtGeneration, buckets.failuresAtReplay);
+    const baseFailures = collectFailureRecords(buckets.failuresAtGeneration);
 
     const [diffJobContext, suiteInfo] = await Promise.all([
         new DiffJobContextLoader(db).loadHealingContext({
@@ -149,18 +149,17 @@ async function assembleFirstTurnInput(snapshotId: string, logger: Logger): Promi
 
 /**
  * The first turn's seed plan ids: the affected tests' committed plans, taken
- * from the replays the diffs analysis step ran. Mirrors `seedDiffsReplayPlanIds`
- * in `apps/workers/general/.../refinement/loop-lifecycle.ts` - keep the two in
- * sync. Only affected tests with a plan-linked run contribute (one without a run
- * has neither a generation nor a run and would trip the bucketer's invariant).
+ * from the pending generations the diffs analysis step queued. Only affected
+ * tests with a plan-linked generation contribute (one without would trip the
+ * bucketer's "no generation" invariant).
  */
-async function seedReplayPlanIds(snapshotId: string): Promise<string[]> {
+async function seedAffectedPlanIds(snapshotId: string): Promise<string[]> {
     const affected = await db.affectedTest.findMany({
-        where: { snapshotId, runId: { not: null } },
-        select: { run: { select: { planId: true } } },
+        where: { snapshotId, generationId: { not: null } },
+        select: { generation: { select: { testPlanId: true } } },
     });
 
-    return [...new Set(affected.map((a) => a.run?.planId).filter((id): id is string => id != null))];
+    return [...new Set(affected.map((a) => a.generation?.testPlanId).filter((id): id is string => id != null))];
 }
 
 /**

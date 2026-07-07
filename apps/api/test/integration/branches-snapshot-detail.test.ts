@@ -195,33 +195,25 @@ apiTestSuite({
                 finishedAt: new Date("2026-01-01T10:30:00Z"),
             });
 
-            const firstGeneration = await createSuccessfulGeneration(
+            // Iteration 1's generation failed its review...
+            const firstGeneration = await createFailedGeneration(
                 harness,
                 fixture.snapshotId,
                 plan.id,
                 new Date("2026-01-01T10:02:00Z"),
             );
-            const failedRun = await createRun(harness, assignment.id, "failed", new Date("2026-01-01T10:05:00Z"), {
-                planId: plan.id,
-            });
-            await harness.db.runReview.create({
-                data: {
-                    runId: failedRun.id,
-                    status: "completed",
-                    verdict: "application_bug",
-                    reasoning: "Checkout failed before the fix.",
-                    organizationId: harness.organizationId,
-                },
-            });
-
-            await createSuccessfulGeneration(harness, fixture.snapshotId, plan.id, new Date("2026-01-01T10:22:00Z"));
-            const passingRun = await createRun(harness, assignment.id, "success", new Date("2026-01-01T10:25:00Z"), {
-                planId: plan.id,
-            });
+            // ...iteration 2 regenerated and passed. A generation passing its review
+            // is the definition of "validated"; there is no replay step.
+            const passingGeneration = await createSuccessfulGeneration(
+                harness,
+                fixture.snapshotId,
+                plan.id,
+                new Date("2026-01-01T10:22:00Z"),
+            );
 
             expect(iterationOne.number).toBe(1);
             expect(iterationTwo.number).toBe(2);
-            expect(firstGeneration.status).toBe("success");
+            expect(firstGeneration.status).toBe("failed");
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
@@ -233,7 +225,8 @@ apiTestSuite({
             });
             expect(detail.executedTests).toHaveLength(1);
             expect(detail.executedTests[0]).toMatchObject({
-                runId: passingRun.id,
+                generationId: passingGeneration.id,
+                runId: null,
                 status: "success",
                 finalOutcome: "passed",
             });

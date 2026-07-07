@@ -1,9 +1,8 @@
 import {
+    type GenerationReviewVerdict,
     type GenerationStatus,
     type PrismaClient,
     type ReviewStatus,
-    type RunReviewVerdict,
-    type RunStatus,
     applyMigrations,
     createClient,
 } from "@autonoma/db";
@@ -29,9 +28,8 @@ interface PlanWithAssignment {
 
 /**
  * Focused harness for {@link bucketIterationOutcomes}: it builds exactly the
- * run/review graph a replay-only iteration needs, with no implicit generations
- * (the existing callback harness always creates one, which is the case these
- * tests specifically need to avoid).
+ * generation/review graph an iteration needs. A generation passing its review is
+ * the definition of "validated" - there is no replay step.
  */
 class BucketerHarness implements IntegrationHarness {
     constructor(
@@ -112,40 +110,7 @@ class BucketerHarness implements IntegrationHarness {
         };
     }
 
-    async createRun(args: {
-        assignmentId: string;
-        planId: string;
-        organizationId: string;
-        status: RunStatus;
-        failure?: PrismaJson.RunFailure;
-        reviewStatus?: ReviewStatus;
-        reviewVerdict?: RunReviewVerdict;
-        reviewReasoning?: string;
-    }): Promise<{ runId: string; runReviewId?: string }> {
-        const run = await this.db.run.create({
-            data: {
-                assignmentId: args.assignmentId,
-                planId: args.planId,
-                organizationId: args.organizationId,
-                status: args.status,
-                failure: args.failure,
-            },
-        });
-        if (args.reviewStatus == null) return { runId: run.id };
-
-        const review = await this.db.runReview.create({
-            data: {
-                runId: run.id,
-                status: args.reviewStatus,
-                verdict: args.reviewVerdict,
-                reasoning: args.reviewReasoning,
-                organizationId: args.organizationId,
-            },
-        });
-        return { runId: run.id, runReviewId: review.id };
-    }
-
-    /** Create a TestGeneration for a plan, with an optional structured failure. */
+    /** Create a TestGeneration for a plan, with an optional structured failure and review. */
     async createGeneration(args: {
         planId: string;
         snapshotId: string;
@@ -153,7 +118,10 @@ class BucketerHarness implements IntegrationHarness {
         status: GenerationStatus;
         failure?: PrismaJson.GenerationFailure;
         shadow?: boolean;
-    }): Promise<{ generationId: string }> {
+        reviewStatus?: ReviewStatus;
+        reviewVerdict?: GenerationReviewVerdict;
+        reviewReasoning?: string;
+    }): Promise<{ generationId: string; generationReviewId?: string }> {
         const generation = await this.db.testGeneration.create({
             data: {
                 testPlanId: args.planId,
@@ -164,7 +132,18 @@ class BucketerHarness implements IntegrationHarness {
                 shadow: args.shadow ?? false,
             },
         });
-        return { generationId: generation.id };
+        if (args.reviewStatus == null) return { generationId: generation.id };
+
+        const review = await this.db.generationReview.create({
+            data: {
+                generationId: generation.id,
+                status: args.reviewStatus,
+                verdict: args.reviewVerdict,
+                reasoning: args.reviewReasoning,
+                organizationId: args.organizationId,
+            },
+        });
+        return { generationId: generation.id, generationReviewId: review.id };
     }
 
     /** Create a refinement loop + its first iteration, scoped to the given input plans. */
@@ -200,7 +179,7 @@ function bucketerSuite(cases: (test: TestAPI<SuiteContext>) => void) {
 }
 
 bucketerSuite((test) => {
-    test("buckets replay-only runs (no generation) by run result: success -> validated, failure -> failuresAtReplay", async ({
+    test("buckets generations by review: passed -> validated, failed -> failuresAtGeneration", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
@@ -211,13 +190,15 @@ bucketerSuite((test) => {
             applicationId,
             folderId,
             snapshotId,
-            prompt: "replay this pre-existing test",
+            prompt: "generate this test",
         });
-        await harness.createRun({
-            assignmentId: passing.assignmentId,
+        await harness.createGeneration({
             planId: passing.planId,
+            snapshotId,
             organizationId,
             status: "success",
+            reviewStatus: "completed",
+            reviewVerdict: "success",
         });
 
         const failing = await harness.createPlanWithAssignment({
@@ -225,16 +206,16 @@ bucketerSuite((test) => {
             applicationId,
             folderId,
             snapshotId,
-            prompt: "replay that fails",
+            prompt: "generate that the review rejects",
         });
-        const { runId, runReviewId } = await harness.createRun({
-            assignmentId: failing.assignmentId,
+        const { generationId, generationReviewId } = await harness.createGeneration({
             planId: failing.planId,
+            snapshotId,
             organizationId,
-            status: "failed",
+            status: "success",
             reviewStatus: "completed",
-            reviewVerdict: "engine_error",
-            reviewReasoning: "the recorded steps no longer match the UI",
+            reviewVerdict: "plan_mismatch",
+            reviewReasoning: "the generated flow diverged from the plan",
         });
 
         const iterationId = await harness.createIteration({
@@ -245,77 +226,23 @@ bucketerSuite((test) => {
 
         const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
 
-        // The passing replay-only run validates; the failing one lands in
-        // failuresAtReplay carrying its run review, with its plan/test-case
-        // context sourced from the run (there is no generation).
+        // The review-passing generation validates; the rejected one lands in
+        // failuresAtGeneration carrying its generation review.
         expect(outcomes.validatedTestCaseIds).toEqual([passing.testCaseId]);
-        expect(outcomes.failuresAtGeneration).toEqual([]);
-        expect(outcomes.failuresAtReplay).toEqual([
+        expect(outcomes.failuresAtGeneration).toEqual([
             {
-                bucket: "failed_at_replay",
-                failureKey: runId,
+                bucket: "failed_at_generation",
+                failureKey: generationId,
                 testCaseId: failing.testCaseId,
                 testCaseSlug: failing.testCaseSlug,
                 testCaseName: failing.testCaseName,
                 planId: failing.planId,
                 planPrompt: failing.planPrompt,
-                sourceId: runId,
-                sourceStatus: "failed",
-                verdictKind: "engine_error",
-                reviewReasoning: "the recorded steps no longer match the UI",
-                runReviewId,
-            },
-        ]);
-    });
-
-    test("routes a scenario_setup replay failure to systemBlocked, not failuresAtReplay", async ({
-        harness,
-        seedResult: { organizationId, applicationId, folderId },
-    }) => {
-        const snapshotId = await harness.createSnapshot(organizationId, applicationId);
-
-        const blocked = await harness.createPlanWithAssignment({
-            organizationId,
-            applicationId,
-            folderId,
-            snapshotId,
-            prompt: "replay that hits a down scenario environment",
-        });
-        const { runId } = await harness.createRun({
-            assignmentId: blocked.assignmentId,
-            planId: blocked.planId,
-            organizationId,
-            status: "failed",
-            failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
-        });
-
-        const iterationId = await harness.createIteration({
-            organizationId,
-            snapshotId,
-            planIds: [blocked.planId],
-        });
-
-        const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
-
-        // scenario_setup is an un-healable infra failure: it must leave the
-        // healable buckets empty so the loop converges without invoking healing.
-        expect(outcomes.validatedTestCaseIds).toEqual([]);
-        expect(outcomes.failuresAtGeneration).toEqual([]);
-        expect(outcomes.failuresAtReplay).toEqual([]);
-        expect(outcomes.systemBlocked).toEqual([
-            {
-                bucket: "failed_at_replay",
-                failureKey: runId,
-                testCaseId: blocked.testCaseId,
-                testCaseSlug: blocked.testCaseSlug,
-                testCaseName: blocked.testCaseName,
-                planId: blocked.planId,
-                planPrompt: blocked.planPrompt,
-                sourceId: runId,
-                sourceStatus: "failed",
-                verdictKind: undefined,
-                reviewReasoning: undefined,
-                runReviewId: undefined,
+                sourceId: generationId,
+                sourceStatus: "success",
+                verdictKind: "plan_mismatch",
+                reviewReasoning: "the generated flow diverged from the plan",
+                generationReviewId,
             },
         ]);
     });
@@ -349,8 +276,9 @@ bucketerSuite((test) => {
 
         const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
 
+        // scenario_setup is an un-healable infra failure: it must leave the
+        // healable buckets empty so the loop converges without invoking healing.
         expect(outcomes.validatedTestCaseIds).toEqual([]);
-        expect(outcomes.failuresAtReplay).toEqual([]);
         expect(outcomes.failuresAtGeneration).toEqual([]);
         expect(outcomes.systemBlocked).toEqual([
             {
@@ -370,7 +298,7 @@ bucketerSuite((test) => {
         ]);
     });
 
-    test("a mixed iteration heals the engine_error replay and blocks the scenario_setup one", async ({
+    test("a mixed iteration heals the rejected generation and blocks the scenario_setup one", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
@@ -381,17 +309,16 @@ bucketerSuite((test) => {
             applicationId,
             folderId,
             snapshotId,
-            prompt: "replay that genuinely regressed",
+            prompt: "generate that the review rejects",
         });
-        const { runId: healableRunId, runReviewId } = await harness.createRun({
-            assignmentId: healable.assignmentId,
+        const { generationId: healableGenId, generationReviewId } = await harness.createGeneration({
             planId: healable.planId,
+            snapshotId,
             organizationId,
-            status: "failed",
-            failure: { kind: "engine_error", message: "the engine threw mid-run" },
+            status: "success",
             reviewStatus: "completed",
-            reviewVerdict: "engine_error",
-            reviewReasoning: "the recorded steps no longer match the UI",
+            reviewVerdict: "application_bug",
+            reviewReasoning: "the app under test regressed",
         });
 
         const blocked = await harness.createPlanWithAssignment({
@@ -399,11 +326,11 @@ bucketerSuite((test) => {
             applicationId,
             folderId,
             snapshotId,
-            prompt: "replay that hit a down scenario environment",
+            prompt: "generate that hit a down scenario environment",
         });
-        const { runId: blockedRunId } = await harness.createRun({
-            assignmentId: blocked.assignmentId,
+        const { generationId: blockedGenId } = await harness.createGeneration({
             planId: blocked.planId,
+            snapshotId,
             organizationId,
             status: "failed",
             failure: { kind: "scenario_setup", message: "scenario endpoint returned 404" },
@@ -417,40 +344,25 @@ bucketerSuite((test) => {
 
         const outcomes = await bucketIterationOutcomes(harness.db, iterationId);
 
-        // The engine_error failure stays healable; only the scenario_setup one is
-        // routed out, so the loop still heals the genuine regression.
-        expect(outcomes.failuresAtReplay).toEqual([
+        // The review-rejected generation stays healable; only the scenario_setup
+        // one is routed out, so the loop still heals the genuine regression.
+        expect(outcomes.failuresAtGeneration).toEqual([
             {
-                bucket: "failed_at_replay",
-                failureKey: healableRunId,
+                bucket: "failed_at_generation",
+                failureKey: healableGenId,
                 testCaseId: healable.testCaseId,
                 testCaseSlug: healable.testCaseSlug,
                 testCaseName: healable.testCaseName,
                 planId: healable.planId,
                 planPrompt: healable.planPrompt,
-                sourceId: healableRunId,
-                sourceStatus: "failed",
-                verdictKind: "engine_error",
-                reviewReasoning: "the recorded steps no longer match the UI",
-                runReviewId,
+                sourceId: healableGenId,
+                sourceStatus: "success",
+                verdictKind: "application_bug",
+                reviewReasoning: "the app under test regressed",
+                generationReviewId,
             },
         ]);
-        expect(outcomes.systemBlocked).toEqual([
-            {
-                bucket: "failed_at_replay",
-                failureKey: blockedRunId,
-                testCaseId: blocked.testCaseId,
-                testCaseSlug: blocked.testCaseSlug,
-                testCaseName: blocked.testCaseName,
-                planId: blocked.planId,
-                planPrompt: blocked.planPrompt,
-                sourceId: blockedRunId,
-                sourceStatus: "failed",
-                verdictKind: undefined,
-                reviewReasoning: undefined,
-                runReviewId: undefined,
-            },
-        ]);
+        expect(outcomes.systemBlocked.map((f) => f.failureKey)).toEqual([blockedGenId]);
     });
 
     test("ignores investigation shadow generations when picking the latest generation per plan", async ({
@@ -478,7 +390,7 @@ bucketerSuite((test) => {
 
         // A NEWER investigation shadow generation with a scenario_setup failure. If it were picked as the
         // latest generation for this plan, the outcome would route to systemBlocked (un-healable) instead of
-        // failuresAtGeneration - bucketing off the internal A/B measurement instead of the real run.
+        // failuresAtGeneration - bucketing off the internal A/B measurement instead of the real generation.
         await harness.createGeneration({
             planId: plan.planId,
             snapshotId,
@@ -498,7 +410,7 @@ bucketerSuite((test) => {
         expect(outcomes.failuresAtGeneration.map((f) => f.failureKey)).toEqual([realGenId]);
     });
 
-    test("throws when an input plan has neither a generation nor a run", async ({
+    test("throws when an input plan has no generation", async ({
         harness,
         seedResult: { organizationId, applicationId, folderId },
     }) => {
@@ -512,8 +424,6 @@ bucketerSuite((test) => {
         });
         const iterationId = await harness.createIteration({ organizationId, snapshotId, planIds: [plan.planId] });
 
-        await expect(bucketIterationOutcomes(harness.db, iterationId)).rejects.toThrow(
-            /has no TestGeneration and no plan-linked Run/,
-        );
+        await expect(bucketIterationOutcomes(harness.db, iterationId)).rejects.toThrow(/has no TestGeneration/);
     });
 });

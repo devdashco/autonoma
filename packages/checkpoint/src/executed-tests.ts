@@ -204,7 +204,6 @@ function buildExecutedTests(
 ): SnapshotExecutedTest[] {
     const latestRunByTestCaseId = new Map<string, RunRow>();
     const latestGenerationByTestCaseId = new Map<string, GenerationRow>();
-    const runById = new Map(runs.map((run) => [run.id, run]));
     const generationById = new Map(generations.map((generation) => [generation.id, generation]));
 
     for (const run of runs) {
@@ -226,8 +225,6 @@ function buildExecutedTests(
     const refinementOutcomeByTestCaseId = computeFinalRefinementOutcomes({
         refinementLoop,
         generations,
-        runs,
-        runById,
         generationById,
     });
 
@@ -266,7 +263,11 @@ function buildExecutedTests(
                     runId: null,
                     generationId: generation.id,
                     status: generation.status,
-                    finalOutcome: finalOutcomeForGenerationStatus(generation.status, generation.failure),
+                    finalOutcome: finalOutcomeForGenerationStatus(
+                        generation.status,
+                        generation.failure,
+                        generation.generationReview,
+                    ),
                     verdict: generation.generationReview?.verdict ?? null,
                     reviewReasoning:
                         generation.generationReview?.reasoning ?? setupFailureMessage(generation.failure) ?? null,
@@ -287,14 +288,10 @@ function timeOf(run: { startedAt: Date | null; createdAt: Date }): number {
 function computeFinalRefinementOutcomes({
     refinementLoop,
     generations,
-    runs,
-    runById,
     generationById,
 }: {
     refinementLoop: RefinementLoopRow | null;
     generations: GenerationRow[];
-    runs: RunRow[];
-    runById: Map<string, RunRow>;
     generationById: Map<string, GenerationRow>;
 }): Map<string, SnapshotExecutedTest> {
     const outcomes = new Map<string, SnapshotExecutedTest>();
@@ -327,56 +324,25 @@ function computeFinalRefinementOutcomes({
                 createdAt: generation.createdAt,
                 generationReview: generation.generationReview,
             })),
-            runs: runs.map((run) => ({
-                id: run.id,
-                planId: run.planId,
-                status: run.status,
-                createdAt: run.createdAt,
-                runReview: run.runReview,
-            })),
         });
 
         for (const outcome of iterationOutcomes.validated) {
             if (outcomes.has(outcome.testCase.id)) continue;
-            const run = runById.get(outcome.runId);
             const generation = generationById.get(outcome.generationId);
             outcomes.set(outcome.testCase.id, {
-                source: "replay",
+                source: "generation",
                 testCase: outcome.testCase,
-                runId: outcome.runId,
+                runId: null,
                 generationId: outcome.generationId,
                 status: "success",
                 finalOutcome: "passed",
-                verdict: run?.runReview?.verdict ?? null,
-                reviewReasoning: run?.runReview?.reasoning ?? null,
-                startedAt: run?.startedAt ?? null,
-                completedAt: run?.completedAt ?? null,
-                createdAt: run?.createdAt ?? generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
+                verdict: generation?.generationReview?.verdict ?? null,
+                reviewReasoning: generation?.generationReview?.reasoning ?? null,
+                startedAt: null,
+                completedAt: null,
+                createdAt: generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
                 latestRunAt:
-                    run?.startedAt ??
-                    run?.createdAt ??
-                    generation?.updatedAt ??
-                    iteration.finishedAt ??
-                    iteration.startedAt,
-            });
-        }
-
-        for (const outcome of iterationOutcomes.failedAtReplay) {
-            if (outcomes.has(outcome.testCase.id)) continue;
-            const run = runById.get(outcome.runId);
-            outcomes.set(outcome.testCase.id, {
-                source: "replay",
-                testCase: outcome.testCase,
-                runId: outcome.runId,
-                generationId: null,
-                status: outcome.runStatus,
-                finalOutcome: terminalFailureOutcome(run?.failure ?? null),
-                verdict: outcome.verdictKind ?? null,
-                reviewReasoning: outcome.reviewReasoning ?? setupFailureMessage(run?.failure ?? null) ?? null,
-                startedAt: run?.startedAt ?? null,
-                completedAt: run?.completedAt ?? null,
-                createdAt: run?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
-                latestRunAt: run?.startedAt ?? run?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
+                    generation?.updatedAt ?? generation?.createdAt ?? iteration.finishedAt ?? iteration.startedAt,
             });
         }
 
@@ -444,9 +410,16 @@ export function finalOutcomeForRunStatus(
 export function finalOutcomeForGenerationStatus(
     status: GenerationStatus,
     failure: GenerationRow["failure"],
+    review: GenerationRow["generationReview"],
 ): SnapshotExecutedTestFinalOutcome {
     if (status === "failed") return terminalFailureOutcome(failure);
-    return "unresolved";
+    // A generation's pass/fail is the GenerationReview verdict, not the agent's
+    // self-reported status: the agent can finish (status "success") while the
+    // review still judges the outcome a non-pass (e.g. plan_mismatch). Until the
+    // review completes, the outcome is unresolved.
+    if (status !== "success") return "unresolved";
+    if (review == null || review.status !== "completed") return "unresolved";
+    return review.verdict === "success" ? "passed" : "failed";
 }
 
 /**

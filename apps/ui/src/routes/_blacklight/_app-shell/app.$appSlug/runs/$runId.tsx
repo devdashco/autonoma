@@ -10,7 +10,6 @@ import {
   stepInstruction,
 } from "@autonoma/blacklight";
 import { ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
-import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
@@ -28,7 +27,7 @@ import { NavigableLightbox, type NavigableStep } from "components/screenshot-lig
 import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
-import { ensureRunDetailData, useRestartRun, useRunDetail } from "lib/query/runs.queries";
+import { ensureRunDetailData, useRunDetail } from "lib/query/runs.queries";
 import { useState } from "react";
 import { AppLink } from "../../-app-link";
 import { useAppNavigate } from "../../-use-app-navigate";
@@ -93,7 +92,6 @@ function RunDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | undefined>(undefined);
   const [showDebug, setShowDebug] = useState(false);
 
-  const restartRun = useRestartRun(runId);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   if (run == null) {
@@ -126,17 +124,6 @@ function RunDetailPage() {
         description: stepInstruction(step),
       };
     });
-
-  function handleRerun() {
-    restartRun.mutate(
-      { runId },
-      {
-        onSuccess: ({ runId: newRunId }) => {
-          void navigate({ to: "/app/$appSlug/runs/$runId", params: { runId: newRunId } });
-        },
-      },
-    );
-  }
 
   function handleDeleteSuccess() {
     void navigate({ to: "/app/$appSlug/tests/$testSlug", params: { testSlug: testCaseSlug } });
@@ -212,16 +199,6 @@ function RunDetailPage() {
                     <SentryLogsLink filterField="runId" filterValue={run.id} />
                   </>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRerun}
-                  disabled={restartRun.isPending}
-                  aria-label="rerun-run"
-                >
-                  <ArrowsClockwiseIcon size={14} />
-                  Re-run
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"
