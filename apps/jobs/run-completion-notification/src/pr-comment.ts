@@ -148,6 +148,11 @@ type GenerationForComment = {
 export async function updatePrCommentForGeneration(generationId: string): Promise<void> {
     const log = logger.child({ name: "updatePrCommentForGeneration", generationId });
 
+    if (!env.RUN_COMPLETION_PR_COMMENT_ENABLED) {
+        log.info("Skipping runs PR comment - RUN_COMPLETION_PR_COMMENT_ENABLED is off");
+        return;
+    }
+
     const generation: GenerationForComment | null = await db.testGeneration.findUnique({
         where: { id: generationId },
         select: generationForCommentSelect,

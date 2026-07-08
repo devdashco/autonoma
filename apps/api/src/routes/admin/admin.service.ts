@@ -19,7 +19,7 @@ type AdminGitHubRepository = {
 };
 
 /** One organization that owns an app for a given slug - a candidate the caller can switch into. */
-interface OrgCandidate {
+export interface OrgCandidate {
     orgId: string;
     orgName: string;
     orgSlug: string;

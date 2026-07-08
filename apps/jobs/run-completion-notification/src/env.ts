@@ -11,6 +11,7 @@ export const env = createEnv({
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
         ENGINE_BILLING_SECRET: z.string().optional(),
         STRIPE_ENABLED: z.stringbool().default(false),
+        RUN_COMPLETION_PR_COMMENT_ENABLED: z.stringbool().default(true),
         GITHUB_APP_ID: z.string().min(1).optional(),
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey.optional(),
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1).optional(),
