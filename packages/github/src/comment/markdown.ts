@@ -236,7 +236,9 @@ function renderBugDetails(
 
     if (bug.screenshotUrl != null) {
         const img = `<img src="${escapeHtmlAttribute(bug.screenshotUrl)}" alt="Run screenshot" />`;
-        body.push(bug.replayHref != null ? `<a href="${escapeHtmlAttribute(bug.replayHref)}">${img}</a>` : img);
+        // The screenshot clicks through to the replay when one exists, else to the finding's report page.
+        const mediaHref = bug.replayHref ?? bug.href;
+        body.push(mediaHref != null ? `<a href="${escapeHtmlAttribute(mediaHref)}">${img}</a>` : img);
     }
     if (bug.replayHref != null) body.push(renderCta(assetBaseUrl, "Watch replay", bug.replayHref));
     if (bug.description != null) body.push(sanitizeRichMarkdown(bug.description));

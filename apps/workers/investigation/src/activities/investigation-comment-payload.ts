@@ -111,10 +111,14 @@ async function toBug(
     // as an <img> in the comment, and GitHub renders animated GIFs inline.
     const mediaKey = result.clipUrl ?? result.finalScreenshotUrl;
     const screenshotUrl = mediaKey != null ? await signScreenshot(mediaKey) : undefined;
+    // A replay is only worth surfacing for a confirmed client bug (the run recording shows the failure). For
+    // warnings (scenario/env/test issues) the recording adds nothing, so the button is omitted and the
+    // screenshot links to the report instead.
+    const replayHref = verdict?.category === "client_bug" ? findingUrl : undefined;
     return {
         title: verdict?.headline ?? result.slug,
         href: findingUrl,
-        replayHref: findingUrl,
+        replayHref,
         screenshotUrl,
         description: verdict?.whatHappened,
         remediation: remediationWithRoute(result),

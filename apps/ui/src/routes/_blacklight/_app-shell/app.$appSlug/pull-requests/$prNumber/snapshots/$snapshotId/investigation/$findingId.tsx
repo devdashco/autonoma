@@ -35,7 +35,10 @@ function FindingDetail() {
 
   if (isPending) return <DetailSkeleton />;
 
-  const finding = data?.findings.find((f) => f.id === findingId);
+  // Reconciliation can absorb a test's finding into a canonical one (only the canonical's id survives as a
+  // route id), but external deep links (the PR comment) reference the test's own slug - resolve those to the
+  // merged finding via coveredSlugs so they land on the finding that now represents that test.
+  const finding = data?.findings.find((f) => f.id === findingId || (f.coveredSlugs ?? []).includes(findingId));
 
   if (finding == null) {
     return (

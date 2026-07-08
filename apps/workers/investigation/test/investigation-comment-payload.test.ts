@@ -57,6 +57,8 @@ describe("buildInvestigationCommentPayload", () => {
             evidence: [{ source: "diff", file: "app/x.ts", lines: "1-2", snippet: "- a\n+ b" }],
         });
         expect(payload.bugs[0]?.href).toContain("/investigation/csv-export");
+        // A client bug carries a replay link (the run recording shows the failure).
+        expect(payload.bugs[0]?.replayHref).toContain("/investigation/csv-export");
         expect(signed).toEqual(["s3://b/shot.png"]);
     });
 
@@ -69,6 +71,8 @@ describe("buildInvestigationCommentPayload", () => {
 
         expect(payload.state).toBe("warning");
         expect(payload.bugs).toHaveLength(2);
+        // Warnings get no "Watch replay" button - the recording adds nothing for scenario/env/test issues.
+        expect(payload.bugs.every((bug) => bug.replayHref == null)).toBe(true);
     });
 
     it("appends the scenario repair route (and client-factory change) to the remediation when diagnosed", async () => {
