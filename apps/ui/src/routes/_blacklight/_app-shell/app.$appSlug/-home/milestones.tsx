@@ -68,7 +68,7 @@ export function useMilestones(): Milestone[] {
     configure_tests: base,
     ci: `${base}/settings`,
     first_run: `${base}/tests`,
-    first_bug: `${base}/bugs`,
+    first_bug: base,
   };
 
   const firstIncompleteIndex = DEFINITIONS.findIndex((d) => !completionMap[d.id]);

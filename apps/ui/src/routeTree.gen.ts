@@ -43,7 +43,6 @@ import { Route as BlacklightAppShellAppAppSlugGithubIndexRouteImport } from './r
 import { Route as BlacklightAppShellAppAppSlugGenerationProgressIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/generation-progress/index'
 import { Route as BlacklightAppShellAppAppSlugFinishSetupIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/finish-setup/index'
 import { Route as BlacklightAppShellAppAppSlugEditIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/edit/index'
-import { Route as BlacklightAppShellAppAppSlugBugsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/bugs/index'
 import { Route as BlacklightAppShellAppAppSlugBillingIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/billing/index'
 import { Route as BlacklightAppShellAppAppSlugApiKeysIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/api-keys/index'
 import { Route as BlacklightAppShellAppAppSlugAdminIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/admin/index'
@@ -264,12 +263,6 @@ const BlacklightAppShellAppAppSlugEditIndexRoute =
     path: '/edit/',
     getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
   } as any)
-const BlacklightAppShellAppAppSlugBugsIndexRoute =
-  BlacklightAppShellAppAppSlugBugsIndexRouteImport.update({
-    id: '/bugs/',
-    path: '/bugs/',
-    getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
-  } as any)
 const BlacklightAppShellAppAppSlugBillingIndexRoute =
   BlacklightAppShellAppAppSlugBillingIndexRouteImport.update({
     id: '/billing/',
@@ -470,7 +463,6 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/admin/': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
   '/app/$appSlug/api-keys/': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
-  '/app/$appSlug/bugs/': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
   '/app/$appSlug/finish-setup/': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
@@ -523,7 +515,6 @@ export interface FileRoutesByTo {
   '/app/$appSlug/admin': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
   '/app/$appSlug/api-keys': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/app/$appSlug/billing': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
-  '/app/$appSlug/bugs': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/app/$appSlug/edit': typeof BlacklightAppShellAppAppSlugEditIndexRoute
   '/app/$appSlug/finish-setup': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/app/$appSlug/generation-progress': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
@@ -581,7 +572,6 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/admin/': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/api-keys/': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
-  '/_blacklight/_app-shell/app/$appSlug/bugs/': typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/finish-setup/': typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/generation-progress/': typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
@@ -641,7 +631,6 @@ export interface FileRouteTypes {
     | '/app/$appSlug/admin/'
     | '/app/$appSlug/api-keys/'
     | '/app/$appSlug/billing/'
-    | '/app/$appSlug/bugs/'
     | '/app/$appSlug/edit/'
     | '/app/$appSlug/finish-setup/'
     | '/app/$appSlug/generation-progress/'
@@ -694,7 +683,6 @@ export interface FileRouteTypes {
     | '/app/$appSlug/admin'
     | '/app/$appSlug/api-keys'
     | '/app/$appSlug/billing'
-    | '/app/$appSlug/bugs'
     | '/app/$appSlug/edit'
     | '/app/$appSlug/finish-setup'
     | '/app/$appSlug/generation-progress'
@@ -751,7 +739,6 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/admin/'
     | '/_blacklight/_app-shell/app/$appSlug/api-keys/'
     | '/_blacklight/_app-shell/app/$appSlug/billing/'
-    | '/_blacklight/_app-shell/app/$appSlug/bugs/'
     | '/_blacklight/_app-shell/app/$appSlug/edit/'
     | '/_blacklight/_app-shell/app/$appSlug/finish-setup/'
     | '/_blacklight/_app-shell/app/$appSlug/generation-progress/'
@@ -1019,13 +1006,6 @@ declare module '@tanstack/react-router' {
       path: '/edit'
       fullPath: '/app/$appSlug/edit/'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugEditIndexRouteImport
-      parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
-    }
-    '/_blacklight/_app-shell/app/$appSlug/bugs/': {
-      id: '/_blacklight/_app-shell/app/$appSlug/bugs/'
-      path: '/bugs'
-      fullPath: '/app/$appSlug/bugs/'
-      preLoaderRoute: typeof BlacklightAppShellAppAppSlugBugsIndexRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/billing/': {
@@ -1323,7 +1303,6 @@ interface BlacklightAppShellAppAppSlugRouteRouteChildren {
   BlacklightAppShellAppAppSlugRunsRunIdRoute: typeof BlacklightAppShellAppAppSlugRunsRunIdRoute
   BlacklightAppShellAppAppSlugApiKeysIndexRoute: typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   BlacklightAppShellAppAppSlugBillingIndexRoute: typeof BlacklightAppShellAppAppSlugBillingIndexRoute
-  BlacklightAppShellAppAppSlugBugsIndexRoute: typeof BlacklightAppShellAppAppSlugBugsIndexRoute
   BlacklightAppShellAppAppSlugEditIndexRoute: typeof BlacklightAppShellAppAppSlugEditIndexRoute
   BlacklightAppShellAppAppSlugFinishSetupIndexRoute: typeof BlacklightAppShellAppAppSlugFinishSetupIndexRoute
   BlacklightAppShellAppAppSlugGenerationProgressIndexRoute: typeof BlacklightAppShellAppAppSlugGenerationProgressIndexRoute
@@ -1358,8 +1337,6 @@ const BlacklightAppShellAppAppSlugRouteRouteChildren: BlacklightAppShellAppAppSl
       BlacklightAppShellAppAppSlugApiKeysIndexRoute,
     BlacklightAppShellAppAppSlugBillingIndexRoute:
       BlacklightAppShellAppAppSlugBillingIndexRoute,
-    BlacklightAppShellAppAppSlugBugsIndexRoute:
-      BlacklightAppShellAppAppSlugBugsIndexRoute,
     BlacklightAppShellAppAppSlugEditIndexRoute:
       BlacklightAppShellAppAppSlugEditIndexRoute,
     BlacklightAppShellAppAppSlugFinishSetupIndexRoute:

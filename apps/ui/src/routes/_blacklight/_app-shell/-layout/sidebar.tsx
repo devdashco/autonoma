@@ -1,6 +1,5 @@
 import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from "@autonoma/blacklight";
 import { BugIcon } from "@phosphor-icons/react/Bug";
-import { BugBeetleIcon } from "@phosphor-icons/react/BugBeetle";
 import { CaretLineLeftIcon } from "@phosphor-icons/react/CaretLineLeft";
 import { CaretLineRightIcon } from "@phosphor-icons/react/CaretLineRight";
 import { ChatCircleDotsIcon } from "@phosphor-icons/react/ChatCircleDots";
@@ -68,7 +67,6 @@ function useAppNav() {
   const items: NavItem[] = [
     { icon: HouseIcon, label: "Home", href: base, exact: true },
     { icon: GitPullRequestIcon, label: "Pull Requests", href: `${base}/pull-requests` },
-    { icon: BugBeetleIcon, label: "Bugs", href: `${base}/bugs` },
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
   ];
 
