@@ -6,6 +6,7 @@ import {
     PriorRuns,
     type RunArtifacts,
     classifyRun,
+    loadPreviewAppLogs,
     persistInvestigationCosts,
 } from "@autonoma/investigation";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -55,9 +56,10 @@ type GenerationRow = {
 
 /**
  * Classify one shadow run: load its generation row + media, clone the codebase, wire the classifier's
- * dependencies against real infra (Prisma / S3 / preview secrets / the cloned repo / the models), and run
- * the classifier. NOTE: get_app_logs (Loki) + get_deployment_health (k8s) are not wired in v1 - they return
- * a clear "unavailable" note and the classifier degrades gracefully; the high-value tools are all wired.
+ * dependencies against real infra (Prisma / S3 / preview secrets / the cloned repo / the models / Loki), and
+ * run the classifier. get_app_logs is wired to the preview's Loki stream (namespace resolved from the PR's
+ * previewkit environment); get_deployment_health (cross-cluster k8s) is not wired yet - it returns a clear
+ * "unavailable" note and the classifier degrades gracefully.
  */
 export async function classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
     const { snapshotId, slug, reason, testGenerationId } = input;
@@ -99,6 +101,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
 
     return withSnapshotContext(snapshotId, `classify-${testGenerationId}`, async (context) => {
         const prMeta = await resolvePrMeta(context);
+        const previewNamespace = await resolvePreviewNamespace(context.repoFullName, prMeta.prNumber, logger);
         const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
         const preview = new PreviewEnvironment(PreviewSecrets.create(), context.repoFullName);
         const session = createModelSession();
@@ -119,8 +122,15 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 run: runArtifacts,
                 preview,
                 loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.appSlug, slug)),
-                loadAppLogs: async () =>
-                    "App logs are not wired in investigation v1 (no preview Loki namespace resolution yet) - classify from the run, code, and queried data instead.",
+                loadAppLogs: (regex) =>
+                    loadPreviewAppLogs({
+                        regex,
+                        lokiUrl: env.LOKI_URL,
+                        namespace: previewNamespace,
+                        startEpoch: runArtifacts.startEpoch,
+                        endEpoch: runArtifacts.endEpoch,
+                        logger,
+                    }),
                 loadDeploymentHealth: async () =>
                     "Deployment health is not wired in investigation v1 (no cross-cluster k8s read configured) - infer service health from the run + app logs instead.",
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-classify" }),
@@ -322,4 +332,29 @@ function deriveRunTrace(attempts: AttemptRow[]): InvestigationRunStep[] {
             endPoint: output?.endPoint,
         };
     });
+}
+
+/**
+ * Resolve the previewkit namespace for a PR - the Loki log-stream selector. `previewkit_environment` keys the
+ * namespace on (repoFullName, prNumber); a preview that was never deployed or has been torn down returns
+ * undefined and app-log querying degrades gracefully (prNumber 0 means resolvePrMeta found no feature branch).
+ */
+async function resolvePreviewNamespace(
+    repoFullName: string,
+    prNumber: number,
+    logger: Logger,
+): Promise<string | undefined> {
+    if (prNumber === 0) return undefined;
+    const previewEnv = await db.previewkitEnvironment.findUnique({
+        where: { repoFullName_prNumber: { repoFullName, prNumber } },
+        select: { namespace: true },
+    });
+    if (previewEnv == null) {
+        logger.info("No previewkit environment for PR - app logs unavailable", {
+            extra: { repoFullName, prNumber },
+        });
+        return undefined;
+    }
+    logger.info("Resolved preview namespace for app logs", { extra: { repoFullName, prNumber } });
+    return previewEnv.namespace;
 }

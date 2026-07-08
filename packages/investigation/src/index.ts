@@ -15,6 +15,8 @@ export type { ModelSession, InvestigationModelName, InvestigationModelConfig } f
 export { persistInvestigationCosts } from "./ai/persist-costs";
 export { queryLokiLogs } from "./logs/loki";
 export type { LokiLogQuery } from "./logs/loki";
+export { loadPreviewAppLogs } from "./logs/preview-app-logs";
+export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { CLASSIFIER_SYSTEM_PROMPT, buildVerdictPrompt } from "./classify/prompt";
 export { VerdictForModel, toRunVerdict } from "./classify/verdict-schema";
 export { classifyRun } from "./classify/classify-run";

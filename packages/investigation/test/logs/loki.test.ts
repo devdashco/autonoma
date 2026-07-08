@@ -57,4 +57,39 @@ describe("queryLokiLogs", () => {
             queryLokiLogs({ lokiBaseUrl: "http://loki", namespace: "ns", startEpoch: 1, endEpoch: 2, regex: "x" }),
         ).rejects.toThrow(/HTTP 503/);
     });
+
+    it("returns an empty array when no streams match (so the caller can state 'no matching error' as fact)", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async () => new Response(JSON.stringify({ data: { result: [] } }), { status: 200 })),
+        );
+        const lines = await queryLokiLogs({
+            lokiBaseUrl: "http://loki",
+            namespace: "ns",
+            startEpoch: 1,
+            endEpoch: 2,
+            regex: "x",
+        });
+        expect(lines).toEqual([]);
+    });
+
+    it("pads the run window by 90s on each side and sends it as epoch nanoseconds", async () => {
+        const fetchMock = vi.fn(
+            async (_url: string | URL) => new Response(JSON.stringify({ data: { result: [] } }), { status: 200 }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        await queryLokiLogs({
+            lokiBaseUrl: "http://loki",
+            namespace: "ns",
+            startEpoch: 1000,
+            endEpoch: 2000,
+            regex: "x",
+        });
+
+        const requested = new URL(String(fetchMock.mock.calls[0]?.[0]));
+        // (1000 - 90) and (2000 + 90) seconds, expressed in nanoseconds.
+        expect(requested.searchParams.get("start")).toBe(String(910 * 1_000_000_000));
+        expect(requested.searchParams.get("end")).toBe(String(2090 * 1_000_000_000));
+    });
 });
