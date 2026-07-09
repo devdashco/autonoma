@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.28](https://github.com/Autonoma-AI/agent/compare/v1.8.27...v1.8.28) (2026-07-09)
+
+
+### Bug Fixes
+
+* **cli:** raise model retries to 10 (SDK-native) ([#1396](https://github.com/Autonoma-AI/agent/issues/1396)) ([1307968](https://github.com/Autonoma-AI/agent/commit/1307968b48f8e4e0e2ae864ef80ec094873638e7))
+* **previewkit:** retry buildkit session-loss failures ([#1397](https://github.com/Autonoma-AI/agent/issues/1397)) ([8d656a5](https://github.com/Autonoma-AI/agent/commit/8d656a557697cd086f88a2cbe3be1925ca8b1e0c))
+* remove the replay subsystem ([#1350](https://github.com/Autonoma-AI/agent/issues/1350)) ([23983de](https://github.com/Autonoma-AI/agent/commit/23983ded3d544fc10a6379b516a923547cbe31c4))
+
 ## [1.8.27](https://github.com/Autonoma-AI/agent/compare/v1.8.26...v1.8.27) (2026-07-09)
 
 
