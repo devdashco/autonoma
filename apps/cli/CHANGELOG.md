@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.18](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.17...cli-v0.1.18) (2026-07-09)
+
+
+### Features
+
+* **llm-proxy:** cap free-account CLI spend and per-request size to prevent abuse ([#1351](https://github.com/Autonoma-AI/agent/issues/1351)) ([1f0807f](https://github.com/Autonoma-AI/agent/commit/1f0807f1fc10123f78f71b6c941c31c18f8c23de))
+
+
+### Bug Fixes
+
+* **cli:** raise model retries to 10 (SDK-native) ([#1396](https://github.com/Autonoma-AI/agent/issues/1396)) ([1307968](https://github.com/Autonoma-AI/agent/commit/1307968b48f8e4e0e2ae864ef80ec094873638e7))
+
 ## [0.1.17](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.16...cli-v0.1.17) (2026-07-02)
 
 
