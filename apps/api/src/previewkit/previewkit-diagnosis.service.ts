@@ -1,4 +1,4 @@
-import type { LanguageModel } from "@autonoma/ai";
+import type { LanguageModel } from "@autonoma/ai/llm";
 import { type Prisma, type PrismaClient } from "@autonoma/db";
 import { queryLokiLogs } from "@autonoma/investigation/logs";
 import {
@@ -220,7 +220,7 @@ export class PreviewkitDiagnosisService extends Service {
         if (model == null) return heuristic;
 
         try {
-            const { ObjectGenerator } = await import("@autonoma/ai");
+            const { ObjectGenerator } = await import("@autonoma/ai/llm");
             const generator = new ObjectGenerator({
                 model,
                 systemPrompt: DIAGNOSIS_SYSTEM_PROMPT,
@@ -277,7 +277,7 @@ export class PreviewkitDiagnosisService extends Service {
     private getModel(): Promise<LanguageModel | undefined> {
         if (!this.attemptAi) return Promise.resolve(undefined);
         if (this.modelPromise == null) {
-            this.modelPromise = import("@autonoma/ai")
+            this.modelPromise = import("@autonoma/ai/llm")
                 .then((ai) => {
                     const registry = new ai.ModelRegistry({ models: ai.MODEL_ENTRIES });
                     return registry.getModel({

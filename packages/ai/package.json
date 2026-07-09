@@ -10,7 +10,8 @@
     "exports": {
         ".": "./src/index.ts",
         "./env": "./src/env.ts",
-        "./evaluation": "./evals/index.ts"
+        "./evaluation": "./evals/index.ts",
+        "./llm": "./src/llm.ts"
     },
     "scripts": {
         "test": "vitest",

@@ -6,7 +6,8 @@ AI primitives for the Autonoma test execution platform. Provides model managemen
 
 | Export Path | Description |
 |-------------|-------------|
-| `@autonoma/ai` | All core primitives (registry, generators, visual, detection) |
+| `@autonoma/ai` | All core primitives (registry, generators, visual, detection). Transitively loads `@autonoma/image` -> `sharp`. |
+| `@autonoma/ai/llm` | Sharp-free subset: `ModelRegistry`, `MODEL_ENTRIES`, `ObjectGenerator`. For hosts (e.g. the API) that need text / structured generation but never run vision code and have no sharp native binary. |
 | `@autonoma/ai/env` | Validated environment config (`GROQ_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`) |
 | `@autonoma/ai/evaluation` | AI evaluation framework for benchmarking accuracy |
 
