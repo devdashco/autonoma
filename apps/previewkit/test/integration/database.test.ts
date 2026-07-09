@@ -68,7 +68,6 @@ integrationTestSuite({
                     error: "boom",
                     tornDownAt: new Date(),
                     resolvedConfig: { version: 1, apps: [{ name: "web", port: 3000 }] },
-                    configRevisionId: "rev_prior",
                 },
             });
 
@@ -96,7 +95,6 @@ integrationTestSuite({
             // readiness views stay populated during the in-flight redeploy;
             // recordResolvedConfig overwrites it once this attempt resolves.
             expect(env!.resolvedConfig).toEqual({ version: 1, apps: [{ name: "web", port: 3000 }] });
-            expect(env!.configRevisionId).toBe("rev_prior");
         });
 
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {

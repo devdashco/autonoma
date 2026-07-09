@@ -12,12 +12,12 @@ import { z } from "zod";
 import type { OnboardingGithubRepository, OnboardingManagerOptions } from "./onboarding-dependencies";
 import {
     collectTopologyNames,
-    createAndActivateRevision,
     defaultPreviewkitConfig,
     mergeConfigsForValidation,
     normalizeRepoPath,
     parseConfigShapeOrThrow,
     parseStoredDependencyDocuments,
+    upsertConfig,
 } from "./previewkit-config-helpers";
 
 export interface OnboardingPreviewkitDependencyConfig {
@@ -28,16 +28,12 @@ export interface OnboardingPreviewkitDependencyConfig {
     githubRepositoryId?: number;
     applicationId?: string;
     saved: boolean;
-    revisionId?: string;
-    revision?: number;
     document?: PreviewConfig;
 }
 
 export interface OnboardingPreviewkitConfig {
     applicationId: string;
     saved: boolean;
-    revisionId?: string;
-    revision?: number;
     document: PreviewConfig;
     /** One entry per dependency repo declared in the primary document's `config.multirepo.repos`. */
     dependencyConfigs: OnboardingPreviewkitDependencyConfig[];
@@ -57,7 +53,7 @@ export interface PreviewkitConfigValidationResult {
 
 /**
  * Owns the PreviewKit config domain for onboarding: loading the active config
- * (plus dependency-repo configs), saving multi-repo revisions atomically, and
+ * (plus dependency-repo configs), saving the multi-repo config (latest-only), and
  * validating documents. The caller ({@link OnboardingManager}) is responsible
  * for the onboarding-state guards (repo linked, step reached) before delegating.
  */
@@ -77,12 +73,13 @@ export class PreviewkitConfigService {
             where: { id: applicationId, organizationId },
             select: {
                 id: true,
-                activeConfigRevisionId: true,
+                previewkitConfig: { select: { document: true, dependencyDocuments: true } },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        if (application.activeConfigRevisionId == null) {
+        const stored = application.previewkitConfig;
+        if (stored == null) {
             return {
                 applicationId,
                 saved: false,
@@ -91,40 +88,20 @@ export class PreviewkitConfigService {
             };
         }
 
-        const revision = await this.db.previewkitConfigRevision.findFirst({
-            where: { id: application.activeConfigRevisionId, applicationId },
-            select: {
-                id: true,
-                revision: true,
-                document: true,
-                dependencyDocuments: true,
-            },
-        });
-        if (revision == null) {
-            return {
-                applicationId,
-                saved: false,
-                document: defaultPreviewkitConfig(),
-                dependencyConfigs: [],
-            };
-        }
-
-        const validation = previewConfigSchema.safeParse(revision.document);
+        const validation = previewConfigSchema.safeParse(stored.document);
         if (!validation.success) {
-            throw new ConflictError(`Active PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
+            throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
         }
 
         return {
             applicationId,
             saved: true,
-            revisionId: revision.id,
-            revision: revision.revision,
             document: validation.data,
             dependencyConfigs: await this.loadDependencyConfigs(
                 applicationId,
                 organizationId,
                 validation.data,
-                revision.dependencyDocuments,
+                stored.dependencyDocuments,
             ),
         };
     }
@@ -132,7 +109,7 @@ export class PreviewkitConfigService {
     /**
      * Builds the dependency-config entries for each repo declared in the primary
      * document's `config.multirepo.repos`, sourcing each config from the primary
-     * revision's stored `dependencyDocuments` (dependency repos are not separate
+     * config's stored `dependencyDocuments` (dependency repos are not separate
      * Applications). GitHub is consulted only to resolve each repo's id for the
      * UI; being unreachable degrades to entries without it. The owning
      * `applicationId` is the primary app - dependency-app secrets live there.
@@ -218,20 +195,16 @@ export class PreviewkitConfigService {
             throw new BadRequestError(`Invalid PreviewKit config: ${issueText}`);
         }
 
-        const created = await this.db.$transaction((tx) =>
-            createAndActivateRevision(
-                tx,
-                applicationId,
-                config,
-                dependencies.map((dependency) => ({ repo: dependency.repo, document: dependency.config })),
-            ),
+        await upsertConfig(
+            this.db,
+            applicationId,
+            config,
+            dependencies.map((dependency) => ({ repo: dependency.repo, document: dependency.config })),
         );
 
         return {
             applicationId,
             saved: true,
-            revisionId: created.id,
-            revision: created.revision,
             document: config,
             dependencyConfigs: dependencies.map((dependency) => ({
                 name: dependency.alias,
@@ -249,7 +222,7 @@ export class PreviewkitConfigService {
      * Validates each dependency document, checks merged-topology name uniqueness,
      * and resolves each dependency repo's GitHub id (for the UI / clone). Does NOT
      * create Applications - the dependency configs are stored on the primary
-     * revision and the deploy clones each repo for source only.
+     * config and the deploy clones each repo for source only.
      */
     private async prepareDependencySaves(
         organizationId: string,

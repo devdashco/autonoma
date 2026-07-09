@@ -20,7 +20,7 @@ import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manage
 import { BuildAbortedError, type Builder } from "../builder/builder";
 import { buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
-import { type ActiveConfig, loadActiveConfig, loadConfigRevision } from "../config/revisions";
+import { loadConfig } from "../config/load-config";
 import {
     type BranchConvention,
     type PreviewConfig,
@@ -109,7 +109,7 @@ interface PreviewPipelineOptions {
 
 /**
  * Result of {@link PreviewPipeline.prepare}. `skipped` short-circuits the rest
- * of the pipeline for repos that opted out (no active config revision).
+ * of the pipeline for repos that opted out (no preview config).
  */
 export type PreparePreviewResult =
     | { skipped: true }
@@ -141,36 +141,13 @@ export class PreviewPipeline {
     }
 
     /**
-     * Resolves the primary app's config from the Application's active DB config
-     * revision. Returns undefined when the Application has no active revision -
-     * the opt-out signal. A redeploy pins the revision the environment was
-     * originally deployed with so a later change to the active config doesn't
-     * alter the redeploy's topology; a pinned id that no longer resolves degrades
-     * to the current active revision.
+     * Step 1 - resolve the Application + its preview config, set the initial
+     * commit status + PR comment, and ensure the namespace exists so status can
+     * be polled from the first moment. Returns `{ skipped: true }` for repos
+     * that opted out (not linked, or no preview config). Config is latest-only:
+     * every deploy and redeploy resolves the Application's current config.
      */
-    private async resolvePrimaryConfig(
-        applicationId: string,
-        pinnedRevisionId: string | undefined,
-    ): Promise<ActiveConfig | undefined> {
-        if (pinnedRevisionId != null) {
-            const pinned = await loadConfigRevision(applicationId, pinnedRevisionId);
-            if (pinned != null) return pinned;
-            logger.warn("Pinned config revision not found; resolving current config", {
-                applicationId,
-                pinnedRevisionId,
-            });
-        }
-
-        return await loadActiveConfig(applicationId);
-    }
-
-    /**
-     * Step 1 - resolve the Application + its active config revision, set the
-     * initial commit status + PR comment, and ensure the namespace exists so
-     * status can be polled from the first moment. Returns `{ skipped: true }` for
-     * repos that opted out (not linked, or no active config revision).
-     */
-    async prepare(event: PullRequestEvent, configRevisionId?: string | undefined): Promise<PreparePreviewResult> {
+    async prepare(event: PullRequestEvent): Promise<PreparePreviewResult> {
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const shortSha = headSha.slice(0, 7);
 
@@ -201,25 +178,24 @@ export class PreviewPipeline {
             applicationId: application.id,
         });
 
-        logger.info("Prepare step 2/6 resolving active config revision", {
+        logger.info("Prepare step 2/6 resolving preview config", {
             repo: repoFullName,
             pr: prNumber,
             applicationId: application.id,
-            pinnedRevisionId: configRevisionId,
         });
-        const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
+        const resolved = await loadConfig(application.id);
         if (resolved == null) {
-            logger.warn("No active config revision; skipping deployment", {
+            logger.warn("No preview config; skipping deployment", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
             });
             return { skipped: true };
         }
-        logger.info("Prepare step 2/6 resolved active config revision", {
+        logger.info("Prepare step 2/6 resolved preview config", {
             repo: repoFullName,
             pr: prNumber,
-            revisionId: resolved.revisionId,
+            applicationId: application.id,
         });
 
         // Synthetic non-PR environments (prNumber 0 for an Application's main branch)
@@ -326,7 +302,6 @@ export class PreviewPipeline {
     async build(
         event: PullRequestEvent,
         namespace: string,
-        configRevisionId?: string | undefined,
         signal?: AbortSignal,
         appName?: string | undefined,
     ): Promise<BuildPreviewImagesOutput> {
@@ -372,22 +347,20 @@ export class PreviewPipeline {
             applicationId: application.id,
         });
 
-        logger.info("Build step 2/7 resolving active config revision", {
+        logger.info("Build step 2/7 resolving preview config", {
             repo: repoFullName,
             pr: prNumber,
             applicationId: application.id,
-            pinnedRevisionId: configRevisionId,
         });
-        const resolved = await this.resolvePrimaryConfig(application.id, configRevisionId);
+        const resolved = await loadConfig(application.id);
         if (resolved == null) {
-            throw new Error(`No active config revision for ${repoFullName} at ${shortSha}`);
+            throw new Error(`No preview config for ${repoFullName} at ${shortSha}`);
         }
         const primaryConfig = resolved.config;
-        const resolvedRevisionId = resolved.revisionId;
-        logger.info("Build step 2/7 resolved active config revision", {
+        logger.info("Build step 2/7 resolved preview config", {
             repo: repoFullName,
             pr: prNumber,
-            revisionId: resolvedRevisionId,
+            applicationId: application.id,
         });
 
         let primaryDir: string | undefined;
@@ -443,11 +416,9 @@ export class PreviewPipeline {
             // The apps to build: just the target when scoped, otherwise every app.
             const buildApps = isScoped ? mergedConfig.apps.filter((a) => a.name === appName) : mergedConfig.apps;
             // Snapshot the effective (merged) config. The summary + readiness views
-            // project it for display and failure diagnostics; configRevisionId records
-            // which primary revision fed it. Overwritten on each deploy once resolved.
-            await recordSafe(() =>
-                recordResolvedConfig({ namespace, resolvedConfig: mergedConfig, configRevisionId: resolvedRevisionId }),
-            );
+            // project it for display and failure diagnostics. Overwritten on each
+            // deploy once resolved.
+            await recordSafe(() => recordResolvedConfig({ namespace, resolvedConfig: mergedConfig }));
 
             // Moment 0: now that the merged config names every app, seed a
             // `pending` lifecycle row per app so each has a distinct status
@@ -548,7 +519,7 @@ export class PreviewPipeline {
             // within an application's topology but NOT across an org, so a bare
             // org-wide `appName IN (...)` match would pull a foreign app's secret
             // when two applications share an app name (e.g. "web").
-            // Dependency apps ride the primary revision.
+            // Dependency apps ride the primary config.
             const secretRecords = await db.previewkitSecret.findMany({
                 where: {
                     applicationId: application.id,
@@ -699,8 +670,8 @@ export class PreviewPipeline {
         const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         // Re-hydrate the merged config across the Temporal activity boundary. The
-        // config's resource policy was already applied upstream (a DB revision's
-        // overrides were honored), so this re-parse must preserve those values
+        // config's resource policy was already applied upstream (the stored
+        // config's overrides were honored), so this re-parse must preserve those values
         // rather than re-standardize them - hence the trusted schema, which passes
         // already-normalized resources through unchanged.
         const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
@@ -1344,9 +1315,9 @@ export class PreviewPipeline {
         logger.info("Preview deployment failure finalizer complete", { repo: repoFullName, pr: prNumber, namespace });
     }
 
-    // Resolves the target branch, resolves the dependency's config from its
-    // active DB revision, and clones the repo into a temp dir. Returns null when
-    // the dependency has no active config revision (opt-out).
+    // Resolves the target branch, resolves the dependency's config (owned by
+    // the primary config's dependencyDocuments, passed in), and clones the repo
+    // into a temp dir. Returns null when the dependency has no config (opt-out).
     private async cloneDependency(
         dep: RepoDependency,
         prNumber: number,

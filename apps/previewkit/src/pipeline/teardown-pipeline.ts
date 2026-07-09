@@ -37,7 +37,7 @@ export class TeardownPipeline {
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber, headSha, organizationId });
 
         // Short-circuit if the namespace doesn't exist. This happens when the deploy
-        // was silently skipped (no Application linked, or no active config revision):
+        // was silently skipped (no Application linked, or no preview config):
         // there is nothing to tear down, no comment to update, no commit status to
         // flip. Acting anyway would 404 on a non-existent namespace.
         const namespace = this.deployer.getNamespaceName(repoFullName, prNumber);

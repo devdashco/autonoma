@@ -345,12 +345,18 @@ model Application {
   previewkitSecrets         PreviewkitSecret[]
   previewkitConfigRevisions PreviewkitConfigRevision[]
 
-  // Revision currently in effect for this Application's previews. A real FK
-  // (named relation, since previewkitConfigRevisions is the other edge to the
-  // same model - mirrors the mainBranch cycle above) so the pointer can never
-  // dangle. onDelete: SetNull lets a revision be deleted out from under it; the
-  // Application then has no active config and its previews are skipped (opt-out)
-  // rather than erroring.
+  // The Application's preview config (latest-only; saving overwrites it in
+  // place). No row means the Application has no preview config and its
+  // previews are skipped (opt-out) rather than erroring. This is the config the
+  // deploy pipeline reads. `PreviewkitConfigRevision` + `activeConfigRevisionId`
+  // below are the legacy revision-history model, retained only so the one-time
+  // backfill (`backfill-previewkit-config.ts`) can copy each active revision
+  // into `previewkitConfig`; a follow-up contract migration drops them.
+  previewkitConfig PreviewkitConfig?
+
+  // DEPRECATED (pending contract migration): the revision currently in effect,
+  // kept so the backfill can source each Application's `previewkitConfig` from
+  // it. No live code path reads this anymore.
   activeConfigRevisionId String?                   @unique @map("active_config_revision_id")
   activeConfigRevision   PreviewkitConfigRevision? @relation("ActiveConfigRevision", fields: [activeConfigRevisionId], references: [id], onDelete: SetNull)
 
@@ -1801,13 +1807,17 @@ model PreviewkitEnvironment {
   bypassToken String? @map("bypass_token")
 
   // The effective (merged) config for the latest deploy attempt: the primary
-  // app's active config revision merged with any multirepo dependencies. The
-  // summary + readiness views project it for display and failure diagnostics -
-  // there is no separate manifest column. Overwritten on each deploy once the
-  // config resolves; `configRevisionId` records which primary revision fed it.
-  // Not read on redeploy - that re-resolves from the pinned revision.
+  // app's config merged with any multirepo dependencies. The summary +
+  // readiness views project it for display and failure diagnostics - there is
+  // no separate manifest column. Overwritten on each deploy once the config
+  // resolves. Not read on redeploy - that re-resolves the Application's
+  // current config.
   /// ![object]
-  resolvedConfig   Json?   @map("resolved_config")
+  resolvedConfig Json? @map("resolved_config")
+
+  // DEPRECATED (pending contract migration): which revision fed the snapshot.
+  // No live code path reads or writes this anymore; kept only so the column is
+  // dropped by the same contract migration that removes the revision model.
   configRevisionId String? @map("config_revision_id")
 
   deployedAt DateTime? @map("deployed_at")
@@ -1970,12 +1980,44 @@ model PreviewkitOrgSecret {
   @@map("previewkit_org_secret")
 }
 
-// Immutable, versioned snapshots of an Application's preview config document.
+// An Application's preview config document - latest-only, one row per
+// Application (no revision history; saving overwrites the row in place).
 // `document` is a preview config document validated against
 // `previewConfigSchema`; it is stored as opaque JSON and validated on read by
 // the resolver (boundary validation), so the DB never constrains a churning
-// config format. The Application's `activeConfigRevisionId` points at the
-// revision currently in effect.
+// config format. There is no stored `schemaVersion`: `previewConfigSchema` is
+// the compatibility layer (it strips retired fields and defaults their
+// replacements), so every stored document parses without a version-upgrade step.
+model PreviewkitConfig {
+  id            String @id @default(cuid())
+  applicationId String @unique @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Opaque config document; validated by previewConfigSchema on read.
+  /// ![object]
+  document Json
+
+  // Multirepo dependency configs owned by this (primary) config: an array of
+  // { repo, document } where document is a previewConfigSchema-validated config
+  // for a repo declared in `document.config.multirepo.repos`. Dependency repos
+  // are NOT separate Applications - the primary app owns the whole topology and
+  // the deploy reads each dependency's config from here (cloning the repo for
+  // source only). Null/absent means a single-repo project.
+  /// ![object]
+  dependencyDocuments Json?  @map("dependency_documents")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("previewkit_config")
+}
+
+// DEPRECATED - legacy revision-history model, pending removal by the contract
+// migration once every environment's `previewkit_config` has been backfilled
+// from it (see `apps/api/src/scripts/backfill-previewkit-config.ts`). No live
+// code path reads this anymore; the deploy pipeline reads `PreviewkitConfig`.
+// Kept in the schema only so the backfill can source each Application's active
+// revision through the typed client.
 model PreviewkitConfigRevision {
   id            String @id @default(cuid())
   applicationId String @map("application_id")
@@ -1992,16 +2034,9 @@ model PreviewkitConfigRevision {
   // avoid a destructive column drop; can be removed in a dedicated migration.
   schemaVersion Int @default(1) @map("schema_version")
 
-  // Opaque config document; validated by previewConfigSchema on read.
   /// ![object]
   document Json
 
-  // Multirepo dependency configs owned by this (primary) revision: an array of
-  // { repo, document } where document is a previewConfigSchema-validated config
-  // for a repo declared in `document.config.multirepo.repos`. Dependency repos
-  // are NOT separate Applications - the primary app owns the whole topology and
-  // the deploy reads each dependency's config from here (cloning the repo for
-  // source only). Null/absent means a single-repo project.
   /// ![object]
   dependencyDocuments Json?  @map("dependency_documents")
 

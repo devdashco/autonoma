@@ -1,9 +1,9 @@
-import { Prisma } from "@autonoma/db";
+import { Prisma, type PrismaClient } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
 
-/** The starter config used when an application has never saved a PreviewKit revision. */
+/** The starter config used when an application has never saved a PreviewKit config. */
 export function defaultPreviewkitConfig(): PreviewConfig {
     return previewConfigSchema.parse({
         version: 1,
@@ -47,8 +47,8 @@ export function mergeConfigsForValidation(primary: PreviewConfig, dependencies: 
     };
 }
 
-/** A multirepo dependency's config, stored on the primary revision's `dependencyDocuments`. */
-export interface DependencyRevisionDocument {
+/** A multirepo dependency's config, stored on the primary config's `dependencyDocuments`. */
+export interface DependencyDocument {
     /** Repo full name (`owner/repo`) declared in the primary's `config.multirepo.repos`. */
     repo: string;
     document: PreviewConfig;
@@ -57,13 +57,13 @@ export interface DependencyRevisionDocument {
 const storedDependencyDocumentsSchema = z.array(z.object({ repo: z.string(), document: previewConfigSchema }));
 
 /**
- * Parses the `dependencyDocuments` JSON stored on a config revision. Returns []
+ * Parses the `dependencyDocuments` JSON stored on a config. Returns []
  * for null/absent (single-repo project); `invalid: true` when a present value no
  * longer validates, so the caller can log it rather than silently dropping
  * dependencies.
  */
 export function parseStoredDependencyDocuments(value: unknown): {
-    documents: DependencyRevisionDocument[];
+    documents: DependencyDocument[];
     invalid: boolean;
 } {
     if (value == null) return { documents: [], invalid: false };
@@ -73,43 +73,34 @@ export function parseStoredDependencyDocuments(value: unknown): {
 }
 
 /**
- * Creates the next config revision for an Application and points its active
- * revision at it. `dependencyDocuments` (primary-app saves only) carries the
- * multirepo dependency configs the deploy reads - dependency repos are not
- * separate Applications.
+ * Saves an Application's preview config - latest-only, so this overwrites the
+ * single `PreviewkitConfig` row in place (creating it on first save).
+ * `dependencyDocuments` (primary-app saves only) carries the multirepo
+ * dependency configs the deploy reads - dependency repos are not separate
+ * Applications.
  */
-export async function createAndActivateRevision(
-    tx: Prisma.TransactionClient,
+export async function upsertConfig(
+    db: PrismaClient,
     applicationId: string,
     config: PreviewConfig,
-    dependencyDocuments: DependencyRevisionDocument[] = [],
-): Promise<{ id: string; revision: number }> {
+    dependencyDocuments: DependencyDocument[] = [],
+): Promise<void> {
     const savedDocument = JSON.parse(JSON.stringify(config));
     const savedDependencyDocuments =
         dependencyDocuments.length > 0 ? JSON.parse(JSON.stringify(dependencyDocuments)) : Prisma.DbNull;
-    const last = await tx.previewkitConfigRevision.findFirst({
-        where: { applicationId },
-        orderBy: { revision: "desc" },
-        select: { revision: true },
-    });
-    const revision = (last?.revision ?? 0) + 1;
 
-    const row = await tx.previewkitConfigRevision.create({
-        data: {
+    await db.previewkitConfig.upsert({
+        where: { applicationId },
+        create: {
             applicationId,
-            revision,
             document: savedDocument,
             dependencyDocuments: savedDependencyDocuments,
         },
-        select: { id: true, revision: true },
+        update: {
+            document: savedDocument,
+            dependencyDocuments: savedDependencyDocuments,
+        },
     });
-
-    await tx.application.update({
-        where: { id: applicationId },
-        data: { activeConfigRevisionId: row.id },
-    });
-
-    return row;
 }
 
 /**

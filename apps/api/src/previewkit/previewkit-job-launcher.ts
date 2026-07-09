@@ -66,7 +66,7 @@ const DEPLOY_FAMILY_SELECTOR = `${LABEL_TYPE} in (deploy,redeploy-app)`;
 
 /** Mirrors apps/previewkit/src/runner/job-spec.ts `PreviewJobSpec`. */
 type PreviewJobInput =
-    | { mode: "deploy"; event: PreviewDeployEvent; configRevisionId?: string }
+    | { mode: "deploy"; event: PreviewDeployEvent }
     | { mode: "teardown"; event: PreviewDeployEvent }
     | {
           mode: "redeploy-app";
@@ -74,7 +74,6 @@ type PreviewJobInput =
           namespace: string;
           appName: string;
           redeployMode: "rebuild" | "restart";
-          configRevisionId?: string;
       };
 
 export interface PreviewkitJobLauncherOptions {
@@ -156,7 +155,7 @@ export class PreviewkitJobLauncher {
     }
 
     async launchDeploy(params: TriggerPreviewDeployParams): Promise<void> {
-        const { event, configRevisionId } = params;
+        const { event } = params;
         const envKey = previewEnvKey(event.repoFullName, event.prNumber);
         this.logger.info("Launching preview deploy job", {
             extra: { envKey, repo: event.repoFullName, pr: event.prNumber, sha: event.headSha.slice(0, 7) },
@@ -166,16 +165,12 @@ export class PreviewkitJobLauncher {
         // cannot replace.
         const image = await this.resolveRunnerImage();
         await this.supersedeDeployFamily(envKey);
-        const spec: PreviewJobInput = {
-            mode: "deploy",
-            event,
-            ...(configRevisionId != null ? { configRevisionId } : {}),
-        };
+        const spec: PreviewJobInput = { mode: "deploy", event };
         await this.createJob("deploy", envKey, event, spec, image, this.deployDeadlineSeconds(), DEPLOY_GRACE_SECONDS);
     }
 
     async launchRedeployApp(params: TriggerPreviewRedeployAppParams): Promise<void> {
-        const { event, namespace, appName, mode, configRevisionId } = params;
+        const { event, namespace, appName, mode } = params;
         const envKey = previewEnvKey(event.repoFullName, event.prNumber);
         this.logger.info("Launching preview per-app redeploy job", {
             extra: { envKey, repo: event.repoFullName, pr: event.prNumber, app: appName, mode },
@@ -190,7 +185,6 @@ export class PreviewkitJobLauncher {
             namespace,
             appName,
             redeployMode: mode,
-            ...(configRevisionId != null ? { configRevisionId } : {}),
         };
         await this.createJob(
             "redeploy-app",

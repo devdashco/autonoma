@@ -248,7 +248,7 @@ export class OnboardingManager {
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
 
-        // AWS-first: upsert secrets before committing the config revision. If a
+        // AWS-first: upsert secrets before committing the config. If a
         // secret write throws, the config never saves, so the two stores stay
         // consistent (the rare residual - secrets written, config not - is the
         // safe direction: extra secret values are harmless until referenced).
@@ -299,7 +299,7 @@ export class OnboardingManager {
         }
     }
 
-    /** Best-effort delete of removed secret keys after the config revision has committed. */
+    /** Best-effort delete of removed secret keys after the config has committed. */
     private async deleteConfigSecrets(
         applicationId: string,
         organizationId: string,
@@ -371,8 +371,8 @@ export class OnboardingManager {
             throw new BadRequestError("PreviewKit is not configured for this environment");
         }
 
-        const activeConfig = await this.ensureActivePreviewkitConfig(applicationId, organizationId);
-        const blockingIssues = validatePreviewConfigSemantics(activeConfig).filter(
+        const savedConfig = await this.ensureSavedPreviewkitConfig(applicationId, organizationId);
+        const blockingIssues = validatePreviewConfigSemantics(savedConfig).filter(
             (issue) => issue.severity === "error",
         );
         if (blockingIssues.length > 0) {
@@ -382,7 +382,7 @@ export class OnboardingManager {
                     return `${path}${issue.message}`;
                 })
                 .join("; ");
-            throw new ConflictError(`Active PreviewKit config has blocking issues: ${issueText}`);
+            throw new ConflictError(`Saved PreviewKit config has blocking issues: ${issueText}`);
         }
 
         await previewkitClient.deployApplicationMain(applicationId, organizationId);
@@ -749,29 +749,21 @@ export class OnboardingManager {
         }
     }
 
-    private async ensureActivePreviewkitConfig(applicationId: string, organizationId: string): Promise<PreviewConfig> {
+    private async ensureSavedPreviewkitConfig(applicationId: string, organizationId: string): Promise<PreviewConfig> {
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
-                activeConfigRevisionId: true,
+                previewkitConfig: { select: { document: true } },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
-        if (application.activeConfigRevisionId == null) {
+        if (application.previewkitConfig == null) {
             throw new ConflictError("Save a valid PreviewKit config before starting a deploy");
         }
 
-        const revision = await this.db.previewkitConfigRevision.findFirst({
-            where: { id: application.activeConfigRevisionId, applicationId },
-            select: { document: true },
-        });
-        if (revision == null) {
-            throw new ConflictError("Save a valid PreviewKit config before starting a deploy");
-        }
-
-        const validation = previewConfigSchema.safeParse(revision.document);
+        const validation = previewConfigSchema.safeParse(application.previewkitConfig.document);
         if (!validation.success) {
-            throw new ConflictError(`Active PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
+            throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
         }
         return validation.data;
     }
@@ -783,33 +775,28 @@ export class OnboardingManager {
     ): Promise<void> {
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { activeConfigRevisionId: true },
+            select: {
+                previewkitConfig: { select: { document: true, dependencyDocuments: true } },
+            },
         });
         if (application == null) throw new NotFoundError("Application not found");
-        if (application.activeConfigRevisionId == null) {
+        const stored = application.previewkitConfig;
+        if (stored == null) {
             throw new ConflictError("Save a valid PreviewKit config before managing secrets");
         }
 
-        const revision = await this.db.previewkitConfigRevision.findFirst({
-            where: { id: application.activeConfigRevisionId, applicationId },
-            select: { document: true, dependencyDocuments: true },
-        });
-        if (revision == null) {
-            throw new ConflictError("Save a valid PreviewKit config before managing secrets");
-        }
-
-        const primary = previewConfigSchema.safeParse(revision.document);
+        const primary = previewConfigSchema.safeParse(stored.document);
         if (!primary.success) {
-            throw new ConflictError(`Active PreviewKit config is invalid: ${z.prettifyError(primary.error)}`);
+            throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(primary.error)}`);
         }
 
-        const { documents } = parseStoredDependencyDocuments(revision.dependencyDocuments);
+        const { documents } = parseStoredDependencyDocuments(stored.dependencyDocuments);
         const appNames = new Set([
             ...primary.data.apps.map((app) => app.name),
             ...documents.flatMap((dependency) => dependency.document.apps.map((app) => app.name)),
         ]);
         if (!appNames.has(appName)) {
-            throw new NotFoundError(`PreviewKit app '${appName}' is not defined in the active config`);
+            throw new NotFoundError(`PreviewKit app '${appName}' is not defined in the saved config`);
         }
     }
 

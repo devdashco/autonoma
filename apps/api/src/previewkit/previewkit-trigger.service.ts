@@ -107,12 +107,8 @@ export class PreviewkitTriggerService extends Service {
         super();
     }
 
-    /** Starts a deploy workflow for a PR. `configRevisionId` pins a redeploy's original topology. */
-    async deploy(
-        request: PreviewkitDeployRequest,
-        action: PreviewDeployAction = "opened",
-        configRevisionId?: string,
-    ): Promise<void> {
+    /** Starts a deploy workflow for a PR. */
+    async deploy(request: PreviewkitDeployRequest, action: PreviewDeployAction = "opened"): Promise<void> {
         this.logger.info("Triggering preview deploy", {
             repo: request.repoFullName,
             pr: request.prNumber,
@@ -132,7 +128,6 @@ export class PreviewkitTriggerService extends Service {
                 baseRef: request.baseRef ?? "",
                 cloneUrl: request.cloneUrl,
             },
-            configRevisionId,
         });
     }
 
@@ -411,10 +406,11 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Re-runs the deploy at the environment's current head SHA, pinning the
-     * config revision it was originally deployed with so the redeploy
-     * reproduces the same topology. `callerOrgId` narrows to the caller's own
-     * environments; pass undefined for admin/service callers.
+     * Re-runs the deploy at the environment's current head SHA. Config is
+     * latest-only, so the redeploy resolves the Application's current config
+     * (not the one the environment was originally deployed with). `callerOrgId`
+     * narrows to the caller's own environments; pass undefined for
+     * admin/service callers.
      */
     async redeploy(repoFullName: string, prNumber: number, callerOrgId?: string): Promise<void> {
         this.logger.info("Triggering preview redeploy", { repo: repoFullName, pr: prNumber });
@@ -431,7 +427,6 @@ export class PreviewkitTriggerService extends Service {
                 organizationId: true,
                 githubRepositoryId: true,
                 status: true,
-                configRevisionId: true,
             },
         });
 
@@ -454,17 +449,16 @@ export class PreviewkitTriggerService extends Service {
                 cloneUrl: "",
             },
             "synchronize",
-            environment.configRevisionId ?? undefined,
         );
     }
 
     /**
      * Redeploys a SINGLE app within a live environment. `mode` "rebuild"
-     * rebuilds that app's image at the environment's current head SHA (pinning
-     * the deployed config revision) and redeploys only it; "restart" re-rolls
-     * its pods using the running image. Siblings are left untouched either way.
-     * `callerOrgId` narrows to the caller's own environments; pass undefined for
-     * admin/service callers.
+     * rebuilds that app's image at the environment's current head SHA (against
+     * the Application's current config - config is latest-only) and redeploys
+     * only it; "restart" re-rolls its pods using the running image. Siblings are
+     * left untouched either way. `callerOrgId` narrows to the caller's own
+     * environments; pass undefined for admin/service callers.
      */
     async redeployApp(
         repoFullName: string,
@@ -493,7 +487,6 @@ export class PreviewkitTriggerService extends Service {
                 organizationId: true,
                 githubRepositoryId: true,
                 status: true,
-                configRevisionId: true,
                 resolvedConfig: true,
                 appInstances: { select: { appName: true } },
             },
@@ -526,7 +519,6 @@ export class PreviewkitTriggerService extends Service {
             namespace: environment.namespace,
             appName,
             mode,
-            configRevisionId: environment.configRevisionId ?? undefined,
         });
     }
 }

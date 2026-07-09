@@ -299,7 +299,6 @@ export async function buildPreviewkitReadiness(
         where: { id: applicationId, organizationId },
         select: {
             githubRepositoryId: true,
-            activeConfigRevisionId: true,
             mainBranch: { select: { name: true, activeSnapshot: { select: { headSha: true } } } },
         },
     });
@@ -447,12 +446,7 @@ export async function buildPreviewkitReadiness(
               appBuilds,
               services,
               environmentError: environment.error ?? latestBuild?.error ?? undefined,
-              appIndexByName: await resolveFailureAppIndexes(
-                  db,
-                  environment.resolvedConfig,
-                  applicationId,
-                  application.activeConfigRevisionId,
-              ),
+              appIndexByName: await resolveFailureAppIndexes(db, environment.resolvedConfig, applicationId),
           });
     const diagnostics = diagnosticsFromPreviewStatus({
         status: previewStatus,
@@ -494,16 +488,15 @@ export async function buildPreviewkitReadiness(
  * App-name -> index map used to point structured failures at
  * `apps.<i>.<field>` paths. Prefers the environment's resolved (merged)
  * config snapshot - it covers dependency-repo apps too, which the primary
- * revision alone does not - and falls back to the active revision. The UI
- * deep-links via app name plus the path's field segment, so an index from
- * the merged document is sufficient. Best-effort: when neither parses, the
- * map is empty and failures carry no fieldPath.
+ * config alone does not - and falls back to the Application's saved config.
+ * The UI deep-links via app name plus the path's field segment, so an index
+ * from the merged document is sufficient. Best-effort: when neither parses,
+ * the map is empty and failures carry no fieldPath.
  */
 async function resolveFailureAppIndexes(
     db: PrismaClient,
     resolvedConfig: Prisma.JsonValue | null,
     applicationId: string,
-    activeConfigRevisionId: string | null,
 ): Promise<Map<string, number>> {
     if (resolvedConfig != null) {
         const parsed = previewConfigSchema.safeParse(resolvedConfig);
@@ -511,23 +504,17 @@ async function resolveFailureAppIndexes(
             return new Map(parsed.data.apps.map((app, index) => [app.name, index]));
         }
     }
-    return loadActiveConfigAppIndexes(db, applicationId, activeConfigRevisionId);
+    return loadSavedConfigAppIndexes(db, applicationId);
 }
 
-async function loadActiveConfigAppIndexes(
-    db: PrismaClient,
-    applicationId: string,
-    activeConfigRevisionId: string | null,
-): Promise<Map<string, number>> {
-    if (activeConfigRevisionId == null) return new Map();
-
-    const revision = await db.previewkitConfigRevision.findFirst({
-        where: { id: activeConfigRevisionId, applicationId },
+async function loadSavedConfigAppIndexes(db: PrismaClient, applicationId: string): Promise<Map<string, number>> {
+    const stored = await db.previewkitConfig.findUnique({
+        where: { applicationId },
         select: { document: true },
     });
-    if (revision == null) return new Map();
+    if (stored == null) return new Map();
 
-    const parsed = previewConfigSchema.safeParse(revision.document);
+    const parsed = previewConfigSchema.safeParse(stored.document);
     if (!parsed.success) return new Map();
 
     return new Map(parsed.data.apps.map((app, index) => [app.name, index]));

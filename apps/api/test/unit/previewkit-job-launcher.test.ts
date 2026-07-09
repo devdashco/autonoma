@@ -89,7 +89,6 @@ function container(job: V1Job) {
 function jobSpecEnv(job: V1Job): {
     mode: string;
     event: PreviewDeployEvent;
-    configRevisionId?: string;
     namespace?: string;
     appName?: string;
     redeployMode?: string;
@@ -168,15 +167,6 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
         expect(container(api.createdJobs[0] ?? ({} as V1Job)).image).toBe(RUNNER_IMAGE);
     });
 
-    it("passes the pinned configRevisionId through to the runner spec", async () => {
-        const api = new FakeJobsApi();
-        await launcher(api).launchDeploy({ event, configRevisionId: "rev_123" });
-
-        const job = api.createdJobs[0];
-        if (job == null) throw new Error("no job created");
-        expect(jobSpecEnv(job).configRevisionId).toBe("rev_123");
-    });
-
     it("throws (without superseding or creating) when the runner image is unresolved", async () => {
         const api = new FakeJobsApi();
         api.existingJobs = [{ metadata: { name: "pk-deploy-acme-widgets-42-oldid" } }];
@@ -215,7 +205,6 @@ describe("PreviewkitJobLauncher.launchRedeployApp", () => {
             namespace: "preview-acme-widgets-pr-42",
             appName: "web",
             mode: "rebuild",
-            configRevisionId: "rev_9",
         });
 
         const envKey = previewEnvKey(event.repoFullName, event.prNumber);
@@ -235,7 +224,6 @@ describe("PreviewkitJobLauncher.launchRedeployApp", () => {
         expect(spec.namespace).toBe("preview-acme-widgets-pr-42");
         expect(spec.appName).toBe("web");
         expect(spec.redeployMode).toBe("rebuild");
-        expect(spec.configRevisionId).toBe("rev_9");
     });
 });
 

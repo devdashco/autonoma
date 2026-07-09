@@ -117,10 +117,10 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
             phase: "initializing",
             error: null,
             tornDownAt: null,
-            // Keep the prior attempt's resolvedConfig + configRevisionId in place: the
-            // summary/readiness views project resolvedConfig for display, so leaving the
-            // last-known topology lets them stay populated during an in-flight redeploy.
-            // recordResolvedConfig overwrites both atomically once this attempt resolves.
+            // Keep the prior attempt's resolvedConfig in place: the summary/readiness
+            // views project it for display, so leaving the last-known topology lets
+            // them stay populated during an in-flight redeploy. recordResolvedConfig
+            // overwrites it once this attempt resolves.
         },
     });
 }
@@ -128,21 +128,18 @@ export async function recordEnvironmentCreated(input: EnvironmentCreatedInput): 
 export interface ResolvedConfigSnapshotInput {
     namespace: string;
     resolvedConfig: PreviewConfig;
-    configRevisionId?: string;
 }
 
 /**
  * Snapshots the fully-resolved config used for a deploy onto the environment
- * row. Immutable per deploy: a re-deploy of the same PR reproduces the same
- * topology even if the Application's active revision changes afterwards.
- * `configRevisionId` records which primary revision fed the snapshot.
+ * row - the record of what this deploy shipped, kept even as the Application's
+ * (latest-only) config changes afterwards.
  */
 export async function recordResolvedConfig(input: ResolvedConfigSnapshotInput): Promise<void> {
     const logger = rootLogger.child({ name: "recordResolvedConfig" });
-    const { namespace, resolvedConfig, configRevisionId } = input;
+    const { namespace, resolvedConfig } = input;
     logger.info("Recording resolved config snapshot", {
         namespace,
-        configRevisionId,
         appCount: resolvedConfig.apps.length,
     });
 
@@ -157,10 +154,7 @@ export async function recordResolvedConfig(input: ResolvedConfigSnapshotInput): 
 
     await db.previewkitEnvironment.update({
         where: { namespace },
-        data: {
-            resolvedConfig,
-            configRevisionId: configRevisionId ?? null,
-        },
+        data: { resolvedConfig },
     });
 }
 

@@ -29,7 +29,7 @@ interface MultirepoSectionProps {
 
 /**
  * Dependency repos for multirepo topologies. Each added repo gets its own app
- * group in the apps section and its own config revision on save; PreviewKit
+ * group in the apps section and its own config document on save; PreviewKit
  * merges every repo's apps into one preview environment per PR.
  *
  * NOTE: Not yet wired into `previewkit-config.tsx` - multirepo configuration

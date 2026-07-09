@@ -103,8 +103,6 @@ export type PreviewRedeployAppMode = "rebuild" | "restart";
 /** Params to launch a full preview deploy for a (repo, PR). */
 export interface TriggerPreviewDeployParams {
     event: PreviewDeployEvent;
-    /** Pin the config revision to reproduce a redeploy's original topology. */
-    configRevisionId?: string | undefined;
 }
 
 /** Params to launch a preview teardown for a (repo, PR). */
@@ -120,6 +118,4 @@ export interface TriggerPreviewRedeployAppParams {
     /** The single app to redeploy. */
     appName: string;
     mode: PreviewRedeployAppMode;
-    /** Pin the config revision so a rebuild reproduces the environment's deployed topology. */
-    configRevisionId?: string | undefined;
 }

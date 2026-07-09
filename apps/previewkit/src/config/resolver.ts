@@ -2,22 +2,22 @@ import { logger as rootLogger } from "../logger";
 import { previewConfigSchema, type PreviewConfig, trustedPreviewConfigSchema } from "./schema";
 
 export interface ResolveConfigInput {
-    /** Raw config document: a stored `PreviewkitConfigRevision.document`.
+    /** Raw config document: a stored `PreviewkitConfig.document`.
      *  Same shape as the schema input. */
     document: unknown;
     /** When true, honor any per-app/service `resources` overrides in the
      *  document; when false (default), discard them and apply the standard tier.
-     *  Reserved for trusted, platform-authored sources (DB config revisions);
+     *  Reserved for trusted, platform-authored sources (DB-stored configs);
      *  untrusted client input leaves this false so it can't size its own
      *  preview. See `buildResourcesSchema` in `./schema`. */
     allowCustomResources?: boolean;
 }
 
 /**
- * Resolves a stored config document (a `PreviewkitConfigRevision.document`) into
+ * Resolves a stored config document (a `PreviewkitConfig.document`) into
  * a validated `PreviewConfig` by validating it with the config schema (which also
  * applies platform standards, e.g. the `resources` transform). The trusted variant
- * is used when `allowCustomResources` is set so a DB revision's resource overrides
+ * is used when `allowCustomResources` is set so a stored config's resource overrides
  * are honored; otherwise the standard tier is forced.
  *
  * The schema is the compatibility layer: it strips fields retired across config

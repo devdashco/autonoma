@@ -73,7 +73,6 @@ class FakeDeployPipeline implements DeployPipeline {
     async build(
         _e: PreviewDeployEvent,
         _ns: string,
-        _cfg?: string,
         _signal?: AbortSignal,
         appName?: string,
     ): Promise<BuildPreviewImagesOutput> {

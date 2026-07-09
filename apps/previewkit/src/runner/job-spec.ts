@@ -30,7 +30,6 @@ const previewJobSpecSchema = z.discriminatedUnion("mode", [
     z.object({
         mode: z.literal("deploy"),
         event: previewDeployEventSchema,
-        configRevisionId: z.string().optional(),
     }),
     z.object({
         mode: z.literal("teardown"),
@@ -45,7 +44,6 @@ const previewJobSpecSchema = z.discriminatedUnion("mode", [
         namespace: z.string().min(1),
         appName: z.string().min(1),
         redeployMode: z.enum(["rebuild", "restart"]),
-        configRevisionId: z.string().optional(),
     }),
 ]);
 

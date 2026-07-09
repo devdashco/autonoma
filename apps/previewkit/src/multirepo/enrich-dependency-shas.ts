@@ -6,7 +6,7 @@ import type { PreviewConfig } from "../config/schema";
  * `resolvedConfig` carries the exact per-dependency commit state that was live.
  *
  * `shaByDepName` holds only the dependencies that actually deployed; a declared
- * dependency that was skipped (no active revision / no resolvable branch) has no
+ * dependency that was skipped (no config / no resolvable branch) has no
  * entry and its repo config is returned unchanged. Returns the config untouched
  * when no multirepo block is present.
  */

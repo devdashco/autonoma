@@ -16,11 +16,10 @@ import type { PreviewJobSpec } from "./job-spec";
  * with its heavy collaborators) and tests pass a lightweight fake.
  */
 export interface DeployPipeline {
-    prepare(event: PullRequestEvent, configRevisionId?: string | undefined): Promise<PreparePreviewResult>;
+    prepare(event: PullRequestEvent): Promise<PreparePreviewResult>;
     build(
         event: PullRequestEvent,
         namespace: string,
-        configRevisionId?: string | undefined,
         signal?: AbortSignal,
         appName?: string,
     ): Promise<BuildPreviewImagesOutput>;
@@ -105,13 +104,12 @@ export async function runPreviewJob(
     if (spec.mode === "redeploy-app") {
         return await runRedeployApp(runners.previewPipeline, spec, signal, logger);
     }
-    return await runDeploy(runners.previewPipeline, spec.event, spec.configRevisionId, signal, deps, logger);
+    return await runDeploy(runners.previewPipeline, spec.event, signal, deps, logger);
 }
 
 async function runDeploy(
     previewPipeline: DeployPipeline,
     event: PreviewDeployEvent,
-    configRevisionId: string | undefined,
     signal: AbortSignal,
     deps: RunPreviewJobDeps,
     logger: Logger,
@@ -121,15 +119,15 @@ async function runDeploy(
     // Prepare runs before the try, mirroring the workflow: a prepare failure
     // means config/namespace could not be resolved, so there is nothing to
     // finalize - let it propagate (non-zero exit) so the Job retries.
-    const prep = await previewPipeline.prepare(event, configRevisionId);
+    const prep = await previewPipeline.prepare(event);
     if (prep.skipped) {
-        logger.info("Preview deploy skipped (repo not linked or no active config revision)", ids);
+        logger.info("Preview deploy skipped (repo not linked or no preview config)", ids);
         return "skipped";
     }
 
     let deployed: DeployPreviewEnvironmentOutput | undefined;
     try {
-        const built = await previewPipeline.build(event, prep.namespace, configRevisionId, signal);
+        const built = await previewPipeline.build(event, prep.namespace, signal);
         logger.info("Preview images built", { extra: { ...ids.extra, apps: Object.keys(built.imageTags).length } });
 
         const deployInput: DeployPreviewEnvironmentInput = {
@@ -211,7 +209,7 @@ async function runRedeployApp(
     signal: AbortSignal,
     logger: Logger,
 ): Promise<PreviewJobOutcome> {
-    const { event, namespace, appName, redeployMode, configRevisionId } = spec;
+    const { event, namespace, appName, redeployMode } = spec;
     const ids = { extra: { repo: event.repoFullName, pr: event.prNumber, app: appName, mode: redeployMode } };
     try {
         if (redeployMode === "restart") {
@@ -219,7 +217,7 @@ async function runRedeployApp(
             logger.info("Preview per-app restart completed", ids);
             return "restarted";
         }
-        const built = await previewPipeline.build(event, namespace, configRevisionId, signal, appName);
+        const built = await previewPipeline.build(event, namespace, signal, appName);
         const deployInput: DeployPreviewEnvironmentInput = {
             event,
             namespace,

@@ -119,7 +119,6 @@ apiTestSuite({
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
                 },
-                configRevisionId: undefined,
             });
         });
 
@@ -234,7 +233,6 @@ apiTestSuite({
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
                 },
-                configRevisionId: undefined,
             });
         });
 
@@ -366,7 +364,6 @@ apiTestSuite({
                     baseRef: "main",
                     cloneUrl: "https://github.com/acme/web.git",
                 },
-                configRevisionId: undefined,
             });
         });
 
@@ -468,7 +465,7 @@ apiTestSuite({
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("redeploy reconstructs the event and pins the config revision", async ({
+        test("redeploy reconstructs the event from the environment row", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -482,7 +479,6 @@ apiTestSuite({
                     headRef: "feature/pr-12",
                     githubRepositoryId: REPO_ID,
                     status: "ready",
-                    configRevisionId: "rev_original",
                     organizationId: harness.organizationId,
                 },
             });
@@ -502,7 +498,6 @@ apiTestSuite({
                     baseRef: "",
                     cloneUrl: "",
                 },
-                configRevisionId: "rev_original",
             });
         });
 
@@ -540,7 +535,7 @@ apiTestSuite({
             await expect(service.redeploy(REPO_FULL_NAME, 14, "some-other-org")).rejects.toThrow(NotFoundError);
         });
 
-        test("redeployApp reconstructs the event, namespace, app + mode and pins the config revision", async ({
+        test("redeployApp reconstructs the event, namespace, app + mode", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -554,7 +549,6 @@ apiTestSuite({
                     headRef: "feature/pr-20",
                     githubRepositoryId: REPO_ID,
                     status: "ready",
-                    configRevisionId: "rev_original",
                     organizationId: harness.organizationId,
                     appInstances: { create: [{ appName: "web", status: "ready", port: 3000 }] },
                 },
@@ -578,7 +572,6 @@ apiTestSuite({
                 namespace: "preview-acme-web-pr-20",
                 appName: "web",
                 mode: "rebuild",
-                configRevisionId: "rev_original",
             });
         });
 

@@ -118,7 +118,7 @@ export class AwsExternalSecretManager {
         // match collides when two applications each own an app of the same name
         // (e.g. "web"), which would apply a foreign application's secret into this
         // namespace and its ExternalSecret would never go Ready. Dependency-repo
-        // apps ride the primary app's revision, so their secrets live
+        // apps ride the primary app's config, so their secrets live
         // under this same Application.
         const records = await this.prisma.previewkitSecret.findMany({
             where: {

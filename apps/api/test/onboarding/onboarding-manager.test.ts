@@ -536,7 +536,7 @@ integrationTestSuite({
             expect(state.updatedAt.getTime()).toBe(deployRequestedAt.getTime());
         });
 
-        test("PreviewKit config save validates and activates a dashboard revision", async ({
+        test("PreviewKit config save validates and persists the application's config", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -552,15 +552,14 @@ integrationTestSuite({
             const saved = await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
 
             expect(saved.saved).toBe(true);
-            expect(saved.revision).toBe(1);
-            const app = await harness.db.application.findUniqueOrThrow({
-                where: { id: appId },
-                select: { activeConfigRevisionId: true },
+            const stored = await harness.db.previewkitConfig.findUniqueOrThrow({
+                where: { applicationId: appId },
+                select: { document: true },
             });
-            expect(app.activeConfigRevisionId).toBe(saved.revisionId);
+            expect(stored.document).toMatchObject({ version: 1 });
         });
 
-        test("triggerPreviewkitMainDeploy requires an active valid config", async ({
+        test("triggerPreviewkitMainDeploy requires a saved valid config", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -603,7 +602,7 @@ integrationTestSuite({
             );
         });
 
-        test("PreviewKit secrets are scoped to apps in the active config", async ({
+        test("PreviewKit secrets are scoped to apps in the saved config", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -644,7 +643,7 @@ integrationTestSuite({
             );
             expect(secretsService.delete).toHaveBeenCalledWith(appId, "api", "DATABASE_URL", orgId);
             await expect(manager.listPreviewkitSecrets(appId, orgId, "worker")).rejects.toThrow(
-                "PreviewKit app 'worker' is not defined in the active config",
+                "PreviewKit app 'worker' is not defined in the saved config",
             );
         });
 

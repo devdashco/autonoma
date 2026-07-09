@@ -13,7 +13,7 @@ PR opened/updated
   Webhook received by the autonoma API, forwarded to Previewkit
       |
       v
-  Resolve the Application's active config revision
+  Resolve the Application's preview config
       |
       v
   Clone repo, build images (Railpack or Dockerfile)
@@ -41,13 +41,13 @@ On PR close, the entire namespace is deleted.
 
 ## Config source
 
-Previewkit deploys from the Application's **active config revision** - a `PreviewkitConfigRevision` row holding the preview config document, authored from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder). An Application with no active revision opts out: its pull requests are skipped.
+Previewkit deploys from the Application's **preview config** - a `PreviewkitConfig` row holding the preview config document, authored from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder). The config is latest-only: there is one row per Application, overwritten in place on every save (no revision history), and every deploy and redeploy resolves the current document. An Application with no config opts out: its pull requests are skipped.
 
-The same applies to multirepo dependency repos (`config.multirepo.repos`): each dependency repo's own Application active revision is used. A dependency repo with no active revision is skipped.
+Multirepo dependency repos (`config.multirepo.repos`) are not separate Applications: each dependency's config is stored on the primary config's `dependencyDocuments`. A declared dependency with no stored config is skipped.
 
 ## Config document
 
-The preview config is authored from the Autonoma dashboard and stored as a `PreviewkitConfigRevision`. It has the following shape (shown here as YAML for readability):
+The preview config is authored from the Autonoma dashboard and stored as a `PreviewkitConfig`. It has the following shape (shown here as YAML for readability):
 
 ```yaml
 version: 1

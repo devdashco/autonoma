@@ -118,7 +118,7 @@ export const env = createEnv({
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
-        // The serialized {mode, event, configRevisionId} payload for a single
+        // The serialized {mode, event, ...} payload for a single
         // deploy/teardown run, set by the API's PreviewkitJobLauncher on the
         // runner Job. Present only when this process is a one-shot runner Job
         // (src/runner); the long-lived Temporal worker never reads it. The JSON

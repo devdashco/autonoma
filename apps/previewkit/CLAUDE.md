@@ -83,12 +83,12 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `dockerfile-builder/generate-dockerfile.ts` - synthesizes a single-stage Dockerfile from a `build`
   framework preset (`node`/`next`/`vite`/`bun`) when an app uses the new `build` config block.
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
-  validate), `revisions.ts` (`loadActiveConfig` reads the Application's active DB config revision),
-  `dependency-config.ts` (`resolveDependencyConfig` - multirepo dependency repos resolve from their
-  own Application's active DB revision), `index.ts` (`createPreviewkitDefaults`).
-  The pipeline deploys from the active DB revision only (`PreviewPipeline.resolvePrimaryConfig`); an
-  Application with no active revision is skipped, and dependencies resolve the same way in
-  `cloneDependency`.
+  validate), `load-config.ts` (`loadConfig` reads the Application's single `PreviewkitConfig` row -
+  latest-only, no revision history), `dependency-config.ts` (`resolveDependencyConfig` - multirepo
+  dependency configs come from the primary config's `dependencyDocuments`, not separate
+  Applications), `index.ts` (`createPreviewkitDefaults`).
+  The pipeline deploys from that DB config only; an Application with no config row is skipped, and
+  every deploy/redeploy resolves the current document (there is no pinning to an older config).
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (app Deployments/Services + hostnames; routing itself is the central Gatekeeper's, see below),
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
@@ -195,7 +195,7 @@ app lines in a recent window.
 
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
   pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
-  map), `resolvedConfig` + `configRevisionId` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
+  map), `resolvedConfig` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
   `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`. Note:
   `superseded` is only ever written to `PreviewkitBuild`, never the env row (the successor run owns it).
 - `PreviewkitAppInstance` - the per-app lifecycle record (one row per `(environment, app)`), source of
@@ -209,7 +209,13 @@ app lines in a recent window.
   of a former JSON column). App-build `status` enum is `success | failed` (NOT "ok"). `PreviewkitBuild`
   is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across
   Job retries; a superseded build's row is marked `superseded`.
-- `PreviewkitConfigRevision` - DB-stored config revisions (the "config in DB" path).
+- `PreviewkitConfig` - the Application's DB-stored preview config (latest-only; one row per
+  Application, overwritten in place on save). This is what the deploy pipeline reads.
+- `PreviewkitConfigRevision` - DEPRECATED legacy revision-history model, pending removal. It is no
+  longer read by any live code path; it is retained only until the one-time backfill
+  (`apps/api backfill:previewkit-config`) has copied each Application's active revision into
+  `PreviewkitConfig` in every environment, after which a contract migration drops it along with
+  `Application.activeConfigRevisionId` and `PreviewkitEnvironment.configRevisionId`.
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - AWS Secrets Manager ARNs per app / per org.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 

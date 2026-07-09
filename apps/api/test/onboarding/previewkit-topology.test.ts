@@ -142,7 +142,7 @@ integrationTestSuite({
             expect(result.issues.filter((issue) => issue.path[1] === 0)).toEqual([]);
         });
 
-        test("savePreviewkitConfig stores dependency configs on the primary revision (no satellite apps)", async ({
+        test("savePreviewkitConfig stores dependency configs on the primary config (no satellite apps)", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -182,16 +182,12 @@ integrationTestSuite({
             });
             expect(dependencyApplication).toBeNull();
 
-            // The dependency document is persisted on the primary app's revision.
-            const primaryApp = await harness.db.application.findUniqueOrThrow({
-                where: { id: appId },
-                select: { activeConfigRevisionId: true },
-            });
-            const revision = await harness.db.previewkitConfigRevision.findUniqueOrThrow({
-                where: { id: primaryApp.activeConfigRevisionId ?? "" },
+            // The dependency document is persisted on the primary app's config.
+            const storedConfig = await harness.db.previewkitConfig.findUniqueOrThrow({
+                where: { applicationId: appId },
                 select: { dependencyDocuments: true },
             });
-            expect(revision.dependencyDocuments).not.toBeNull();
+            expect(storedConfig.dependencyDocuments).not.toBeNull();
 
             // getPreviewkitConfig hydrates the dependency documents back.
             const loaded = await manager.getPreviewkitConfig(appId, orgId);
@@ -204,7 +200,8 @@ integrationTestSuite({
             });
             expect(loaded.dependencyConfigs[0]?.document?.apps[0]?.name).toBe("api-app");
 
-            // A second save still creates no Application; the primary revision bumps.
+            // A second save still creates no Application; config is latest-only,
+            // so the single row is overwritten in place.
             const resaved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
                 {
                     repo: "acme/api",
@@ -212,7 +209,11 @@ integrationTestSuite({
                 },
             ]);
             expect(applications.createMinimalApplication).not.toHaveBeenCalled();
-            expect(resaved.revision).toBe(2);
+            expect(resaved.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
+            const configRows = await harness.db.previewkitConfig.findMany({ where: { applicationId: appId } });
+            expect(configRows).toHaveLength(1);
+            const reloaded = await manager.getPreviewkitConfig(appId, orgId);
+            expect(reloaded.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
         });
 
         test("savePreviewkitConfig rejects undeclared dependency repos and merged duplicate names", async ({
@@ -254,7 +255,7 @@ integrationTestSuite({
             ).rejects.toThrow("names must be unique across the merged preview topology");
         });
 
-        test("triggerPreviewkitMainDeploy rejects a semantically invalid active revision", async ({
+        test("triggerPreviewkitMainDeploy rejects a semantically invalid saved config", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -270,25 +271,19 @@ integrationTestSuite({
             await setStep(harness, appId, "previewkit_configuring");
 
             // Written directly (bypassing the save validation) to simulate a
-            // revision created before semantic checks existed.
-            const revision = await harness.db.previewkitConfigRevision.create({
+            // config saved before semantic checks existed.
+            await harness.db.previewkitConfig.create({
                 data: {
                     applicationId: appId,
-                    revision: 1,
-                    schemaVersion: 1,
                     document: {
                         version: 1,
                         apps: [{ name: "web", path: ".", port: 3000, primary: true, depends_on: ["ghost"] }],
                     },
                 },
             });
-            await harness.db.application.update({
-                where: { id: appId },
-                data: { activeConfigRevisionId: revision.id },
-            });
 
             await expect(manager.triggerPreviewkitMainDeploy(appId, orgId)).rejects.toThrow(
-                "Active PreviewKit config has blocking issues",
+                "Saved PreviewKit config has blocking issues",
             );
         });
 
@@ -325,7 +320,7 @@ integrationTestSuite({
                     phase: "building-images",
                     urls: {},
                     // Merged snapshot includes a dependency-repo app the primary
-                    // revision knows nothing about - field paths must still resolve.
+                    // config knows nothing about - field paths must still resolve.
                     resolvedConfig: {
                         version: 1,
                         apps: [

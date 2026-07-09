@@ -17,12 +17,12 @@ export interface ResolvedDependencyConfig {
 
 /**
  * Resolves a multirepo dependency for a deploy. The dependency's config is owned
- * by the primary app's revision (passed in as `dependencyConfig`) - dependency
+ * by the primary app's config (passed in as `dependencyConfig`) - dependency
  * repos are not separate Applications. This only resolves the clone branch (the
  * target branch from the convention, then `fallback_branch`); the repo is cloned
  * for source.
  *
- * Returns undefined when the primary revision has no config for this repo (it is
+ * Returns undefined when the primary config has no entry for this repo (it is
  * skipped) or when neither the target nor the fallback branch resolves.
  */
 export async function resolveDependencyConfig(
@@ -35,7 +35,7 @@ export async function resolveDependencyConfig(
     logger.info("Resolving dependency config", { name: dep.name, repo: dep.repo, targetBranch });
 
     if (dependencyConfig == null) {
-        logger.warn("Primary revision has no config for dependency repo; skipping", {
+        logger.warn("Primary config has no entry for dependency repo; skipping", {
             name: dep.name,
             repo: dep.repo,
             targetBranch,
@@ -54,7 +54,7 @@ export async function resolveDependencyConfig(
         return undefined;
     }
 
-    logger.info("Dependency config resolved from primary revision", {
+    logger.info("Dependency config resolved from primary config", {
         name: dep.name,
         repo: dep.repo,
         branch: branch.name,
@@ -69,7 +69,7 @@ export async function resolveDependencyConfig(
 }
 
 /**
- * Picks the branch to clone for a revision-sourced dependency and resolves it to
+ * Picks the branch to clone for a config-sourced dependency and resolves it to
  * a concrete commit: the target branch when it exists, otherwise the configured
  * fallback branch. `getBranchHead` returns the branch's head SHA, which is
  * carried through as the recorded deploy provenance. A failed branch lookup (404

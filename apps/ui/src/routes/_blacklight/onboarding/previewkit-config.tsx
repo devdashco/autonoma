@@ -30,7 +30,6 @@ import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
-import { OnboardingAppHeader } from "./-components/onboarding-app-header";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AppCard } from "./-components/previewkit/app-card";
 import { EnvSuggestionsBanner, envSuggestionKey } from "./-components/previewkit/env-suggestions-banner";
@@ -571,14 +570,11 @@ function PreviewkitConfigContent({
         }
         title="Build with PreviewKit"
         description={
-          <>
-            <OnboardingAppHeader appId={appId} />
-            <p className="max-w-3xl">
-              Map every deployable app to its repo, path, and entrypoints for{" "}
-              <span className="text-text-primary">{repoName}</span>. Managed services come from recipes. This onboarding
-              deploy reads the saved revision.
-            </p>
-          </>
+          <p className="max-w-3xl">
+            Map every deployable app to its repo, path, and entrypoints for{" "}
+            <span className="text-text-primary">{repoName}</span>. Managed services come from recipes. This onboarding
+            deploy reads the saved config.
+          </p>
         }
       />
 
