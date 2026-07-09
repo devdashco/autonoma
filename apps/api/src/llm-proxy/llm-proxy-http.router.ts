@@ -102,10 +102,13 @@ export const llmProxyHttpRouter = new Hono<{ Variables: UserAuthVariables }>();
 
 llmProxyHttpRouter.use("*", requireApiKey({ db }));
 
-// Reject oversized bodies at the edge, before the handler reads them. bodyLimit
-// short-circuits on Content-Length when present, and otherwise streams the body
-// and aborts the moment it exceeds the cap - so a multi-GB payload never buffers
-// unbounded in memory. Runs after auth (the `use("*")` above), so it's gated.
+// Reject oversized bodies at the edge, before the handler reads them. The cap
+// (MAX_REQUEST_BYTES) is sized above a full context-window planner request, so
+// this is purely a memory guard, not a spend bound (that's the credit gate
+// below): bodyLimit short-circuits on Content-Length when present, and otherwise
+// streams the body and aborts the moment it exceeds the cap - so a multi-GB
+// payload never buffers unbounded in memory. Runs after auth (the `use("*")`
+// above), so it's gated.
 llmProxyHttpRouter.use(
     "/chat/completions",
     bodyLimit({ maxSize: MAX_REQUEST_BYTES, onError: (c) => c.json({ error: "request_too_large" }, 413) }),

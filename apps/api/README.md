@@ -51,7 +51,7 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `LLM_PROXY_ALLOWED_MODELS` | No | planner model | Comma-separated allowlist of models the proxy may route. Defaults to `google/gemini-3-flash-preview`. |
 | `LLM_PROXY_FREE_CREDIT_CAP` | No | `20000` | Max credits a never-paid org may spend through the proxy, out of its free-start grant. Credits the org has paid for (top-up purchases + subscription grants, net of refunds) raise the budget; an active subscription lifts it. Abuse guard against farmed free accounts draining credits via the CLI. |
 | `LLM_PROXY_MAX_OUTPUT_TOKENS` | No | `32768` | Per-request `max_tokens` ceiling. The proxy clamps (and defaults) each request to this so an allowlisted model can't be driven with an unbounded generation. |
-| `LLM_PROXY_MAX_REQUEST_BYTES` | No | `4000000` | Per-request body-size ceiling (bytes). Oversized payloads are rejected with `413`. |
+| `LLM_PROXY_MAX_REQUEST_BYTES` | No | `16000000` | Per-request body-size ceiling (bytes). Sized to comfortably fit a full ~1M-token context-window request (which the planner legitimately builds) plus JSON/UTF-8 overhead; only blocks payloads several times the model's own limit. Oversized payloads are rejected with `413`. |
 | `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No | `5` | Throttle window for the read-triggered PR-metadata cache revalidate (per app); one open-list call, plus one closed-list call when PRs need merged-vs-closed classification |
 | `TESTING` | No | `false` | Test environment flag - prevents loading production modules |
 

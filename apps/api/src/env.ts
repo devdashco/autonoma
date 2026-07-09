@@ -56,9 +56,14 @@ export const env = createEnv({
         // truncating legit runs; the credit cap is the real spend bound.
         LLM_PROXY_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(32_768),
         // Per-request input ceiling (bytes of the raw JSON body). Rejects
-        // oversized prompts with 413. Generous by default so real large-context
-        // planner calls pass; it only blocks absurd payloads.
-        LLM_PROXY_MAX_REQUEST_BYTES: z.coerce.number().int().positive().default(4_000_000),
+        // oversized prompts with 413. Sized to comfortably hold a request that
+        // fills the planner model's full ~1M-token context window (which the CLI
+        // legitimately builds) plus JSON/UTF-8 overhead - roughly 4x the raw-text
+        // size of a full window - so real runs always pass and only a payload
+        // several times the model's own limit is rejected. The credit cap
+        // (LLM_PROXY_FREE_CREDIT_CAP) is the real abuse bound; this only keeps a
+        // single request from buffering unbounded memory.
+        LLM_PROXY_MAX_REQUEST_BYTES: z.coerce.number().int().positive().default(16_000_000),
         REDIS_URL: z.string().min(1),
 
         // Secrets for GitHub HTTP app authentication.
