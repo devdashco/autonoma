@@ -6,7 +6,9 @@ import { type ParsedPackageJson, type RepoContext } from "./repo-reader";
 
 /** Bound on per-introspection GitHub content calls (root manifests + candidate package.jsons). */
 const MAX_CANDIDATE_DIRS = 12;
-const CONVENTIONAL_APP_PARENTS = ["apps", "packages", "services"];
+const CONVENTIONAL_APP_PARENTS = ["apps", "services"];
+/** Workspace dirs that are libraries by convention - never deployable apps. */
+const LIBRARY_PARENTS = ["packages"];
 const K8S_NAME_MAX_LENGTH = 40;
 
 /**
@@ -125,9 +127,10 @@ export class RepoIntrospectionService extends Service {
     }
 
     /**
-     * Candidate app directories: workspace globs plus conventional `apps/*`,
-     * `packages/*`, `services/*` directories that contain a `package.json` or a
-     * `Dockerfile`. Ordered with workspace-derived candidates first.
+     * Candidate app directories: workspace globs plus conventional `apps/*` and
+     * `services/*` directories that contain a `package.json` or a `Dockerfile`.
+     * Directories under `packages/` are excluded as library workspaces even when
+     * a workspace glob declares them. Ordered with workspace-derived candidates first.
      */
     private async collectCandidateDirs(context: RepoContext, tree: GitTree): Promise<string[]> {
         const files = new Set(tree.paths);
@@ -135,6 +138,7 @@ export class RepoIntrospectionService extends Service {
         const seen = new Set<string>();
         const add = (dir: string) => {
             if (seen.has(dir)) return;
+            if (isUnderLibraryParent(dir)) return; // packages/* are libraries, not apps
             if (!files.has(`${dir}/package.json`) && !files.has(`${dir}/Dockerfile`)) return;
             seen.add(dir);
             candidates.push(dir);
@@ -252,6 +256,11 @@ function unavailable(reason: string): RepoIntrospection {
 function isDockerfilePath(path: string): boolean {
     const basename = path.split("/").at(-1) ?? "";
     return basename === "Dockerfile" || basename.startsWith("Dockerfile.");
+}
+
+/** True when `dir` lives under a library-only workspace parent (e.g. `packages/`). */
+function isUnderLibraryParent(dir: string): boolean {
+    return LIBRARY_PARENTS.some((parent) => dir === parent || dir.startsWith(`${parent}/`));
 }
 
 /**
