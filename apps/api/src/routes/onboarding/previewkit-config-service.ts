@@ -73,6 +73,7 @@ export class PreviewkitConfigService {
             where: { id: applicationId, organizationId },
             select: {
                 id: true,
+                name: true,
                 previewkitConfig: { select: { document: true, dependencyDocuments: true } },
             },
         });
@@ -83,7 +84,7 @@ export class PreviewkitConfigService {
             return {
                 applicationId,
                 saved: false,
-                document: defaultPreviewkitConfig(),
+                document: defaultPreviewkitConfig(application.name),
                 dependencyConfigs: [],
             };
         }

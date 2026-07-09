@@ -4,7 +4,6 @@ import {
   validatePreviewConfigSemantics,
   zodIssuesToConfigIssues,
   type ConfigIssue,
-  type SuggestedApp,
   type SuggestedEnvVar,
   type SuggestedService,
 } from "@autonoma/types";
@@ -18,7 +17,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   usePreviewkitConfig,
-  useRepoSuggestions,
   useSavePreviewkitConfig,
   useSuggestEnvVars,
   useSuggestServices,
@@ -37,10 +35,8 @@ import { HooksSection } from "./-components/previewkit/hooks-section";
 import { MultirepoSection } from "./-components/previewkit/multirepo-section";
 import { ServiceSuggestionsBanner, serviceSuggestionKey } from "./-components/previewkit/service-suggestions-banner";
 import { ServicesSection } from "./-components/previewkit/services-section";
-import { SuggestionsBanner, suggestionKey } from "./-components/previewkit/suggestions-banner";
 import {
   PRIMARY_REPO_KEY,
-  appDraftFromSuggestion,
   appFieldFromDocumentKey,
   diffAppSecrets,
   documentsFromDraft,
@@ -50,7 +46,6 @@ import {
   envRowsFromSuggestions,
   fieldIssueKey,
   hookFieldErrors,
-  isUntouchedStarterApp,
   withSecretRows,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
@@ -143,7 +138,6 @@ function PreviewkitConfigContent({
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "variables" : "apps"));
-  const [handledSuggestions, setHandledSuggestions] = useState<Set<string>>(new Set());
   const [handledServiceSuggestions, setHandledServiceSuggestions] = useState<Set<string>>(new Set());
   const [handledEnvSuggestions, setHandledEnvSuggestions] = useState<Set<string>>(new Set());
   // The hooks step is optional: it only reads as complete once the user has
@@ -214,15 +208,10 @@ function PreviewkitConfigContent({
   const compiled = documentsFromDraft(draft);
   const clientIssues = validateDraftClientSide(compiled);
   const issues = mergeIssues(clientIssues, serverIssues);
-  const hasUntouchedStarterApps = draft.apps.some(isUntouchedStarterApp);
-  // Names a hook may target: declared (non-starter) apps. Hooks reference apps only.
-  const hookAppNames = draft.apps
-    .filter((app) => !isUntouchedStarterApp(app))
-    .map((app) => app.name)
-    .filter((name) => name.trim() !== "");
+  // Names a hook may target: any app with a name. Hooks reference apps only.
+  const hookAppNames = draft.apps.map((app) => app.name).filter((name) => name.trim() !== "");
   const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
-  const hasBlockingIssues =
-    issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hasUntouchedStarterApps || hookErrors.size > 0;
+  const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hookErrors.size > 0;
 
   const groupSaved = (repoKey: string): boolean => {
     const document =
@@ -281,7 +270,7 @@ function PreviewkitConfigContent({
         ...current,
         apps: current.apps.map((app) => {
           if (app.id === id) {
-            return { ...app, ...patch, origin: app.origin === "starter" ? "manual" : (patch.origin ?? app.origin) };
+            return { ...app, ...patch, origin: patch.origin ?? app.origin };
           }
           if (rename != null && app.dependsOn.includes(rename.from)) {
             return { ...app, dependsOn: app.dependsOn.map((name) => (name === rename.from ? rename.to : name)) };
@@ -298,38 +287,22 @@ function PreviewkitConfigContent({
       apps: current.apps.map((app) => ({
         ...app,
         primary: app.id === id ? !app.primary : false,
-        origin: app.id === id && app.origin === "starter" ? "manual" : app.origin,
       })),
     }));
   }
 
   function addApp(repoKey: string, prefilled?: AppDraft) {
-    setDraft((current) => addAppsReplacingStarters(current, repoKey, [prefilled ?? emptyAppDraft(repoKey)]));
+    setDraft((current) => addApps(current, [prefilled ?? emptyAppDraft(repoKey)]));
   }
 
   function removeApp(id: number) {
-    setDraft((current) => pruneDanglingDependsOn({ ...current, apps: current.apps.filter((app) => app.id !== id) }));
-  }
-
-  function markSuggestionsHandled(repoKey: string, suggestions: SuggestedApp[]) {
-    setHandledSuggestions(
-      (current) =>
-        new Set([...current, ...suggestions.map((suggestion) => `${repoKey}::${suggestionKey(suggestion)}`)]),
-    );
-  }
-
-  function acceptSuggestion(repoKey: string, suggestion: SuggestedApp) {
-    markSuggestionsHandled(repoKey, [suggestion]);
-    setDraft((current) => addSuggestionsReplacingStarters(current, [suggestion], repoKey));
-  }
-
-  function acceptAllSuggestions(repoKey: string, suggestions: SuggestedApp[]) {
-    markSuggestionsHandled(repoKey, suggestions);
-    setDraft((current) => addSuggestionsReplacingStarters(current, suggestions, repoKey));
-  }
-
-  function dismissSuggestion(repoKey: string, suggestion: SuggestedApp) {
-    markSuggestionsHandled(repoKey, [suggestion]);
+    setDraft((current) => {
+      const apps = current.apps.filter((app) => app.id !== id);
+      // With a single app left, the frontend toggle is hidden - so guarantee that
+      // lone app is the frontend, otherwise the topology would have no primary.
+      const normalized = apps.length === 1 ? apps.map((app) => ({ ...app, primary: true })) : apps;
+      return pruneDanglingDependsOn({ ...current, apps: normalized });
+    });
   }
 
   function markServiceSuggestionsHandled(suggestions: SuggestedService[]) {
@@ -509,7 +482,8 @@ function PreviewkitConfigContent({
     draft.repos.map((repo) => [repo.name, draft.apps.filter((app) => app.repoKey === repo.name).length]),
   );
 
-  const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
+  // Every app is a real, deployable app now (starter apps are seeded complete).
+  const deployableApps = draft.apps;
   const allNames = [...deployableApps.map((app) => app.name), ...draft.services.map((service) => service.name)];
 
   // AI-suggested variables, analyzed from each primary-repo app's `.env.example`.
@@ -597,39 +571,28 @@ function PreviewkitConfigContent({
         <div className="space-y-6">
           {activeStep === "apps" ? (
             <div className="space-y-6">
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
-                <div className="min-w-0 space-y-6">
-                  <AppsStep
-                    appId={appId}
-                    suggestionsEnabled={!configQuery.data.saved}
-                    handledSuggestions={handledSuggestions}
-                    draftApps={draft.apps}
-                    repoGroups={repoGroups}
-                    issues={issues}
-                    allNames={allNames}
-                    groupSaved={groupSaved}
-                    onAcceptSuggestion={acceptSuggestion}
-                    onAcceptAllSuggestions={acceptAllSuggestions}
-                    onDismissSuggestion={dismissSuggestion}
-                    onAddApp={addApp}
-                    onUpdateApp={updateApp}
-                    onSetPrimaryApp={setPrimaryApp}
-                    onRemoveApp={removeApp}
-                  />
-                </div>
-                <div className="xl:sticky xl:top-20 xl:self-start">
-                  <MultirepoSection
-                    repos={draft.repos}
-                    branchConvention={draft.branchConvention}
-                    primaryRepoFullName={repositoryQuery.data?.fullName}
-                    appCountByRepoKey={appCountByRepoKey}
-                    onReposChange={handleReposChange}
-                    onBranchConventionChange={(branchConvention) =>
-                      setDraft((current) => ({ ...current, branchConvention }))
-                    }
-                  />
-                </div>
-              </div>
+              <MultirepoSection
+                repos={draft.repos}
+                branchConvention={draft.branchConvention}
+                primaryRepoFullName={repositoryQuery.data?.fullName}
+                appCountByRepoKey={appCountByRepoKey}
+                onReposChange={handleReposChange}
+                onBranchConventionChange={(branchConvention) =>
+                  setDraft((current) => ({ ...current, branchConvention }))
+                }
+              />
+              <AppsStep
+                draftApps={draft.apps}
+                repoGroups={repoGroups}
+                hasDependencyRepos={draft.repos.length > 0}
+                issues={issues}
+                allNames={allNames}
+                groupSaved={groupSaved}
+                onAddApp={addApp}
+                onUpdateApp={updateApp}
+                onSetPrimaryApp={setPrimaryApp}
+                onRemoveApp={removeApp}
+              />
             </div>
           ) : undefined}
 
@@ -702,11 +665,7 @@ function PreviewkitConfigContent({
           activeStep === "services" ||
           activeStep === "variables" ||
           activeStep === "hooks" ? (
-            <ConfigIssuesBanner
-              issues={issues}
-              hasUntouchedStarterApps={hasUntouchedStarterApps}
-              configReadyForSecrets={configReadyForSecrets}
-            />
+            <ConfigIssuesBanner issues={issues} configReadyForSecrets={configReadyForSecrets} />
           ) : undefined}
 
           <ConfigStepFooter
@@ -814,33 +773,23 @@ function ConfigStepper({
 }
 
 function AppsStep({
-  appId,
-  suggestionsEnabled,
-  handledSuggestions,
   draftApps,
   repoGroups,
+  hasDependencyRepos,
   issues,
   allNames,
   groupSaved,
-  onAcceptSuggestion,
-  onAcceptAllSuggestions,
-  onDismissSuggestion,
   onAddApp,
   onUpdateApp,
   onSetPrimaryApp,
   onRemoveApp,
 }: {
-  appId: string;
-  suggestionsEnabled: boolean;
-  handledSuggestions: Set<string>;
   draftApps: AppDraft[];
   repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }>;
+  hasDependencyRepos: boolean;
   issues: DraftIssues;
   allNames: string[];
   groupSaved: (repoKey: string) => boolean;
-  onAcceptSuggestion: (repoKey: string, suggestion: SuggestedApp) => void;
-  onAcceptAllSuggestions: (repoKey: string, suggestions: SuggestedApp[]) => void;
-  onDismissSuggestion: (repoKey: string, suggestion: SuggestedApp) => void;
   onAddApp: (repoKey: string, prefilled?: AppDraft) => void;
   onUpdateApp: (id: number, patch: Partial<AppDraft>) => void;
   onSetPrimaryApp: (id: number) => void;
@@ -851,24 +800,8 @@ function AppsStep({
       {repoGroups.map((group) => {
         const groupApps = draftApps.filter((app) => app.repoKey === group.key);
         const dependencyOptions = allNames.filter((name) => name.trim() !== "");
-        const handledForGroup = new Set(
-          [...handledSuggestions]
-            .filter((key) => key.startsWith(`${group.key}::`))
-            .map((key) => key.slice(group.key.length + 2)),
-        );
         return (
           <div key={group.key} className="space-y-4">
-            <RepoSuggestions
-              appId={appId}
-              enabled={suggestionsEnabled}
-              githubRepositoryId={group.githubRepositoryId}
-              existingAppNames={new Set(groupApps.filter((app) => !isUntouchedStarterApp(app)).map((app) => app.name))}
-              handled={handledForGroup}
-              onAccept={(suggestion) => onAcceptSuggestion(group.key, suggestion)}
-              onAcceptAll={(suggestions) => onAcceptAllSuggestions(group.key, suggestions)}
-              onDismiss={(suggestion) => onDismissSuggestion(group.key, suggestion)}
-            />
-
             <section className="border border-border-dim bg-surface-base">
               <div className="flex flex-wrap items-center gap-3 border-b border-border-dim bg-surface-raised px-5 py-4">
                 <h2
@@ -877,7 +810,9 @@ function AppsStep({
                 >
                   {group.label}
                 </h2>
-                <Badge variant="outline">{group.badge}</Badge>
+                {/* The primary/dependency repo distinction is only meaningful once
+                    the project spans more than one repo. */}
+                {hasDependencyRepos ? <Badge variant="outline">{group.badge}</Badge> : undefined}
                 <Badge variant={groupSaved(group.key) ? "success" : "secondary"}>
                   {groupSaved(group.key) ? "Saved" : "Unsaved"}
                 </Badge>
@@ -888,9 +823,7 @@ function AppsStep({
               </div>
               <div className="space-y-4 p-5">
                 {groupApps.length === 0 ? (
-                  <p className="text-sm text-text-secondary">
-                    No deployable apps mapped yet. Accept a suggestion or add an app.
-                  </p>
+                  <p className="text-sm text-text-secondary">No deployable apps mapped yet. Add an app to start.</p>
                 ) : (
                   groupApps.map((app) => (
                     <AppCard
@@ -898,6 +831,8 @@ function AppsStep({
                       app={app}
                       issues={issues}
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
+                      showDependsOn={hasDependencyRepos}
+                      showFrontendToggle={draftApps.length > 1}
                       onChange={onUpdateApp}
                       onSetPrimary={onSetPrimaryApp}
                       onRemove={onRemoveApp}
@@ -910,45 +845,6 @@ function AppsStep({
         );
       })}
     </>
-  );
-}
-
-/**
- * Repo-introspection suggestions for one repo group. The primary group passes no
- * `githubRepositoryId` (introspects the app's linked repo); each dependency group
- * passes its repo id so detected apps are scoped to that repo.
- */
-function RepoSuggestions({
-  appId,
-  enabled,
-  githubRepositoryId,
-  existingAppNames,
-  handled,
-  onAccept,
-  onAcceptAll,
-  onDismiss,
-}: {
-  appId: string;
-  enabled: boolean;
-  githubRepositoryId?: number;
-  existingAppNames: Set<string>;
-  handled: Set<string>;
-  onAccept: (suggestion: SuggestedApp) => void;
-  onAcceptAll: (suggestions: SuggestedApp[]) => void;
-  onDismiss: (suggestion: SuggestedApp) => void;
-}) {
-  const { data, isPending } = useRepoSuggestions(appId, enabled, githubRepositoryId);
-  return (
-    <SuggestionsBanner
-      enabled={enabled}
-      isPending={isPending}
-      data={data}
-      existingAppNames={existingAppNames}
-      handled={handled}
-      onAccept={onAccept}
-      onAcceptAll={onAcceptAll}
-      onDismiss={onDismiss}
-    />
   );
 }
 
@@ -994,18 +890,16 @@ function isConfigStepEnabled(_step: ConfigStepId): boolean {
 }
 
 /**
- * Document-level findings (schema/semantic errors, warnings, untouched starter
- * apps) for the authoring steps. Errors block the Save action in the footer;
- * warnings never block. Lives above the footer on the `apps` and `hooks` steps
- * so the disabled reason for Save is always visible next to it.
+ * Document-level findings (schema/semantic errors, warnings) for the authoring
+ * steps. Errors block the Save action in the footer; warnings never block. Lives
+ * above the footer on the `apps` and `hooks` steps so the disabled reason for
+ * Save is always visible next to it.
  */
 function ConfigIssuesBanner({
   issues,
-  hasUntouchedStarterApps,
   configReadyForSecrets,
 }: {
   issues: DraftIssues;
-  hasUntouchedStarterApps: boolean;
   configReadyForSecrets: boolean;
 }) {
   return (
@@ -1028,14 +922,6 @@ function ConfigIssuesBanner({
               {message}
             </p>
           ))}
-        </div>
-      ) : undefined}
-      {hasUntouchedStarterApps ? (
-        <div className="border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
-          <p className="font-mono text-2xs uppercase tracking-widest text-status-warn">Config not ready</p>
-          <p className="mt-2 text-sm text-text-secondary">
-            Accept a repo suggestion or edit the starter app before saving. Starter values are only a guide.
-          </p>
         </div>
       ) : undefined}
       {configReadyForSecrets ? (
@@ -1129,23 +1015,13 @@ function ConfigStepFooter({
   }
 }
 
-function addSuggestionsReplacingStarters(
-  current: TopologyDraft,
-  suggestions: SuggestedApp[],
-  repoKey: string,
-): TopologyDraft {
-  const suggestionDrafts = suggestions.map((suggestion) => appDraftFromSuggestion(suggestion, repoKey));
-  return addAppsReplacingStarters(current, repoKey, suggestionDrafts);
-}
-
-function addAppsReplacingStarters(current: TopologyDraft, repoKey: string, apps: AppDraft[]): TopologyDraft {
-  const existingApps = current.apps.filter((app) => !(app.repoKey === repoKey && isUntouchedStarterApp(app)));
-  const existingNames = new Set(existingApps.map((app) => app.name).filter((name) => name.trim() !== ""));
+function addApps(current: TopologyDraft, apps: AppDraft[]): TopologyDraft {
+  const existingNames = new Set(current.apps.map((app) => app.name).filter((name) => name.trim() !== ""));
   const newApps = uniqueNewApps(apps, existingNames);
 
   return {
     ...current,
-    apps: [...existingApps, ...newApps],
+    apps: [...current.apps, ...newApps],
   };
 }
 
@@ -1219,12 +1095,9 @@ function getConfigStepCompletion({
   variablesAcknowledged: boolean;
 }): Record<ConfigStepId, boolean> {
   const noBlockingDocumentErrors = issues.documentErrors.length === 0;
-  const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
-  const hasStarterApps = draft.apps.some(isUntouchedStarterApp);
   const appsComplete =
-    deployableApps.length > 0 &&
-    !hasStarterApps &&
-    deployableApps.every((app) => {
+    draft.apps.length > 0 &&
+    draft.apps.every((app) => {
       const requiredFieldsComplete = app.name.trim() !== "" && app.path.trim() !== "" && app.port.trim() !== "";
       return requiredFieldsComplete && !hasAppFieldErrors(issues, app.id);
     }) &&
@@ -1253,6 +1126,10 @@ function hasAppFieldErrors(issues: DraftIssues, draftId: number): boolean {
     "path",
     "buildContext",
     "dockerfile",
+    "runtime",
+    "runtimeVersion",
+    "buildScript",
+    "entrypoint",
     "port",
     "command",
     "healthCheck",

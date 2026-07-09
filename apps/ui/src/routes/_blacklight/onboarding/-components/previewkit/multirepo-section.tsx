@@ -9,12 +9,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@autonoma/blacklight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
-import { useGithubRepositories } from "lib/query/github.queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
+import { useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
+import { trpc } from "lib/trpc";
 import { useState } from "react";
 import { nextDraftId, type BranchConventionDraft, type RepoDraft } from "./topology-draft";
+
+// Cap the install-tab close poll so it can never leak indefinitely (~5 min).
+const INSTALL_POLL_INTERVAL_MS = 800;
+const INSTALL_POLL_MAX_TICKS = 375;
 
 interface MultirepoSectionProps {
   repos: RepoDraft[];
@@ -32,10 +40,9 @@ interface MultirepoSectionProps {
  * group in the apps section and its own config document on save; PreviewKit
  * merges every repo's apps into one preview environment per PR.
  *
- * NOTE: Not yet wired into `previewkit-config.tsx` - multirepo configuration
- * from the UI is intentionally deferred to a planned follow-up PR. The backend
- * (savePreviewkitConfig `dependencyDocuments`) and topology draft model already
- * support it; this component is the UI surface that the follow-up will mount.
+ * Single-repo projects are the common case, so until a dependency repo exists
+ * this renders only a subtle opt-in button; the full management band appears once
+ * the user opts in or a dependency repo is present.
  */
 export function MultirepoSection({
   repos,
@@ -45,15 +52,44 @@ export function MultirepoSection({
   onReposChange,
   onBranchConventionChange,
 }: MultirepoSectionProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: installationRepos } = useGithubRepositories();
-  const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
+  // Where GitHub returns to after granting the app access to more repos.
+  const { data: githubConfig } = useGithubConfig(router.state.location.href);
   const [confirmRemoveId, setConfirmRemoveId] = useState<number | undefined>(undefined);
+  // Bumped after each add to remount the picker so it resets to its placeholder.
+  const [pickerKey, setPickerKey] = useState(0);
+  // Most projects are a single repo, so the whole multirepo surface stays hidden
+  // behind a small opt-in until the user adds a dependency repo (or expands it).
+  const [expanded, setExpanded] = useState(false);
 
   const usedFullNames = new Set([primaryRepoFullName, ...repos.map((repo) => repo.repo)]);
   const availableRepos = installationRepos.filter((repo) => !usedFullNames.has(repo.fullName));
+  const installUrl = githubConfig.installUrl;
 
-  function addRepo() {
-    const repo = installationRepos.find((candidate) => candidate.fullName === selectedRepoFullName);
+  // Open the GitHub App install in a separate tab so the in-progress config draft
+  // in this tab is never destroyed by a full-page redirect. The repo list also
+  // refetches on window focus (see useGithubRepositories), so returning here after
+  // granting access surfaces the new repo; polling the tab's close is a backstop
+  // that refreshes even if the user never refocuses before the picker.
+  function openGithubInstall() {
+    if (installUrl == null) return;
+    const installTab = window.open(installUrl, "_blank");
+    if (installTab == null) return;
+    let ticks = 0;
+    const timer = window.setInterval(() => {
+      ticks += 1;
+      if (!installTab.closed && ticks < INSTALL_POLL_MAX_TICKS) return;
+      window.clearInterval(timer);
+      void queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
+    }, INSTALL_POLL_INTERVAL_MS);
+  }
+
+  // Adding a dependency repo is a single action: picking it from the list adds it
+  // straight away, no separate confirm button.
+  function addRepo(fullName: string) {
+    const repo = installationRepos.find((candidate) => candidate.fullName === fullName);
     if (repo == null) return;
     const draft: RepoDraft = {
       id: nextDraftId(),
@@ -63,7 +99,7 @@ export function MultirepoSection({
       githubRepositoryId: repo.id,
     };
     onReposChange([...repos, draft]);
-    setSelectedRepoFullName("");
+    setPickerKey((key) => key + 1);
   }
 
   function updateRepo(id: number, patch: Partial<RepoDraft>) {
@@ -73,6 +109,34 @@ export function MultirepoSection({
   function removeRepo(id: number) {
     onReposChange(repos.filter((repo) => repo.id !== id));
     setConfirmRemoveId(undefined);
+  }
+
+  // Single-repo projects (the common case) see only a subtle opt-in, not the full
+  // multirepo band. When no other repos are connected, adding one is a dead end,
+  // so the opt-in sends the user to GitHub to grant access to the missing repo
+  // instead of expanding an empty picker.
+  if (repos.length === 0 && !expanded) {
+    if (availableRepos.length === 0) {
+      return (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-fit gap-2 text-text-secondary"
+          onClick={openGithubInstall}
+          disabled={installUrl == null}
+        >
+          <PlusIcon size={14} weight="bold" />
+          Missing a backend, service, or worker? Connect its repo on GitHub
+          <ArrowSquareOutIcon size={13} />
+        </Button>
+      );
+    }
+    return (
+      <Button variant="ghost" size="sm" className="w-fit gap-2 text-text-secondary" onClick={() => setExpanded(true)}>
+        <PlusIcon size={14} weight="bold" />
+        Missing a backend, service, or worker? Add its repo
+      </Button>
+    );
   }
 
   return (
@@ -154,29 +218,54 @@ export function MultirepoSection({
           })
         )}
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-64 flex-1">
-            <Label htmlFor="pk-add-dependency-repo">Add dependency repo</Label>
-            <Select value={selectedRepoFullName} onValueChange={(value) => setSelectedRepoFullName(value ?? "")}>
-              <SelectTrigger id="pk-add-dependency-repo">
-                <SelectValue
-                  placeholder={availableRepos.length === 0 ? "No other repos available" : "Select a repository"}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {availableRepos.map((repo) => (
-                  <SelectItem key={repo.id} value={repo.fullName}>
-                    {repo.fullName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {availableRepos.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-2xs text-text-secondary">
+              No other repos are connected to the GitHub App. Grant it access on GitHub, then pick it here - this tab
+              keeps your progress.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={openGithubInstall}
+              disabled={installUrl == null}
+            >
+              Connect a repo on GitHub
+              <ArrowSquareOutIcon size={13} />
+            </Button>
           </div>
-          <Button variant="outline" className="gap-2" onClick={addRepo} disabled={selectedRepoFullName === ""}>
-            <PlusIcon size={14} weight="bold" />
-            Add repo
-          </Button>
-        </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-64 flex-1">
+              <Label htmlFor="pk-add-dependency-repo">Add dependency repo</Label>
+              {/* Uncontrolled: picking a repo adds it immediately; the remount key
+                  resets the trigger to its placeholder for the next pick. */}
+              <Select<string> key={pickerKey} onValueChange={(value) => (value != null ? addRepo(value) : undefined)}>
+                <SelectTrigger id="pk-add-dependency-repo">
+                  <SelectValue placeholder="Pick a repo to add it" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableRepos.map((repo) => (
+                    <SelectItem key={repo.id} value={repo.fullName}>
+                      {repo.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-text-secondary"
+              onClick={openGithubInstall}
+              disabled={installUrl == null}
+            >
+              Missing one? Connect on GitHub
+              <ArrowSquareOutIcon size={13} />
+            </Button>
+          </div>
+        )}
 
         {repos.length > 0 ? (
           <BranchConventionEditor convention={branchConvention} onChange={onBranchConventionChange} />

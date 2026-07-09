@@ -38,7 +38,6 @@ import {
   emptyAppDraft,
   emptyDraftIssues,
   hookFieldErrors,
-  isUntouchedStarterApp,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
   serviceDraftForRecipe,
@@ -67,9 +66,8 @@ interface PreviewDraftValue {
   referenceTokens: string[];
   /** Every app and service name, for depends-on pickers. */
   allNames: string[];
-  /** Apps that count as real (non-starter) deployables. */
+  /** Every app - all apps are real, deployable apps. */
   deployableApps: AppDraft[];
-  hasUntouchedStarterApps: boolean;
   isDirty: boolean;
   canSave: boolean;
   isSaving: boolean;
@@ -183,15 +181,10 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
 
   const compiled = documentsFromDraft(draft);
   const issues = validatePrimaryDocument(compiled.primary);
-  const hasUntouchedStarterApps = draft.apps.some(isUntouchedStarterApp);
-  // Names a hook may target: declared (non-starter) apps. Hooks reference apps only.
-  const hookAppNames = draft.apps
-    .filter((app) => !isUntouchedStarterApp(app))
-    .map((app) => app.name)
-    .filter((name) => name.trim() !== "");
+  // Names a hook may target: any app with a name. Hooks reference apps only.
+  const hookAppNames = draft.apps.map((app) => app.name).filter((name) => name.trim() !== "");
   const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
-  const hasBlockingIssues =
-    issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hasUntouchedStarterApps || hookErrors.size > 0;
+  const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hookErrors.size > 0;
   const secretsDirty = draft.apps.some((app) => {
     if (app.repoKey !== PRIMARY_REPO_KEY) return false;
     const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
@@ -208,7 +201,8 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     draft.repos.map((repo) => [repo.name, draft.apps.filter((app) => app.repoKey === repo.name).length]),
   );
 
-  const deployableApps = draft.apps.filter((app) => !isUntouchedStarterApp(app));
+  // Every app is a real, deployable app now (starter apps are seeded complete).
+  const deployableApps = draft.apps;
   const allNames = [...deployableApps.map((app) => app.name), ...draft.services.map((service) => service.name)];
   const referenceTokens = [
     ...draft.services.flatMap((service) => {
@@ -223,9 +217,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     setDraft((current) => {
       const target = current.apps.find((app) => app.id === id);
       const apps = current.apps.map((app) =>
-        app.id === id
-          ? { ...app, ...patch, origin: app.origin === "starter" ? "manual" : (patch.origin ?? app.origin) }
-          : app,
+        app.id === id ? { ...app, ...patch, origin: patch.origin ?? app.origin } : app,
       );
       const next: TopologyDraft = { ...current, apps };
 
@@ -246,7 +238,6 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
       apps: current.apps.map((app) => ({
         ...app,
         primary: app.id === id ? !app.primary : false,
-        origin: app.id === id && app.origin === "starter" ? "manual" : app.origin,
       })),
     }));
   }
@@ -385,7 +376,6 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     referenceTokens,
     allNames,
     deployableApps,
-    hasUntouchedStarterApps,
     isDirty,
     canSave,
     isSaving: saveConfig.isPending,

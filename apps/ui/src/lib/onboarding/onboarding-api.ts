@@ -13,7 +13,6 @@ export {
     usePreviewkitConfig,
     useSavePreviewkitConfig,
     useDeploymentSignalStatus,
-    useRepoSuggestions,
     useSuggestServices,
     useSuggestEnvVars,
     useValidatePreviewkitConfig,

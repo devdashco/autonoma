@@ -9,7 +9,7 @@ import { usePreviewDraft } from "./-draft-context";
  * draft dirty. Saving writes one new config revision covering all sections.
  */
 export function PreviewSaveBar() {
-  const { issues, hookErrors, hasUntouchedStarterApps, isDirty, canSave, isSaving, save, cancel } = usePreviewDraft();
+  const { issues, hookErrors, isDirty, canSave, isSaving, save, cancel } = usePreviewDraft();
 
   return (
     <div className="flex flex-col gap-4">
@@ -32,11 +32,6 @@ export function PreviewSaveBar() {
             </p>
           ))}
         </div>
-      ) : undefined}
-      {hasUntouchedStarterApps ? (
-        <p className="text-sm text-text-secondary">
-          Edit the starter app before saving - the placeholder values are only a guide.
-        </p>
       ) : undefined}
       {hookErrors.size > 0 ? (
         <p className="text-sm text-text-secondary">

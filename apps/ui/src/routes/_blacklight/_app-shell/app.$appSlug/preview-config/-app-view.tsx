@@ -85,6 +85,8 @@ export function AppView({ app }: { app: AppDraft }) {
           app={app}
           issues={issues}
           dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
+          showDependsOn={repoGroups.length > 1}
+          showFrontendToggle={deployableApps.length > 1}
           defaultExpanded
           onChange={updateApp}
           onSetPrimary={setPrimaryApp}

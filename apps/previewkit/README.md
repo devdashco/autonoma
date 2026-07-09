@@ -125,6 +125,24 @@ hooks:
 | `depends_on` | No | | Names of apps/services this app waits for before starting |
 | `resources` | No | | **Ignored for user-authored config.** App containers request 250m CPU / 512Mi memory with a 1Gi memory limit; CPU is never limited, so apps burst freely. The field is still accepted so existing configs validate, but its `cpu`/`memory` values have no effect here - resource sizing is honored only for trusted, platform-authored config. |
 
+**Build block (`build`):**
+
+An app may carry an optional `build` block that selects a build strategy explicitly instead of relying on Dockerfile/Turbo/Railpack autodetection (see [Building Images](#building-images)). It is a discriminated union on `framework`:
+
+- **Framework presets** (`node`, `next`, `vite`) - generate a single-stage Dockerfile from a node base image. Fields: `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`), and optional `install_command` / `build_command` / `run_command` overrides. `bun` is the same with a bun base image and no `package_manager` / `node_version`.
+- **`dockerfile`** - build a user-authored Dockerfile. Fields: `dockerfile` (required, path relative to repo root) and optional `target` (multi-stage stage to build).
+- **`runtime`** - the **raw escape hatch**. You pick a language runtime or bare base image and write the build yourself; the generator emits a trivial `FROM <image>` / toolbelt / `RUN <build_script>` / `CMD <entrypoint>` Dockerfile with no autodetection. Fields:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `runtime` | Yes | | One of `node`, `python`, `go`, `rust`, `java`, `ruby`, `php`, `cpp`, `debian` (bare base image). Selects the base image (see `packages/types/src/schemas/previewkit-runtimes.ts`) |
+| `version` | No | catalog default (e.g. node `22`) | Image tag, e.g. `"20"`. Constrained to a safe tag charset so it cannot break out of the `FROM` line |
+| `build_script` | No | | Bash build step baked into the image as a cached layer. Runs under bash via a heredoc, so multi-line scripts, loops, and conditionals work. Cannot contain a line equal to the reserved heredoc delimiter |
+| `entrypoint` | Yes | | Bash container start command, baked as a single-line `CMD` (line breaks are rejected). `command` still overrides it at deploy time |
+| `build_context` | No | `app` | `app` builds from the app directory; `root` builds from the repo root |
+
+Every runtime is a Debian-family (`apt`) image, so the generator installs one common toolbelt (`git`, `curl`, `jq`, `rg`, `make`, `ssh`, ...) plus per-runtime setup (e.g. `corepack` for node, `uv` for python, `composer` for php), and switches the shell to bash. The generated image clones the repo to `/workspace/<app>`.
+
 **Service fields:**
 
 | Field | Required | Default | Description |

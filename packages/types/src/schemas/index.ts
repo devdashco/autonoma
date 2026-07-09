@@ -19,6 +19,7 @@ export * from "./secrets";
 export * from "./org-secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
+export * from "./previewkit-runtimes";
 export * from "./previewkit-introspection";
 export * from "./previewkit-service-suggestion";
 export * from "./previewkit-env-suggestion";

@@ -166,10 +166,11 @@ function InstallStep({
           <>
             No repositories are visible to the GitHub App{" "}
             {appSlug != null ? <span className="text-primary-ink">{appSlug}</span> : "this environment uses"}. Grant it
-            access to the repository you want (or install it), then refresh.
+            access to every repository your application needs - the frontend plus any backend, API, or worker repos -
+            then refresh.
           </>
         ) : (
-          "Install the Autonoma GitHub App on the repository Autonoma should deploy or observe for preview environments."
+          "Install the Autonoma GitHub App and grant it access to every repository your application needs to run - the frontend plus any backend, API, or worker repos. They deploy together into one preview environment, so add them all, not just one."
         )}
       </p>
 

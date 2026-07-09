@@ -5,6 +5,8 @@ import { trpc } from "lib/trpc";
 
 const GITHUB_PR_STALE_TIME_MS = 5 * 60_000;
 const GITHUB_REPOSITORY_STALE_TIME_MS = 5 * 60_000;
+// Short so a focus refetch fires when the user returns from granting repo access.
+const GITHUB_REPOSITORY_REFRESH_STALE_TIME_MS = 5_000;
 const GITHUB_COMMIT_STALE_TIME_MS = 60 * 60_000;
 
 export function useGithubConfig(returnPath: string) {
@@ -16,7 +18,15 @@ export function useGithubInstallation() {
 }
 
 export function useGithubRepositories() {
-    return useSuspenseQuery(trpc.github.listRepositories.queryOptions());
+    // Refetch when the tab regains focus: granting the GitHub App access to a new
+    // repo happens in a separate tab, so returning to Autonoma should surface the
+    // newly-connected repo without a manual reload. A short stale time makes the
+    // focus refetch actually fire rather than serve a still-fresh cache.
+    return useSuspenseQuery({
+        ...trpc.github.listRepositories.queryOptions(),
+        staleTime: GITHUB_REPOSITORY_REFRESH_STALE_TIME_MS,
+        refetchOnWindowFocus: true,
+    });
 }
 
 export function useApplicationRepositoryFromGitHub(applicationId: string) {

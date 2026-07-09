@@ -207,20 +207,6 @@ export function useDeploymentSignalStatus(applicationId: string) {
     );
 }
 
-/**
- * Repo introspection suggestions for the topology builder. Deliberately not a
- * suspense query: it only runs on a fresh (never-saved) config, and any error
- * or empty result silently falls back to manual setup.
- */
-export function useRepoSuggestions(applicationId: string, enabled: boolean, githubRepositoryId?: number) {
-    return useQuery(
-        trpc.onboarding.introspectRepository.queryOptions(
-            { applicationId, githubRepositoryId },
-            { enabled, staleTime: Number.POSITIVE_INFINITY, retry: false, refetchOnWindowFocus: false },
-        ),
-    );
-}
-
 /** AI-assisted service suggestions for the topology builder, inferred from the accepted apps. */
 export function useSuggestServices(
     applicationId: string,

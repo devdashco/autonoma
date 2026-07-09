@@ -1,19 +1,57 @@
 import { Prisma, type PrismaClient } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
-import { previewConfigSchema, type PreviewConfig } from "@autonoma/types";
+import { PREVIEWKIT_RUNTIME_CATALOG, previewConfigSchema, type PreviewConfig } from "@autonoma/types";
 import { z } from "zod";
 
-/** The starter config used when an application has never saved a PreviewKit config. */
-export function defaultPreviewkitConfig(): PreviewConfig {
+const FALLBACK_APP_NAME = "web";
+const MAX_K8S_NAME_LENGTH = 63;
+// The starter app opens in Manual mode on the Node runtime - the most common
+// stack - so the seeded config is complete and immediately deployable. The
+// runtime catalog is the single source for these defaults (UI tiles + generator).
+const STARTER_RUNTIME = PREVIEWKIT_RUNTIME_CATALOG.node;
+
+/**
+ * Turns an application name into a Kubernetes-safe, kebab-case app name: lowercase
+ * alphanumeric segments joined by single hyphens, trimmed to a leading/trailing
+ * alphanumeric, capped at 63 chars. Falls back to `web` when nothing usable
+ * remains - the k8s name schema requires at least two characters, so an empty or
+ * single-character slug (e.g. a name with no ASCII alphanumerics) uses the
+ * fallback rather than producing an invalid name.
+ */
+export function kebabCaseAppName(value: string | undefined): string {
+    const slug = (value ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, MAX_K8S_NAME_LENGTH)
+        .replace(/-+$/g, "");
+    return slug.length < 2 ? FALLBACK_APP_NAME : slug;
+}
+
+/**
+ * The starter config used when an application has never saved a PreviewKit
+ * config. The single starter app is named after the application (kebab-cased)
+ * so it lands as a sensible, Kubernetes-safe default instead of a generic `web`,
+ * and carries a complete Manual (runtime) build block so the config is valid and
+ * deployable as-is - what the user sees in the form is exactly what deploys.
+ */
+export function defaultPreviewkitConfig(applicationName?: string): PreviewConfig {
     return previewConfigSchema.parse({
         version: 1,
         apps: [
             {
-                name: "web",
+                name: kebabCaseAppName(applicationName),
                 path: ".",
                 port: 3000,
                 primary: true,
                 health_check: "/",
+                build: {
+                    framework: "runtime",
+                    runtime: STARTER_RUNTIME.id,
+                    version: STARTER_RUNTIME.defaultVersion,
+                    build_script: STARTER_RUNTIME.defaultBuildScript,
+                    entrypoint: STARTER_RUNTIME.defaultEntrypoint,
+                },
             },
         ],
         services: [{ name: "db", recipe: "postgres", version: "16" }],

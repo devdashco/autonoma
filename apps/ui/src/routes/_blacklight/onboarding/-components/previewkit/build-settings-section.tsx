@@ -28,7 +28,10 @@ interface BuildSettingsSectionProps {
  * union (which would need a cast).
  */
 interface BuildForm {
-  framework: BuildFramework | "auto";
+  // This legacy form models the framework presets + dockerfile + auto. The manual
+  // "runtime" escape hatch is authored in the app card's build-mode selector, not
+  // here, so it is excluded from this form's framework choice.
+  framework: Exclude<BuildFramework, "runtime"> | "auto";
   packageManager: "npm" | "pnpm" | "yarn";
   nodeVersion: string;
   installCommand?: string;
@@ -300,6 +303,13 @@ function fromBuild(build: Build | undefined): BuildForm {
       buildCommand: build.build_command,
       runCommand: build.run_command,
     };
+  }
+  if (build.framework === "runtime") {
+    // Manual-runtime builds are authored in the app card's build-mode selector,
+    // not this legacy preset form. Surface it as the auto default here rather than
+    // mis-reading it as a node preset; the parent keeps the original build block
+    // unless the user actively changes the framework in this form.
+    return base;
   }
   return {
     ...base,

@@ -96,6 +96,65 @@ describe("previewConfigSchema build block", () => {
     });
 });
 
+describe("previewConfigSchema runtime build block", () => {
+    it("accepts a minimal runtime build with a required entrypoint", () => {
+        const result = parseWithBuild({ framework: "runtime", runtime: "node", entrypoint: "npm start" });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.apps[0]?.build).toEqual({
+                framework: "runtime",
+                runtime: "node",
+                entrypoint: "npm start",
+                build_context: "app",
+            });
+        }
+    });
+
+    it("rejects an unknown runtime (alpine was removed)", () => {
+        expect(parseWithBuild({ framework: "runtime", runtime: "alpine", entrypoint: "./start.sh" }).success).toBe(
+            false,
+        );
+    });
+
+    it("requires an entrypoint", () => {
+        expect(parseWithBuild({ framework: "runtime", runtime: "node" }).success).toBe(false);
+    });
+
+    it("rejects an entrypoint with a line break (Dockerfile CMD injection)", () => {
+        expect(
+            parseWithBuild({ framework: "runtime", runtime: "node", entrypoint: "npm start\nnode server.js" }).success,
+        ).toBe(false);
+    });
+
+    it("rejects a build_script line equal to the reserved heredoc delimiter", () => {
+        const result = parseWithBuild({
+            framework: "runtime",
+            runtime: "node",
+            entrypoint: "npm start",
+            build_script: "echo hi\nAUTONOMA_BUILD_EOF\nrm -rf /",
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("accepts a multi-line build_script that never hits the delimiter", () => {
+        expect(
+            parseWithBuild({
+                framework: "runtime",
+                runtime: "python",
+                entrypoint: "python main.py",
+                build_script: "uv sync\nuv run build",
+            }).success,
+        ).toBe(true);
+    });
+
+    it("rejects a version tag outside the safe charset", () => {
+        expect(
+            parseWithBuild({ framework: "runtime", runtime: "node", version: "20 && rm", entrypoint: "npm start" })
+                .success,
+        ).toBe(false);
+    });
+});
+
 describe("previewConfigSchema multirepo dependency sha", () => {
     function parseWithRepos(repos: unknown) {
         return previewConfigSchema.safeParse({

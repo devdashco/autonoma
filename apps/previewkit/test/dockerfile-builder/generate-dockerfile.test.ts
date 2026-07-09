@@ -97,4 +97,90 @@ describe("generateDockerfile", () => {
         expect(df).toContain("CMD node dist/main.js");
         expect(df).not.toContain("pnpm run build");
     });
+
+    describe("runtime escape hatch", () => {
+        it("builds a language runtime from its pinned image with the apt toolbelt and a heredoc build", () => {
+            const df = generateDockerfile(
+                {
+                    framework: "runtime",
+                    runtime: "node",
+                    build_script: "npm install\nnpm run build",
+                    entrypoint: "npm start",
+                    build_context: "app",
+                },
+                ctx,
+            );
+            // defaults to the catalog's pinned version (node 22).
+            expect(df).toContain("FROM node:22-bookworm-slim");
+            expect(df).toContain("apt-get install -y --no-install-recommends git curl");
+            // node's per-runtime setup enables corepack (pnpm + yarn).
+            expect(df).toContain("RUN corepack enable");
+            // clones to /workspace/<app>, matching the sandbox reference.
+            expect(df).toContain("WORKDIR /workspace/web");
+            // the build script + entrypoint run under bash, not the default /bin/sh.
+            expect(df).toContain('SHELL ["/bin/bash", "-c"]');
+            // multi-line bash survives verbatim inside a heredoc RUN.
+            expect(df).toContain("RUN <<'AUTONOMA_BUILD_EOF'");
+            expect(df).toContain("npm install\nnpm run build");
+            expect(df).toContain("CMD npm start");
+        });
+
+        it("honors a user-selected runtime version in the image tag", () => {
+            const df = generateDockerfile(
+                { framework: "runtime", runtime: "node", version: "20", entrypoint: "npm start", build_context: "app" },
+                ctx,
+            );
+            expect(df).toContain("FROM node:20-bookworm-slim");
+        });
+
+        it("builds the bare Debian base image with the apt toolbelt", () => {
+            const df = generateDockerfile(
+                {
+                    framework: "runtime",
+                    runtime: "debian",
+                    build_script: "apt-get update\napt-get install -y build-essential",
+                    entrypoint: "./start.sh",
+                    build_context: "app",
+                },
+                ctx,
+            );
+            expect(df).toContain("FROM debian:bookworm-slim");
+            expect(df).toContain("apt-get install -y --no-install-recommends git curl");
+            expect(df).toContain("WORKDIR /workspace/web");
+            // debian-slim ships /bin/bash natively, so the SHELL switch is safe.
+            expect(df).toContain('SHELL ["/bin/bash", "-c"]');
+            expect(df).toContain("CMD ./start.sh");
+        });
+
+        it("omits the build step when no build script is given", () => {
+            const df = generateDockerfile(
+                { framework: "runtime", runtime: "go", entrypoint: "./app", build_context: "app" },
+                ctx,
+            );
+            expect(df).toContain("FROM golang:1.22-bookworm");
+            expect(df).not.toContain("AUTONOMA_BUILD_EOF");
+            expect(df).toContain("CMD ./app");
+        });
+
+        it("emits build-arg ENV lines and mirrors the runtime base image", () => {
+            const df = generateDockerfile(
+                {
+                    framework: "runtime",
+                    runtime: "python",
+                    build_script: "uv sync",
+                    entrypoint: "python main.py",
+                    build_context: "app",
+                },
+                {
+                    ...ctx,
+                    registryMirror: "123.dkr.ecr.us-east-1.amazonaws.com/docker-hub",
+                    buildArgs: { API_URL: "https://x" },
+                },
+            );
+            expect(df).toContain(
+                "FROM 123.dkr.ecr.us-east-1.amazonaws.com/docker-hub/library/python:3.12-slim-bookworm",
+            );
+            expect(df).toContain('ENV API_URL="https://x"');
+        });
+    });
 });

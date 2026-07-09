@@ -153,6 +153,17 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
    - `framework: node | next | vite | bun` - `generateDockerfile()` (`dockerfile-builder/`) synthesizes a
      single-stage Dockerfile from install/build/run defaults + overrides. `build_context: app | root`
      sets the context (`root` enables a turbo `--filter` for monorepos).
+   - `framework: runtime` - the manual escape hatch. The user picks a language runtime or the bare Debian
+     base image (the `previewkit-runtimes.ts` catalog in `packages/types`) + writes a bash `build_script` +
+     `entrypoint`; the generator `FROM`s the runtime image at the chosen `version`, installs the common apt
+     toolbelt, runs any per-runtime setup, switches the shell to bash, then `RUN`s the build script (heredoc)
+     and `CMD`s the entrypoint. Clones to `/workspace/<app>`. No autodetection - the user owns the result.
+     Every runtime is Debian-family (apt); the strategy tables keep the door open for another base OS.
+   `dockerfile-builder/` is split by concern: `raw-spec.ts` (the `RawSpec` primitive + the one
+   `renderDockerfile`), `framework-lowering.ts` + `runtime-lowering.ts` (both lower a `build` into a
+   `RawSpec`), and the `os-toolbelt.ts` (apt) + `node-package-manager.ts` (npm/pnpm/yarn/bun)
+   strategy tables. Adding a runtime is a catalog entry; adding a package manager or base OS is one
+   strategy entry - never a new branch in the generator.
 2. **Legacy fallback (no `build` block)** - the older per-app fields: user `dockerfile`, `monorepo: turbo`,
    or Railpack auto-detection. Retained for back-compat, slated for removal once `build` is universal.
 

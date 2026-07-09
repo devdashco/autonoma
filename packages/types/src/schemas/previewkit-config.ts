@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
+import { PREVIEWKIT_RUNTIME_IDS } from "./previewkit-runtimes";
 import { SecretKeySchema } from "./secrets";
 
 export interface ContainerResources {
@@ -137,12 +138,26 @@ const hooksSchema = z
 //   matching `docker build --target`. Without it, buildkit builds the LAST
 //   stage - which silently builds the wrong service when a Dockerfile ends with
 //   a worker/sidecar stage instead of the deployable one.
+// - runtime: the raw escape hatch (see previewkit-runtimes.ts). The user picks a
+//   language runtime or bare base image and writes a bash `build_script` +
+//   `entrypoint`; the generator emits `FROM <image>` / `RUN <build_script>` /
+//   `CMD <entrypoint>` with a tiered toolbelt, skipping all autodetection. It is
+//   the most general generated build - the framework presets above are just this
+//   with the base image and commands prefilled.
 // When `build` is omitted the pipeline falls back to Railpack autodetection
 // (an on-disk Dockerfile still wins). `build_context: root` builds from the
 // repository root so workspace dependencies resolve - this, plus a
 // turbo-filtered build/run command, replaces the former `monorepo: turbo`.
 const nodeVersionRegex = /^\d+(\.\d+)?(\.\d+)?$/;
 const buildContextSchema = z.enum(["app", "root"]).default("app");
+
+/**
+ * Delimiter the previewkit generator uses for the raw `build_script` heredoc. A
+ * script line exactly equal to it would close the heredoc early (build breakage /
+ * generated-Dockerfile injection), so the schema rejects that below and the
+ * generator reads this same constant - one source of truth.
+ */
+export const PREVIEWKIT_BUILD_SCRIPT_HEREDOC = "AUTONOMA_BUILD_EOF";
 
 function nodeFrameworkBuildSchema<TFramework extends "node" | "next" | "vite">(framework: TFramework) {
     return z.object({
@@ -171,6 +186,41 @@ const buildSchema = z.discriminatedUnion("framework", [
         framework: z.literal("dockerfile"),
         dockerfile: z.string().min(1, "dockerfile path is required"),
         target: z.string().min(1).optional(),
+        build_context: buildContextSchema,
+    }),
+    z.object({
+        framework: z.literal("runtime"),
+        runtime: z.enum(PREVIEWKIT_RUNTIME_IDS),
+        // Image tag version, e.g. "22" for node. Optional - defaults to the
+        // catalog's default per runtime. The user picks it so a repo pinned to an
+        // older toolchain is not forced onto our default (which would defeat the
+        // escape hatch). Constrained to a safe tag charset so it can never break
+        // out of the generated `FROM` line.
+        version: z
+            .string()
+            .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "must be a valid image tag")
+            .optional(),
+        // Both are raw bash. `build_script` bakes into the image (cached); the
+        // entrypoint is the container start command. `build_script` is optional
+        // (some apps need no build step); `entrypoint` is required - the
+        // container has to start somehow. `app.command` still overrides it at
+        // deploy time.
+        build_script: z
+            .string()
+            .min(1)
+            .refine(
+                (script) => !script.split("\n").includes(PREVIEWKIT_BUILD_SCRIPT_HEREDOC),
+                `build script cannot contain a line equal to "${PREVIEWKIT_BUILD_SCRIPT_HEREDOC}" (reserved heredoc delimiter)`,
+            )
+            .optional(),
+        // The entrypoint is baked verbatim into a single-line `CMD`, so a newline
+        // would break out of the CMD and inject a bogus Dockerfile instruction
+        // (e.g. "npm start\nnode server.js"). Constrain it to one line; use a
+        // start script referenced from here if you need multiple commands.
+        entrypoint: z
+            .string()
+            .min(1, "entrypoint is required")
+            .regex(/^[^\r\n]+$/, "entrypoint must be a single line (no line breaks)"),
         build_context: buildContextSchema,
     }),
 ]);

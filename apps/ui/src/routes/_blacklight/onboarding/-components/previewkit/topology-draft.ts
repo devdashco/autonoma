@@ -1,12 +1,17 @@
 import {
     hasConnectionToken,
+    PREVIEWKIT_RUNTIME_CATALOG,
     validateHookSteps,
+    type Build,
     type ConfigIssue,
     type HookGroupKey,
     type PreviewConfig,
-    type SuggestedApp,
+    type PreviewkitRuntime,
     type SuggestedEnvVar,
 } from "@autonoma/types";
+
+/** The runtime a fresh app starts on (Manual is the default build method). */
+const DEFAULT_RUNTIME: PreviewkitRuntime = "node";
 import { z } from "zod";
 
 export const PRIMARY_REPO_KEY = "primary";
@@ -86,7 +91,19 @@ export function envRow(
     return { id: nextDraftId(), key, value, sensitive, buildTime, origin };
 }
 
-export type AppDraftOrigin = "saved" | "manual" | "suggestion" | "starter";
+export type AppDraftOrigin = "saved" | "manual" | "suggestion";
+
+/**
+ * How an app's image is built (the three choices the app-card selector exposes):
+ * - `auto` - previewkit autodetects (Railpack / on-disk Dockerfile). If the app
+ *   loaded with a framework-preset `build` block the selector can't model, that
+ *   block is kept verbatim in {@link AppDraft.buildPassthrough} and re-emitted, so
+ *   a save never silently downgrades a preset to autodetection.
+ * - `dockerfile` - the app's `dockerfile` path is built.
+ * - `runtime` - the manual escape hatch: pick a runtime + write a bash build
+ *   script and entrypoint; compiles to a `build: { framework: "runtime", ... }`.
+ */
+export type AppBuildMode = "auto" | "dockerfile" | "runtime";
 
 export interface AppDraft {
     id: number;
@@ -95,8 +112,24 @@ export interface AppDraft {
     name: string;
     path: string;
     buildContext: string;
-    autodetectDockerfile: boolean;
+    buildMode: AppBuildMode;
     dockerfile: string;
+    /**
+     * A non-runtime `build` block (a framework preset like node/next/vite/bun, or
+     * an explicit dockerfile build block) the app loaded with that the three-way
+     * selector cannot represent. Kept verbatim so an edit+save re-emits it instead
+     * of dropping it to autodetection. Cleared the moment the user picks a build
+     * mode. Present only when `buildMode === "auto"`.
+     */
+    buildPassthrough?: Build;
+    /** Manual-runtime selection (used when `buildMode === "runtime"`). Defaults to node. */
+    runtime: PreviewkitRuntime;
+    /** Raw runtime image version tag; blank uses the catalog default. */
+    runtimeVersion: string;
+    /** Manual bash build script (optional - some apps need no build step). */
+    buildScript: string;
+    /** Manual bash entrypoint (the container start command). */
+    entrypoint: string;
     port: string;
     command: string;
     healthCheck: string;
@@ -231,14 +264,22 @@ export function nextDraftId(): number {
 }
 
 export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"): AppDraft {
+    // A fresh app defaults to Manual mode (auto-detect is no longer a choice),
+    // seeded with the default runtime's build script + entrypoint so it is valid
+    // out of the box rather than failing on a required-but-empty entrypoint.
+    const defaults = PREVIEWKIT_RUNTIME_CATALOG[DEFAULT_RUNTIME];
     return {
         id: nextDraftId(),
         repoKey,
         name: "",
         path: ".",
         buildContext: "",
-        autodetectDockerfile: true,
+        buildMode: "runtime",
         dockerfile: "",
+        runtime: DEFAULT_RUNTIME,
+        runtimeVersion: "",
+        buildScript: defaults.defaultBuildScript,
+        entrypoint: defaults.defaultEntrypoint,
         port: "",
         command: "",
         healthCheck: "/",
@@ -286,20 +327,6 @@ export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: stri
     };
 }
 
-export function appDraftFromSuggestion(suggestion: SuggestedApp, repoKey: string): AppDraft {
-    const draft = emptyAppDraft(repoKey, "suggestion");
-    draft.name = suggestion.name;
-    draft.path = suggestion.path;
-    if (suggestion.dockerfile != null) {
-        draft.autodetectDockerfile = false;
-        draft.dockerfile = suggestion.dockerfile;
-    }
-    if (suggestion.port != null) draft.port = String(suggestion.port);
-    if (suggestion.command != null) draft.command = suggestion.command;
-    if (suggestion.monorepo != null) draft.monorepo = suggestion.monorepo;
-    return draft;
-}
-
 /** Hydrates the form draft from the saved primary document plus per-repo dependency documents. */
 export function draftFromConfig(
     primary: PreviewConfig,
@@ -318,8 +345,11 @@ export function draftFromConfig(
         return repoDraft;
     });
 
+    // Fresh starter apps are real, editable apps from birth (origin "manual"):
+    // they carry a complete seeded build block and are immediately deployable, so
+    // there is no separate "untouched starter" state to unlock.
     const apps = primary.apps.map((app) =>
-        appDraftFromConfig(app, PRIMARY_REPO_KEY, mode === "starter" ? "starter" : "saved"),
+        appDraftFromConfig(app, PRIMARY_REPO_KEY, mode === "starter" ? "manual" : "saved"),
     );
     for (const dependency of dependencies) {
         if (dependency.document == null) continue;
@@ -382,7 +412,28 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     draft.name = app.name;
     draft.path = app.path;
     draft.buildContext = app.build_context ?? "";
-    draft.autodetectDockerfile = app.dockerfile == null;
+    // A manual-runtime `build` block maps onto the runtime editor. Any other
+    // `build` block (a framework preset - node/next/vite/bun - or an explicit
+    // dockerfile build block) the three-way selector can't model is preserved
+    // verbatim as `buildPassthrough` under "auto", so a save re-emits it instead
+    // of silently downgrading it to autodetection.
+    if (app.build?.framework === "runtime") {
+        draft.buildMode = "runtime";
+        draft.runtime = app.build.runtime;
+        draft.runtimeVersion = app.build.version ?? "";
+        draft.buildScript = app.build.build_script ?? "";
+        draft.entrypoint = app.build.entrypoint;
+    } else if (app.build != null) {
+        draft.buildMode = "auto";
+        draft.buildPassthrough = app.build;
+    } else if (app.dockerfile != null) {
+        draft.buildMode = "dockerfile";
+    } else {
+        // An app with no build block keeps auto-detection so its existing deploy
+        // behavior is preserved; the user can switch it to a method. Fresh starter
+        // apps never land here - they carry a seeded runtime build block.
+        draft.buildMode = "auto";
+    }
     draft.dockerfile = app.dockerfile ?? "";
     draft.port = String(app.port);
     draft.command = app.command ?? "";
@@ -403,10 +454,6 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
 
 function hookDraftFromConfig(step: PreviewConfig["hooks"]["pre_deploy"][number]): HookDraft {
     return { id: nextDraftId(), app: step.app, command: step.command };
-}
-
-export function isUntouchedStarterApp(app: AppDraft): boolean {
-    return app.origin === "starter";
 }
 
 function toServiceRecipe(recipe: string): ServiceRecipe {
@@ -735,13 +782,24 @@ function compileApp(app: AppDraft): Record<string, unknown> {
         path: app.path.trim() === "" ? "." : app.path.trim(),
     };
     if (app.buildContext.trim() !== "") compiled.build_context = app.buildContext.trim();
-    if (!app.autodetectDockerfile && app.dockerfile.trim() !== "") compiled.dockerfile = app.dockerfile.trim();
+    if (app.buildMode === "runtime") {
+        compiled.build = compileRuntimeBuild(app);
+    } else if (app.buildMode === "dockerfile" && app.dockerfile.trim() !== "") {
+        compiled.dockerfile = app.dockerfile.trim();
+    } else if (app.buildMode === "auto" && app.buildPassthrough != null) {
+        // A framework preset / dockerfile build block the selector doesn't model,
+        // preserved from load - re-emit it verbatim rather than dropping it.
+        compiled.build = app.buildPassthrough;
+    }
     if (app.monorepo != null) compiled.monorepo = app.monorepo;
 
     const port = Number(app.port);
     compiled.port = app.port.trim() !== "" && Number.isFinite(port) ? port : 0;
 
-    if (app.command.trim() !== "") compiled.command = app.command.trim();
+    // In raw-runtime mode the entrypoint is the start command (baked into the
+    // image CMD via `build.entrypoint`), so the legacy `command` override is not
+    // emitted from this form.
+    if (app.buildMode !== "runtime" && app.command.trim() !== "") compiled.command = app.command.trim();
     if (app.healthCheck.trim() !== "") compiled.health_check = app.healthCheck.trim();
     if (app.primary) compiled.primary = true;
     if (app.dependsOn.length > 0) compiled.depends_on = app.dependsOn;
@@ -765,6 +823,22 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     compiled.connections = connections;
 
     return compiled;
+}
+
+/** Compiles a manual-runtime app's fields into a `build: { framework: "runtime", ... }` block. */
+function compileRuntimeBuild(app: AppDraft): Record<string, unknown> {
+    const build: Record<string, unknown> = {
+        framework: "runtime",
+        runtime: app.runtime,
+        entrypoint: app.entrypoint.trim(),
+        // Manual builds always use the repo root as the build context - the whole
+        // repo is copied in, nothing hidden. This is deliberate and explicit (no
+        // toggle): the schema default is "app", so the override is always emitted.
+        build_context: "root",
+    };
+    if (app.runtimeVersion.trim() !== "") build.version = app.runtimeVersion.trim();
+    if (app.buildScript.trim() !== "") build.build_script = app.buildScript.trim();
+    return build;
 }
 
 /** Sort env rows alphabetically by key; blank-key rows (freshly added) sink to the bottom. */
@@ -974,6 +1048,10 @@ export type AppDraftField =
     | "path"
     | "buildContext"
     | "dockerfile"
+    | "runtime"
+    | "runtimeVersion"
+    | "buildScript"
+    | "entrypoint"
     | "port"
     | "command"
     | "healthCheck"
@@ -1047,10 +1125,23 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     build_secrets: "buildSecrets",
 };
 
+// Raw-runtime schema errors carry a `build` path (`apps.i.build.entrypoint`);
+// map the build sub-key to its draft field so they surface inline on the editor.
+const RUNTIME_BUILD_FIELD_BY_KEY: Record<string, AppDraftField> = {
+    runtime: "runtime",
+    version: "runtimeVersion",
+    build_script: "buildScript",
+    entrypoint: "entrypoint",
+};
+
 function resolveAppField(path: Array<string | number>): AppDraftField | undefined {
     if (path[0] !== "apps" || typeof path[1] !== "number") return undefined;
     const key = path[2];
     if (typeof key !== "string") return undefined;
+    if (key === "build") {
+        const subKey = path[3];
+        return typeof subKey === "string" ? RUNTIME_BUILD_FIELD_BY_KEY[subKey] : undefined;
+    }
     return APP_FIELD_BY_DOCUMENT_KEY[key];
 }
 
