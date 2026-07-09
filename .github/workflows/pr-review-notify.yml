@@ -19,6 +19,7 @@ jobs:
     if: github.event.pull_request.draft == false && github.event.pull_request.user.type != 'Bot'
     steps:
       - name: Post to Slack channel
+        id: post
         env:
           # Per-author Slack *user* tokens, so the message is posted AS the PR
           # author (their name/avatar, no "APP" badge). This is a JSON object
@@ -84,12 +85,39 @@ jobs:
           # reliable success signal is the "ok" field in the JSON response.
           slack_ok() { [ "$(printf '%s' "$1" | jq -r '.ok')" = "true" ]; }
 
+          record_thread() {
+            thread_ts="$1"
+            if [ -z "$thread_ts" ]; then
+              echo "Slack API response was ok but did not include a message timestamp." >&2
+              exit 1
+            fi
+
+            mkdir -p .slack-thread
+            jq -n \
+              --arg channel_id "$SLACK_CHANNEL_ID" \
+              --arg thread_ts "$thread_ts" \
+              --arg pr_number "$PR_NUMBER" \
+              --arg pr_url "$PR_URL" \
+              '{
+                channel_id: $channel_id,
+                thread_ts: $thread_ts,
+                pr_number: $pr_number,
+                pr_url: $pr_url
+              }' > .slack-thread/slack-thread.json
+
+            {
+              echo "slack_channel_id=$SLACK_CHANNEL_ID"
+              echo "slack_thread_ts=$thread_ts"
+            } >> "$GITHUB_OUTPUT"
+          }
+
           # 1) Try posting as the PR author. A user token only works when the
           #    author is a member of the channel; on any failure (not_in_channel,
           #    token_revoked, invalid_auth, ...) we fall through to the bot token.
           if [ -n "$user_token" ]; then
             response=$(post_to_slack "$user_token")
             if slack_ok "$response"; then
+              record_thread "$(printf '%s' "$response" | jq -r '.ts // ""')"
               echo "Posted PR review notification as @${PR_AUTHOR} to ${SLACK_CHANNEL_ID}."
               exit 0
             fi
@@ -108,4 +136,13 @@ jobs:
             exit 1
           fi
 
+          record_thread "$(printf '%s' "$response" | jq -r '.ts // ""')"
           echo "Sent PR review notification to Slack channel ${SLACK_CHANNEL_ID} (bot fallback)."
+
+      - name: Store Slack thread metadata
+        if: steps.post.outputs.slack_thread_ts != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-slack-thread-${{ github.event.pull_request.number }}
+          path: .slack-thread/slack-thread.json
+          retention-days: 90

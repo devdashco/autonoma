@@ -67,11 +67,20 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 
 ### 8. **PR Review Slack Notification** (`pr-review-notify.yml`)
 - Triggers on `pull_request` events (`opened`, `reopened`, `ready_for_review`) and only runs when the PR is not a draft, so it fires exactly when a PR is set for review
-- Posts a Block Kit message to Slack channel `C09R1PEH41M` with the PR link, title, author, and branch
+- Posts a Block Kit message to Slack channel `C09R1PEH41M` with the PR link and title
 - Uses `chat.postMessage` (not an incoming webhook) so the message can be targeted at the channel by ID
-- Requires a `SLACK_BOT_TOKEN` repo secret: a Slack app bot token with the `chat:write` scope, with the app invited to the target channel. If the secret is absent the step skips gracefully (e.g. on fork PRs, where secrets are not exposed)
+- Uses `SLACK_USER_TOKENS` when available to post as the PR author, falling back to `SLACK_BOT_TOKEN`
+- Stores the Slack message `ts` as a 90-day Actions artifact named `pr-slack-thread-<PR number>`, so approval notifications can reply under the original Slack message
+- Requires either a `SLACK_USER_TOKENS` JSON map or a `SLACK_BOT_TOKEN` repo secret. The bot token needs `chat:write` and the app must be invited to the target channel. If no usable secret is available the step skips gracefully (e.g. on fork PRs, where secrets are not exposed)
 
-### 9. **OpenCode PR Review** (`opencode-review.yml`)
+### 9. **PR Approval Slack Notification** (`pr-approval-slack-notify.yml`)
+- Triggers on `pull_request_review` `submitted` events and only runs for human `approved` reviews on non-draft, non-bot PRs
+- Finds the newest trusted `pr-slack-thread-<PR number>` artifact created by a successful `pr-review-notify.yml` run, reads its Slack channel ID and parent `thread_ts`, then posts an approval reply with `thread_ts`
+- Uses a per-PR, per-reviewer concurrency group and marker artifact to skip duplicate approval replies from the same reviewer
+- Uses `SLACK_USER_TOKENS` when available to post as the reviewer, falling back to `SLACK_BOT_TOKEN`
+- Skips gracefully if the parent Slack thread artifact or Slack secrets are unavailable
+
+### 10. **OpenCode PR Review** (`opencode-review.yml`)
 - Triggers on `pull_request` events (`opened`, `reopened`, `ready_for_review`, `synchronize`) and only runs on non-draft, non-bot, same-repo PRs (fork PRs are skipped because secrets are not exposed to them)
 - Runs the OpenCode GitHub Action (`anomalyco/opencode/github`, pinned to a commit SHA) with the `openrouter/z-ai/glm-5.2` model to review the diff and post comments only (it never modifies files)
 - Authenticates the model with `OPENROUTER_API_KEY` and posts via the built-in `GITHUB_TOKEN` (`use_github_token: true`), so the OpenCode GitHub App does not need to be installed
@@ -79,14 +88,14 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - `cancel-in-progress` concurrency drops in-flight reviews when new commits land, so a burst of pushes does not pile up reviews
 - Requires the `OPENROUTER_API_KEY` repo secret (already used by `ci.yml`)
 
-### 10. **OpenCode Comment Trigger** (`opencode-comment.yml`)
+### 11. **OpenCode Comment Trigger** (`opencode-comment.yml`)
 - Triggers on `issue_comment` and `pull_request_review_comment` (`created`) events when the body contains `/oc` or `/opencode`
 - Gated to commenters with write access (`author_association` of `OWNER`/`MEMBER`/`COLLABORATOR`) - anyone able to comment could otherwise push code and spend OpenRouter credits
 - Runs the OpenCode build agent (`anomalyco/opencode/github`, pinned to a commit SHA) with `openrouter/z-ai/glm-5.2`, so it can make code changes, commit, and push to the PR branch (not just comment)
 - Authenticates with `OPENROUTER_API_KEY` and the built-in `GITHUB_TOKEN` (`use_github_token: true`), so the OpenCode GitHub App does not need to be installed
 - Note: `issue_comment`/`pull_request_review_comment` workflows only run from the version on the **default branch**, so this must be merged to `main` before comment triggers take effect
 
-### 11. **ECR Cleanup** (`ecr-cleanup.yml`)
+### 12. **ECR Cleanup** (`ecr-cleanup.yml`)
 - Runs daily at 06:20 UTC and can also be started manually
 - Deletes ECR images whose `lastRecordedPullTime` is older than 3 days, using `imagePushedAt` for images that have never been pulled
 - Skips images with protected tags matching `^(latest|v[0-9].*)$` by default so current `latest` images and production release tags remain available
