@@ -4,8 +4,12 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 import {
     CreateSecretCommand,
+    DescribeSecretCommand,
     GetSecretValueCommand,
+    InvalidRequestException,
+    ResourceExistsException,
     ResourceNotFoundException,
+    RestoreSecretCommand,
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
@@ -109,6 +113,17 @@ export class PreviewkitSecretsService {
         return rows.map((row) => row.appName);
     }
 
+    /**
+     * Writes `items` into the app's AWS secret bundle, self-healing DB<->AWS drift
+     * instead of failing on it. The `previewkit_secret` row is only a hint about
+     * what AWS holds; when the two disagree we reconcile rather than throw:
+     *   - row present but the AWS secret is gone -> recreate it and repoint the row;
+     *   - no row but AWS already has the bundle -> adopt it (merge) and backfill the row;
+     *   - no row and the bundle is scheduled for deletion -> restore, then adopt.
+     * This keeps a save working across DB reseeds, force-deletes, and half-finished
+     * prior attempts, which otherwise surface as "already exists" /
+     * "scheduled for deletion" / "can't find the specified secret".
+     */
     async upsert(
         applicationId: string,
         appName: string,
@@ -125,17 +140,70 @@ export class PreviewkitSecretsService {
             throw new NotFoundError(`Application not found: ${applicationId}`);
         }
 
+        const orgSlug = app.organization.slug;
+        const secretName = this.buildSecretName(orgSlug, app.name, appName);
         const existing = await this.prisma.previewkitSecret.findUnique({
             where: { applicationId_appName: { applicationId, appName } },
         });
 
-        if (existing == null) {
-            await this.createAppSecret(app, app.organization.slug, appName, items);
-            return { created: true, changed: true };
-        } else {
-            const changed = await this.mergeIntoSecret(existing.awsSecretArn, items);
-            return { created: false, changed };
+        // 1. We think the bundle exists: merge into it. If AWS lost it, fall through to recreate.
+        if (existing != null) {
+            try {
+                const changed = await this.mergeIntoSecret(existing.awsSecretArn, items);
+                return { created: false, changed };
+            } catch (err) {
+                if (!(err instanceof ResourceNotFoundException)) throw err;
+                this.logger.warn("Secret row points at a missing AWS secret; recreating and repointing", {
+                    applicationId,
+                    appName,
+                });
+            }
         }
+
+        // 2. Create the bundle; adopt it if AWS already has it (or restore if pending deletion).
+        let created: boolean;
+        let changed: boolean;
+        let arn: string;
+        try {
+            arn = await this.createSecretInAws(secretName, orgSlug, app.name, appName, items);
+            created = true;
+            changed = true;
+        } catch (err) {
+            const scheduled = this.isScheduledForDeletion(err);
+            if (!(err instanceof ResourceExistsException) && !scheduled) throw err;
+
+            // Ownership gate BEFORE any mutation. The assembled name is derived from
+            // lossy-sanitized, user-controlled segments, so a different (org,
+            // application, appName) can resolve to the same AWS name. Only adopt a
+            // bundle whose owner tags prove it is ours; refuse a foreign secret rather
+            // than reading/merging/repointing onto it (which would leak + corrupt it).
+            arn = await this.assertOwnedSecretArn(secretName, orgSlug, app.name, appName);
+
+            if (scheduled) {
+                this.logger.warn("AWS secret is scheduled for deletion; restoring and adopting it", {
+                    applicationId,
+                    appName,
+                    secretName,
+                });
+                await this.client.send(new RestoreSecretCommand({ SecretId: secretName }));
+            } else {
+                this.logger.warn("AWS secret already exists without a matching DB row; adopting it", {
+                    applicationId,
+                    appName,
+                    secretName,
+                });
+            }
+            changed = await this.mergeIntoSecret(secretName, items);
+            created = false;
+        }
+
+        // 3. Point the DB row at the reconciled secret's ARN (register it or fix a stale one).
+        await this.prisma.previewkitSecret.upsert({
+            where: { applicationId_appName: { applicationId, appName } },
+            create: { applicationId: app.id, appName, awsSecretArn: arn },
+            update: { awsSecretArn: arn },
+        });
+        return { created, changed };
     }
 
     /** Reads back a single secret's plaintext value (unlike {@link list}, unmasked); trusted server-side callers only. */
@@ -211,26 +279,27 @@ export class PreviewkitSecretsService {
     }
 
     /**
-     * Allocates a new AWS Secrets Manager secret for one (app, appName)
-     * pair and registers the ARN as a PreviewkitSecret row. AWS SM names
-     * follow `previewkit/<orgSlug>/<application>/<appName>` for tidy IAM
-     * scoping.
+     * The AWS SM name for one (app, appName) pair, `previewkit/<orgSlug>/<application>/<appName>`.
      */
-    private async createAppSecret(
-        app: { id: string; name: string },
+    private buildSecretName(orgSlug: string, applicationName: string, appName: string): string {
+        return `previewkit/${sanitizeName(orgSlug)}/${sanitizeName(applicationName)}/${sanitizeName(appName)}`;
+    }
+
+    /**
+     * Creates the AWS Secrets Manager secret (no DB write - `upsert` registers or
+     * repoints the row afterwards via {@link resolveArn}). Throws
+     * `ResourceExistsException` when the name is taken and `InvalidRequestException`
+     * when it is scheduled for deletion; `upsert` reconciles both.
+     */
+    private async createSecretInAws(
+        secretName: string,
         orgSlug: string,
+        applicationName: string,
         appName: string,
         items: SecretItem[],
-    ): Promise<void> {
-        const sanitizedOrgSlug = sanitizeName(orgSlug);
-        const sanitizedApplicationName = sanitizeName(app.name);
-        const sanitizedAppName = sanitizeName(appName);
-        const secretName = `previewkit/${sanitizedOrgSlug}/${sanitizedApplicationName}/${sanitizedAppName}`;
-
+    ): Promise<string> {
         const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
-
-        this.logger.info("Creating AWS secret for app", { applicationId: app.id, appName, secretName });
-
+        this.logger.info("Creating AWS secret for app", { appName, secretName });
         const result = await this.client.send(
             new CreateSecretCommand({
                 Name: secretName,
@@ -238,20 +307,57 @@ export class PreviewkitSecretsService {
                 Tags: [
                     { Key: "previewkit:type", Value: "application-app" },
                     { Key: "previewkit:org", Value: orgSlug },
-                    { Key: "previewkit:application", Value: app.name },
+                    { Key: "previewkit:application", Value: applicationName },
                     { Key: "previewkit:app", Value: appName },
                 ],
             }),
         );
+        if (result.ARN == null) throw new Error(`AWS secret created but no ARN returned for ${secretName}`);
+        return result.ARN;
+    }
 
-        const arn = result.ARN;
-        if (arn == null) throw new Error(`AWS secret created but no ARN returned for app ${app.id}/${appName}`);
+    /**
+     * Confirms an existing AWS secret is the one WE own for (orgSlug, applicationName,
+     * appName) before adopting it, and returns its ARN. The assembled name comes from
+     * lossy-sanitized, user-controlled segments, so two different (application, appName)
+     * pairs can collide on the same name; adopting blindly would bind - and leak/merge -
+     * a different owner's bundle into this caller's row. Every secret is tagged with its
+     * raw owner on create, so a tag mismatch means a collision with a foreign secret:
+     * refuse (and log) rather than reconcile.
+     */
+    private async assertOwnedSecretArn(
+        secretName: string,
+        orgSlug: string,
+        applicationName: string,
+        appName: string,
+    ): Promise<string> {
+        const result = await this.client.send(new DescribeSecretCommand({ SecretId: secretName }));
+        const tags = new Map((result.Tags ?? []).map((tag) => [tag.Key, tag.Value]));
+        const ownedByCaller =
+            tags.get("previewkit:org") === orgSlug &&
+            tags.get("previewkit:application") === applicationName &&
+            tags.get("previewkit:app") === appName;
+        if (!ownedByCaller) {
+            this.logger.error(
+                "Refusing to adopt an AWS secret whose owner tags do not match the caller " +
+                    "(sanitized-name collision with a different application)",
+                {
+                    secretName,
+                    extra: { expectedOrg: orgSlug, expectedApplication: applicationName, expectedApp: appName },
+                },
+            );
+            throw new Error(
+                `Refusing to adopt AWS secret "${secretName}": it is owned by a different (org, application, app). ` +
+                    `The sanitized name collides with another application; use a distinct app name.`,
+            );
+        }
+        if (result.ARN == null) throw new Error(`AWS secret ${secretName} has no ARN`);
+        return result.ARN;
+    }
 
-        await this.prisma.previewkitSecret.create({
-            data: { applicationId: app.id, appName, awsSecretArn: arn },
-        });
-
-        this.logger.info("AWS secret created and registered", { applicationId: app.id, appName, arn });
+    /** AWS rejects creating a secret whose name is pending deletion with InvalidRequestException. */
+    private isScheduledForDeletion(err: unknown): err is InvalidRequestException {
+        return err instanceof InvalidRequestException && /scheduled for deletion/i.test(err.message);
     }
 
     private async mergeIntoSecret(awsSecretArn: string, items: SecretItem[]): Promise<boolean> {
