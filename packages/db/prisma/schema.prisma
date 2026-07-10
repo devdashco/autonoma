@@ -346,22 +346,12 @@ model Application {
   applicationSetups       ApplicationSetup[]
   bugs                      Bug[]
   previewkitSecrets         PreviewkitSecret[]
-  previewkitConfigRevisions PreviewkitConfigRevision[]
 
   // The Application's preview config (latest-only; saving overwrites it in
   // place). No row means the Application has no preview config and its
   // previews are skipped (opt-out) rather than erroring. This is the config the
-  // deploy pipeline reads. `PreviewkitConfigRevision` + `activeConfigRevisionId`
-  // below are the legacy revision-history model, retained only so the one-time
-  // backfill (`backfill-previewkit-config.ts`) can copy each active revision
-  // into `previewkitConfig`; a follow-up contract migration drops them.
+  // deploy pipeline reads.
   previewkitConfig PreviewkitConfig?
-
-  // DEPRECATED (pending contract migration): the revision currently in effect,
-  // kept so the backfill can source each Application's `previewkitConfig` from
-  // it. No live code path reads this anymore.
-  activeConfigRevisionId String?                   @unique @map("active_config_revision_id")
-  activeConfigRevision   PreviewkitConfigRevision? @relation("ActiveConfigRevision", fields: [activeConfigRevisionId], references: [id], onDelete: SetNull)
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -1894,11 +1884,6 @@ model PreviewkitEnvironment {
   /// ![object]
   resolvedConfig Json? @map("resolved_config")
 
-  // DEPRECATED (pending contract migration): which revision fed the snapshot.
-  // No live code path reads or writes this anymore; kept only so the column is
-  // dropped by the same contract migration that removes the revision model.
-  configRevisionId String? @map("config_revision_id")
-
   deployedAt DateTime? @map("deployed_at")
   tornDownAt DateTime? @map("torn_down_at")
 
@@ -2089,41 +2074,6 @@ model PreviewkitConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("previewkit_config")
-}
-
-// DEPRECATED - legacy revision-history model, pending removal by the contract
-// migration once every environment's `previewkit_config` has been backfilled
-// from it (see `apps/api/src/scripts/backfill-previewkit-config.ts`). No live
-// code path reads this anymore; the deploy pipeline reads `PreviewkitConfig`.
-// Kept in the schema only so the backfill can source each Application's active
-// revision through the typed client.
-model PreviewkitConfigRevision {
-  id            String @id @default(cuid())
-  applicationId String @map("application_id")
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  // Back-relation for Application.activeConfigRevision (the active pointer).
-  activeForApplication Application? @relation("ActiveConfigRevision")
-
-  // Monotonically increasing per application. (applicationId, revision) unique.
-  revision      Int
-  // Vestigial: the resolver no longer branches on this - `previewConfigSchema`
-  // strips retired fields and defaults their replacements, so every stored
-  // document parses without a version-upgrade step. Retained (default 1) to
-  // avoid a destructive column drop; can be removed in a dedicated migration.
-  schemaVersion Int @default(1) @map("schema_version")
-
-  /// ![object]
-  document Json
-
-  /// ![object]
-  dependencyDocuments Json?  @map("dependency_documents")
-
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@unique([applicationId, revision])
-  @@index([applicationId])
-  @@map("previewkit_config_revision")
 }
 
 enum PreviewkitAddonStatus {

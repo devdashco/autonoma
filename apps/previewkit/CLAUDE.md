@@ -221,12 +221,9 @@ app lines in a recent window.
   is `@@unique([environmentId, headSha])` so `recordBuildFinished` upserts idempotently across
   Job retries; a superseded build's row is marked `superseded`.
 - `PreviewkitConfig` - the Application's DB-stored preview config (latest-only; one row per
-  Application, overwritten in place on save). This is what the deploy pipeline reads.
-- `PreviewkitConfigRevision` - DEPRECATED legacy revision-history model, pending removal. It is no
-  longer read by any live code path; it is retained only until the one-time backfill
-  (`apps/api backfill:previewkit-config`) has copied each Application's active revision into
-  `PreviewkitConfig` in every environment, after which a contract migration drops it along with
-  `Application.activeConfigRevisionId` and `PreviewkitEnvironment.configRevisionId`.
+  Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
+  revision history: saving overwrites the row, and every deploy/redeploy resolves the current
+  document.
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - AWS Secrets Manager ARNs per app / per org.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 
