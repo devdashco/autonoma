@@ -22,21 +22,21 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 ## What you configure
 
-You set up your stack in the Autonoma dashboard (the Previewkit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. Apps and services are auto-detected from your repo and suggested for you (accept, edit, or dismiss), and you can add them by hand too. It declares:
+You set up your stack in the Autonoma dashboard (the Previewkit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. It declares:
 
-- **Apps** to build and deploy (each becomes a public HTTPS URL)
+- **Apps** to build and deploy (each becomes a public HTTPS URL) - see [Apps and builds](/previewkit/apps/)
 - **Services** the apps depend on (databases, caches, etc.), picked from a curated catalog of recipes
 - **Environment variables and secrets** for each app and service, with templates that resolve service hostnames at deploy time and a per-row toggle to mark a value as a secret
 - **Hooks** that run after deploy (typical use: database migrations)
 
-## Builds work out of the box
+## How apps are built
 
-Previewkit auto-detects how to build each app:
+Each app builds one of two ways, chosen per app:
 
-- If a `Dockerfile` exists in the app's directory (or you specify one explicitly), it builds with [BuildKit](https://github.com/moby/buildkit).
-- Otherwise it falls back to [Railpack](https://railpack.com), which detects Node, Python, Go, Ruby, Rust, PHP, Java, and more, and produces a working image without you writing any Dockerfile.
+- **Manual** - pick a runtime (Node, Python, Go, and more), then write a short bash build script and an entrypoint. No Dockerfile required.
+- **Dockerfile** - point Previewkit at an existing Dockerfile in your repo, built with [BuildKit](https://github.com/moby/buildkit).
 
-Images are pushed to a private registry and pulled by the preview cluster. You never touch credentials.
+Either way, images are pushed to a private registry and pulled by the preview cluster - you never touch credentials. See [Apps and builds](/previewkit/apps/) for the full reference.
 
 ## Secrets
 
@@ -44,4 +44,6 @@ Secrets such as API keys and third-party tokens are stored encrypted and kept ou
 
 ## What's next
 
+- [Apps and builds](/previewkit/apps/) - build methods, runtimes, and per-app settings
+- [Multiple repositories](/previewkit/multirepo/) - pull apps from more than one repository
 - [Manage secrets](/previewkit/secrets/) - REST API reference

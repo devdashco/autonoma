@@ -8,6 +8,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
 const SIDEBAR_ORDER: string[] = [
     "index",
     "previewkit/index",
+    "previewkit/apps",
     "previewkit/multirepo",
     "mcp/index",
     "test-planner/index",
@@ -50,46 +51,43 @@ export interface DocPageWithNav extends DocPage {
 }
 
 function slugFromId(id: string): string {
-    // With glob loader, id is like "index.mdx", "test-planner/index.md", "guides/environment-factory.md"
+    // The glob loader's id form varies (extension present or not; index files
+    // collapse to their directory), and SIDEBAR_ORDER lists ids in yet another
+    // form ("previewkit/index"). Normalizing both sides through this to the URL
+    // slug ("", "previewkit", "previewkit/apps") is what makes the lookup match -
+    // matching on raw ids leaves every index page falling back to collection order.
     return id
         .replace(/\.mdx?$/, "")
         .replace(/\/index$/, "")
         .replace(/^index$/, "");
 }
 
-function entryId(entry: CollectionEntry<"docs">): string {
-    return entry.id;
-}
-
 export async function getOrderedDocs(): Promise<DocPage[]> {
     const allDocs = await getCollection("docs");
-    const docsById = new Map<string, CollectionEntry<"docs">>();
+    const docsBySlug = new Map<string, CollectionEntry<"docs">>();
     for (const doc of allDocs) {
-        docsById.set(entryId(doc), doc);
+        docsBySlug.set(slugFromId(doc.id), doc);
     }
 
     const ordered: DocPage[] = [];
-    for (const id of SIDEBAR_ORDER) {
-        const entry = docsById.get(id);
-        if (entry == null) continue;
-        ordered.push({
-            entry,
-            slug: slugFromId(entryId(entry)),
-            title: entry.data.title,
-            description: entry.data.description ?? "",
-        });
+    const placed = new Set<string>();
+
+    function push(slug: string, entry: CollectionEntry<"docs">) {
+        placed.add(slug);
+        ordered.push({ entry, slug, title: entry.data.title, description: entry.data.description ?? "" });
     }
 
-    // Append any pages not in sidebar order
-    for (const [id, entry] of docsById) {
-        if (!SIDEBAR_ORDER.includes(id)) {
-            ordered.push({
-                entry,
-                slug: slugFromId(id),
-                title: entry.data.title,
-                description: entry.data.description ?? "",
-            });
-        }
+    for (const orderedId of SIDEBAR_ORDER) {
+        const slug = slugFromId(orderedId);
+        const entry = docsBySlug.get(slug);
+        if (entry == null || placed.has(slug)) continue;
+        push(slug, entry);
+    }
+
+    // Append any pages not listed in SIDEBAR_ORDER, in collection order.
+    for (const [slug, entry] of docsBySlug) {
+        if (placed.has(slug)) continue;
+        push(slug, entry);
     }
 
     return ordered;

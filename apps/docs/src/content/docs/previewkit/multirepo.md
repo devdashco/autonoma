@@ -1,35 +1,41 @@
 ---
-title: Multi-repo previews
-description: Deploy apps from more than one repository into a single preview environment, and control which branch of each dependency repo gets built.
+title: Multiple repositories
+description: Deploy your frontend and the apps it depends on from more than one repository into a single preview, and control which branch of each connected repository gets built.
 ---
 
-<p class="lead">Most projects live in one repository, but when your backend, workers, or a shared service sit in their own repos, Previewkit can pull them into the same preview so a pull request gets a complete, wired-up environment.</p>
+<p class="lead">Autonoma tests a pull request by opening one app in a browser - the frontend. The apps and services behind it can live in a single repository or several; when they span repositories, Previewkit pulls them all into the same preview.</p>
 
-## Dependency repos
+## The frontend
 
-Your app's own repository is the **primary repo** - the one the pull request is opened against. A **dependency repo** is any other repository whose apps you want deployed alongside it, into the same preview environment for that PR.
+Every preview has exactly one **frontend**: the app Autonoma opens in the browser to run its tests, and whose address becomes the preview's URL. It lives in the repository you open pull requests against.
 
-You add a dependency repo while adding an app: when you add an app, you pick which repo it comes from, or connect a new repo through the Previewkit GitHub App. Each dependency repo carries two settings:
+The frontend rarely stands alone - it calls an API, background workers, a database. Those can sit in the same repository, or in their own. Either way they deploy together, into the single preview environment for that pull request, and Previewkit wires them to each other. Think of the frontend as the root of a tree: everything else is there to support the one thing the browser opens.
 
-- **Alias** - a short, lowercase name (e.g. `api`) used to identify the repo in your config and in generated resource names. It has to be unique across your repos.
-- **Fallback branch** - the branch to deploy when branch matching can't find a matching branch (see below). Defaults to `main`.
+![A tree with the frontend app at the root and the API, worker, and database it depends on branching below it, each tagged with the repository it comes from](/img/previewkit/multirepo-tree.jpg)
 
-All of a repo's apps share these two settings.
+## Connected repositories
+
+When an app your frontend needs lives in a different repository, you add that repository as a **connected repository**. You do it while adding an app: pick which repository the app comes from, or connect a new one through the Previewkit GitHub App. Each connected repository carries two settings:
+
+- **Alias** - a short, lowercase name (e.g. `api`) that identifies the repository in your config and in generated resource names. It has to be unique across your repositories.
+- **Fallback branch** - the branch to deploy when branch matching finds no match (see below). Defaults to `main`.
+
+Every app from the same connected repository shares these two settings.
 
 ## Which branch gets deployed
 
-For the primary repo the answer is obvious: the pull request's own branch. For a dependency repo it's not - the PR branch usually doesn't exist there. **Branch matching** is the single rule that decides which branch of every dependency repo Previewkit builds for a given PR.
+For the repository you open pull requests against, the answer is obvious: the pull request's own branch. For a connected repository it isn't - the pull request's branch usually doesn't exist there. **Branch matching** is the single rule that decides which branch of every connected repository Previewkit builds for a given pull request.
 
-If the branch it picks doesn't exist in the dependency repo, Previewkit always falls back to that repo's **fallback branch**, so a preview never fails just because a dependency repo doesn't have a matching branch.
+If the branch it picks doesn't exist in the connected repository, Previewkit always falls back to that repository's **fallback branch**, so a preview never fails just because a connected repository has no matching branch.
 
-| Branch matching | For a PR on branch `feature/x`, a dependency repo builds... |
+| Branch matching | For a PR on branch `feature/x`, a connected repository builds... |
 | --- | --- |
-| **Same branch name** (default) | `feature/x` if that branch exists in the dependency repo, otherwise the fallback branch. Use this when you develop a feature across both repos on branches with the same name. |
-| **Fallback branch only** | Always the fallback branch (e.g. `main`). Use this when the dependency repo is a stable service you don't branch per feature. |
-| **Regex rewrite** | A branch name derived by rewriting `feature/x` with a regular expression (e.g. strip a `feature/` prefix), falling back if the result doesn't exist. Use this when your two repos follow different but predictable branch conventions. |
+| **Same branch name** (default) | `feature/x` if that branch exists there, otherwise the fallback branch. Use this when you develop a feature across repositories on branches with the same name. |
+| **Fallback branch only** | Always the fallback branch (e.g. `main`). Use this when the connected repository is a stable service you don't branch per feature. |
+| **Regex rewrite** | A branch name derived by rewriting `feature/x` with a regular expression (e.g. stripping a `feature/` prefix), falling back if the result doesn't exist. Use this when your repositories follow different but predictable branch conventions. |
 
-Branch matching is set once and applies to every dependency repo in the project; the fallback branch is per repo.
+Branch matching is set once and applies to every connected repository in the project; the fallback branch is per repository.
 
 :::note
-Branch matching only affects **dependency** repos. The primary repo always builds the pull request's own branch.
+Branch matching only affects **connected** repositories. The repository you open pull requests against always builds the pull request's own branch.
 :::
