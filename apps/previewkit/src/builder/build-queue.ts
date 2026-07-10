@@ -533,8 +533,18 @@ export class BuildQueue {
     private isFreshTicket(lease: V1Lease): boolean {
         const renewedAt = lease.spec?.renewTime ?? lease.metadata?.creationTimestamp;
         if (renewedAt == null) return false;
-        return Date.now() - renewedAt.getTime() <= this.ticketStaleMs;
+        return Date.now() - epochMs(renewedAt) <= this.ticketStaleMs;
     }
+}
+
+/**
+ * Epoch-millis of a Kubernetes timestamp. The generated types say `Date`, but
+ * the fetch client deserializes `renewTime`/`acquireTime`/`creationTimestamp`
+ * back as ISO strings on read - `new Date(value)` normalizes either shape
+ * without a cast (a `Date` arg is cloned, a string is parsed).
+ */
+function epochMs(value: Date | string): number {
+    return new Date(value).getTime();
 }
 
 function slotName(podName: string, index: number): string {
@@ -557,7 +567,7 @@ function isExpiredSlot(lease: V1Lease): boolean {
     const renewedAt = lease.spec?.renewTime ?? lease.spec?.acquireTime;
     if (renewedAt == null) return true;
     const durationMs = (lease.spec?.leaseDurationSeconds ?? SLOT_LEASE_DURATION_S) * 1000;
-    return Date.now() - renewedAt.getTime() > durationMs;
+    return Date.now() - epochMs(renewedAt) > durationMs;
 }
 
 /**
