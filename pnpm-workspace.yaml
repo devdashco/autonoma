@@ -68,7 +68,7 @@ catalog:
   shell-quote: 1.8.4
   tailwindcss: '^4.2.2'
   tsx: ^4.21.0
-  typescript: ^6.0.3
+  typescript: ^7.0.2
   vitest: ^4.1.4
   zod: 4.3.6
 
