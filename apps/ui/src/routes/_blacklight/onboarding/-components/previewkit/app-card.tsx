@@ -192,10 +192,11 @@ export function AppCard({
                 app={app}
                 issues={issues}
                 field="buildContext"
-                label="Build context"
-                placeholder="defaults to path"
+                label="Root directory"
+                placeholder="Defaults to Path"
                 value={app.buildContext}
                 onChange={(buildContext) => onChange(app.id, { buildContext })}
+                hint="Folder Docker builds from - what COPY can read. Blank uses Path; set to the repo root for monorepos"
               />
             ) : undefined}
             {app.buildMode !== "runtime" ? (

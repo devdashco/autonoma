@@ -107,10 +107,11 @@ export function BuildModeSection({ app, issues, onChange }: BuildModeSectionProp
             id={`pk-app-${app.id}-dockerfile`}
             value={app.dockerfile}
             onChange={(event) => onChange(app.id, { dockerfile: event.target.value })}
-            placeholder="Dockerfile"
+            placeholder="path/to/Dockerfile"
             aria-invalid={hasFieldError(issues, app.id, "dockerfile")}
             className={cn("mt-2 font-mono", invalidClass(issues, app.id, "dockerfile"))}
           />
+          <p className="mt-1 text-2xs text-text-secondary">Path to your Dockerfile, relative to the build context.</p>
           <FieldMessages issues={issues} draftId={app.id} field="dockerfile" />
         </div>
       ) : undefined}
