@@ -7,7 +7,6 @@ import {
     type HookGroupKey,
     type PreviewConfig,
     type PreviewkitRuntime,
-    type SuggestedEnvVar,
 } from "@autonoma/types";
 
 /** The runtime a fresh app starts on (Manual is the default build method). */
@@ -91,7 +90,7 @@ export function envRow(
     return { id: nextDraftId(), key, value, sensitive, buildTime, origin };
 }
 
-export type AppDraftOrigin = "saved" | "manual" | "suggestion";
+export type AppDraftOrigin = "saved" | "manual";
 
 /**
  * How an app's image is built (the three choices the app-card selector exposes):
@@ -869,30 +868,6 @@ export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): En
     return sortEnvRows([...envRows, ...secretRows]);
 }
 
-export function envRowsFromSuggestions(
-    existing: EnvRowDraft[],
-    suggestions: SuggestedEnvVar[],
-    supportsSecrets: boolean,
-): EnvRowDraft[] {
-    const seen = new Set(existing.map((row) => row.key.trim()));
-    const rows: EnvRowDraft[] = [];
-    for (const suggestion of suggestions) {
-        if (seen.has(suggestion.key)) continue;
-        seen.add(suggestion.key);
-        const value = suggestion.reference ?? suggestion.value ?? "";
-        rows.push(
-            envRow(
-                suggestion.key,
-                value,
-                supportsSecrets && suggestion.sensitive,
-                "new",
-                suggestion.build_time ?? false,
-            ),
-        );
-    }
-    return rows;
-}
-
 /** Key prefixes framework toolchains inline at build time (client bundles). */
 const BUILD_TIME_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
 
@@ -972,26 +947,6 @@ export function envRowsFromDotenv(
         }
     }
     return [...byKey.values()];
-}
-
-export function applyEnvFixesToDraft(
-    draft: TopologyDraft,
-    fixes: Array<{ appName: string; vars: SuggestedEnvVar[] }>,
-): TopologyDraft {
-    const varsByApp = new Map<string, SuggestedEnvVar[]>();
-    for (const fix of fixes) {
-        varsByApp.set(fix.appName, [...(varsByApp.get(fix.appName) ?? []), ...fix.vars]);
-    }
-    return {
-        ...draft,
-        apps: draft.apps.map((app) => {
-            const vars = varsByApp.get(app.name);
-            if (vars == null) return app;
-            const rows = envRowsFromSuggestions(app.env, vars, app.repoKey === PRIMARY_REPO_KEY);
-            if (rows.length === 0) return app;
-            return { ...app, env: sortEnvRows([...app.env, ...rows]) };
-        }),
-    };
 }
 
 export interface AppSecretsDiff {

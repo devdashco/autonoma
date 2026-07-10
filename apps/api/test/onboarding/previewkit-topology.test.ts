@@ -1,9 +1,6 @@
-import { FakeGitHubApp, FakeGitHubInstallationClient } from "@autonoma/github";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import { expect, vi } from "vitest";
-import { RepoIntrospectionService } from "../../src/github/repo-introspection.service";
-import { RepoReader } from "../../src/github/repo-reader";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
 import { OnboardingTestHarness } from "./onboarding-harness";
 
@@ -366,101 +363,6 @@ integrationTestSuite({
             expect(readiness.diagnostics.failures).toContainEqual(
                 expect.objectContaining({ code: "missing_path", appName: "api-app", fieldPath: "apps.1.path" }),
             );
-        });
-
-        test("RepoIntrospectionService suggests apps from a pnpm workspace monorepo", async ({
-            harness,
-            seedResult: { orgId, createApp },
-        }) => {
-            const appId = await createApp();
-            const githubRepositoryId = 93_050;
-            await linkRepository(harness, appId, githubRepositoryId);
-            const installationId = 93_051;
-            await harness.db.gitHubInstallation.create({
-                data: {
-                    installationId,
-                    organizationId: orgId,
-                    accountLogin: "acme",
-                    accountId: 1,
-                    accountType: "Organization",
-                    status: "active",
-                },
-            });
-            const client = new FakeGitHubInstallationClient();
-            client.addRepository({
-                id: githubRepositoryId,
-                name: "platform",
-                fullName: "acme/platform",
-                commits: ["head-sha"],
-            });
-            client.setFile("acme/platform", "pnpm-workspace.yaml", 'packages:\n  - "apps/*"\n');
-            client.setFile("acme/platform", "package.json", JSON.stringify({ name: "platform", private: true }));
-            client.setFile(
-                "acme/platform",
-                "apps/web/package.json",
-                JSON.stringify({
-                    name: "@acme/web",
-                    scripts: { dev: "next dev -p 3001" },
-                    dependencies: { next: "*" },
-                }),
-            );
-            client.setFile(
-                "acme/platform",
-                "apps/api/package.json",
-                JSON.stringify({ name: "@acme/api", scripts: { start: "node server.js" } }),
-            );
-            client.setFile("acme/platform", "apps/api/Dockerfile", "FROM node:20");
-            const githubApp = new FakeGitHubApp();
-            githubApp.setClient(installationId, client);
-            const service = new RepoIntrospectionService(new RepoReader(harness.db, githubApp));
-
-            const result = await service.introspect(orgId, appId);
-
-            expect(result.status).toBe("ok");
-            expect(result.monorepoTool).toBe("pnpm-workspace");
-            expect(result.dockerfiles).toEqual(["apps/api/Dockerfile"]);
-            const web = result.apps.find((app) => app.name === "web");
-            // The detected start script flows into `command` (not just evidence) so
-            // it pre-fills the app's "Start command" field on accept.
-            expect(web).toMatchObject({
-                path: "apps/web",
-                port: 3001,
-                confidence: "high",
-                command: "next dev -p 3001",
-            });
-            const api = result.apps.find((app) => app.name === "api");
-            expect(api).toMatchObject({
-                path: "apps/api",
-                dockerfile: "Dockerfile",
-                confidence: "high",
-                command: "node server.js",
-            });
-        });
-
-        test("RepoIntrospectionService degrades to unavailable when GitHub cannot be read", async ({ harness }) => {
-            // Fresh org: GitHubInstallation is unique per organization and the
-            // previous case already installed one for the seed org.
-            const orgId = await harness.createOrg();
-            const appId = await harness.createApp(orgId);
-            await linkRepository(harness, appId, 93_060);
-            await harness.db.gitHubInstallation.create({
-                data: {
-                    installationId: 93_061,
-                    organizationId: orgId,
-                    accountLogin: "acme-2",
-                    accountId: 2,
-                    accountType: "Organization",
-                    status: "active",
-                },
-            });
-            // The fake's default client knows nothing about repo 93_060, so the
-            // repository lookup throws - introspection must degrade, not fail.
-            const service = new RepoIntrospectionService(new RepoReader(harness.db, new FakeGitHubApp()));
-
-            const result = await service.introspect(orgId, appId);
-
-            expect(result.status).toBe("unavailable");
-            expect(result.apps).toEqual([]);
         });
     },
 });

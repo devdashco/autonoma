@@ -1,5 +1,4 @@
 import { Badge, BrailleSpinner, Button, Skeleton, cn } from "@autonoma/blacklight";
-import type { PreviewDiagnosisFinding } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
@@ -12,7 +11,6 @@ import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/rea
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
   useCompletePreviewOnboarding,
-  useDiagnosePreviewkitDeploy,
   usePreviewReadiness,
   useTriggerPreviewkitMainDeploy,
 } from "lib/onboarding/onboarding-api";
@@ -22,8 +20,6 @@ import { toastManager } from "lib/toast-manager";
 import { Suspense, useState } from "react";
 import { setLastApp } from "../_app-shell/-last-app";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
-import { AiDiagnosisPanel } from "./-components/previewkit/ai-diagnosis-panel";
-import { queueEnvFixes } from "./-components/previewkit/pending-env-fixes";
 
 export const Route = createFileRoute("/_blacklight/onboarding/preview-deploy-verify")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("deploy-verify")} />,
@@ -74,7 +70,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const complete = useCompletePreviewOnboarding();
   const application = applications.find((app) => app.id === appId);
   const isReady = data.diagnostics.status === "ready";
-  const isFailed = data.diagnostics.status === "failed";
   const isDeployRequested = isPreviewDeployRequestPhase(data.diagnostics.phase) && data.previewUrl == null;
   const failures = data.diagnostics.failures ?? [];
 
@@ -86,40 +81,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
   const appBuilding = data.diagnostics.status === "building" || data.diagnostics.status === "idle";
   const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
   const logSource: PreviewLogSource = logSourceOverride ?? (appBuilding ? "build" : "app");
-
-  const deployFingerprint = buildDeployFingerprint(data);
-  const { data: diagnosis, isPending: diagnosisPending } = useDiagnosePreviewkitDeploy(
-    appId,
-    isFailed && data.mode === "previewkit",
-    deployFingerprint,
-  );
-  const hasAiFindings = diagnosis?.status === "ok" && diagnosis.findings.length > 0;
-  const showDeterministicFallback = !isFailed || (!hasAiFindings && !diagnosisPending);
-
-  function navigateToConfig(finding: PreviewDiagnosisFinding, focusSection: "config" | "secrets") {
-    void navigate({
-      to: "/onboarding",
-      search: buildOnboardingSearch("previewkit-config", appId, {
-        focusApp: finding.appName,
-        focusField: focusSection === "config" ? fieldFromPath(finding.fieldPath) : undefined,
-        focusSection,
-      }),
-    });
-  }
-
-  function applyDiagnosisFix(finding: PreviewDiagnosisFinding) {
-    if (finding.appName != null && finding.suggestedEnv != null && finding.suggestedEnv.length > 0) {
-      queueEnvFixes(appId, [{ appName: finding.appName, vars: finding.suggestedEnv }]);
-    }
-    navigateToConfig(finding, "secrets");
-  }
-
-  function copyDiagnosisForSupport() {
-    copyPayloadToClipboard(
-      { previewUrl: data.previewUrl, diagnostics: data.diagnostics, services: data.services, diagnosis },
-      "Diagnosis copied for support",
-    );
-  }
 
   function copyForAgent() {
     const firstFailure = failures[0];
@@ -225,17 +186,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
               ) : (
                 <p className="mt-4 text-sm text-text-secondary">No preview URL has been reported yet.</p>
               )}
-              {isFailed && data.mode === "previewkit" ? (
-                <AiDiagnosisPanel
-                  diagnosis={diagnosis}
-                  isPending={diagnosisPending}
-                  onApplyFix={applyDiagnosisFix}
-                  onEditConfig={(finding) => navigateToConfig(finding, "config")}
-                  onEditSecrets={(finding) => navigateToConfig(finding, "secrets")}
-                  onCopyForSupport={copyDiagnosisForSupport}
-                />
-              ) : undefined}
-              {showDeterministicFallback && failures.length > 0 ? (
+              {failures.length > 0 ? (
                 <div className="mt-5 space-y-3">
                   {failures.map((failure) => (
                     <FailureCard
@@ -245,7 +196,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
                     />
                   ))}
                 </div>
-              ) : showDeterministicFallback && data.diagnostics.error != null ? (
+              ) : data.diagnostics.error != null ? (
                 <div className="mt-5 border-l-2 border-status-critical bg-status-critical/10 px-4 py-3">
                   <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Blocking error</p>
                   <p className="mt-2 text-sm text-text-secondary">{data.diagnostics.error}</p>
@@ -308,17 +259,6 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
       ) : undefined}
     </>
   );
-}
-
-function buildDeployFingerprint(data: PreviewReadinessData): string {
-  return JSON.stringify({
-    status: data.diagnostics.status,
-    phase: data.diagnostics.phase,
-    error: data.diagnostics.error,
-    previewUrl: data.previewUrl,
-    failures: data.diagnostics.failures,
-    services: data.services.map((service) => ({ name: service.name, status: service.status, error: service.error })),
-  });
 }
 
 /**

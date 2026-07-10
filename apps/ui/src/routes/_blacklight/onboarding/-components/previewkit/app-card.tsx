@@ -89,7 +89,6 @@ export function AppCard({
             <span className="font-mono text-sm font-bold text-text-primary">
               {app.name.trim() === "" ? "new app" : app.name}
             </span>
-            {app.origin === "suggestion" ? <Badge variant="outline">suggested</Badge> : undefined}
             {errorCount > 0 ? (
               <Badge variant="critical">
                 {errorCount} {errorCount === 1 ? "error" : "errors"}

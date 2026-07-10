@@ -13,8 +13,6 @@ export {
     usePreviewkitConfig,
     useSavePreviewkitConfig,
     useDeploymentSignalStatus,
-    useSuggestServices,
-    useSuggestEnvVars,
     useValidatePreviewkitConfig,
     usePreviewkitSecrets,
     usePreviewkitSecretsOptional,
@@ -22,7 +20,6 @@ export {
     useDeletePreviewkitSecret,
     useTriggerPreviewkitMainDeploy,
     usePreviewReadiness,
-    useDiagnosePreviewkitDeploy,
     useCompletePreviewOnboarding,
     useGoLive,
 } from "lib/query/onboarding.queries";

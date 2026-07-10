@@ -4,8 +4,6 @@ import {
   validatePreviewConfigSemantics,
   zodIssuesToConfigIssues,
   type ConfigIssue,
-  type SuggestedEnvVar,
-  type SuggestedService,
 } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
@@ -18,8 +16,6 @@ import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   usePreviewkitConfig,
   useSavePreviewkitConfig,
-  useSuggestEnvVars,
-  useSuggestServices,
   useTriggerPreviewkitMainDeploy,
   useValidatePreviewkitConfig,
 } from "lib/onboarding/onboarding-api";
@@ -30,10 +26,8 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AppCard } from "./-components/previewkit/app-card";
-import { EnvSuggestionsBanner, envSuggestionKey } from "./-components/previewkit/env-suggestions-banner";
 import { HooksSection } from "./-components/previewkit/hooks-section";
 import { MultirepoSection } from "./-components/previewkit/multirepo-section";
-import { ServiceSuggestionsBanner, serviceSuggestionKey } from "./-components/previewkit/service-suggestions-banner";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import {
   PRIMARY_REPO_KEY,
@@ -43,15 +37,12 @@ import {
   draftFromConfig,
   emptyAppDraft,
   emptyDraftIssues,
-  envRowsFromSuggestions,
   fieldIssueKey,
   hookFieldErrors,
   withSecretRows,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
-  serviceDraftForRecipe,
   snapshotDocument,
-  sortEnvRows,
   type AppDraft,
   type AppDraftField,
   type DraftIssues,
@@ -138,8 +129,6 @@ function PreviewkitConfigContent({
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "variables" : "apps"));
-  const [handledServiceSuggestions, setHandledServiceSuggestions] = useState<Set<string>>(new Set());
-  const [handledEnvSuggestions, setHandledEnvSuggestions] = useState<Set<string>>(new Set());
   // The hooks step is optional: it only reads as complete once the user has
   // advanced past it (clicked next/save from the hooks step), even when nothing
   // is configured - never before. A previously saved config counts as advanced.
@@ -305,24 +294,6 @@ function PreviewkitConfigContent({
     });
   }
 
-  function markServiceSuggestionsHandled(suggestions: SuggestedService[]) {
-    setHandledServiceSuggestions((current) => new Set([...current, ...suggestions.map(serviceSuggestionKey)]));
-  }
-
-  function acceptServiceSuggestion(suggestion: SuggestedService) {
-    markServiceSuggestionsHandled([suggestion]);
-    setDraft((current) => addServiceSuggestion(current, suggestion));
-  }
-
-  function acceptAllServiceSuggestions(suggestions: SuggestedService[]) {
-    markServiceSuggestionsHandled(suggestions);
-    setDraft((current) => suggestions.reduce(addServiceSuggestion, current));
-  }
-
-  function dismissServiceSuggestion(suggestion: SuggestedService) {
-    markServiceSuggestionsHandled([suggestion]);
-  }
-
   function handleReposChange(repos: RepoDraft[]) {
     setDraft((current) => {
       const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
@@ -486,51 +457,6 @@ function PreviewkitConfigContent({
   const deployableApps = draft.apps;
   const allNames = [...deployableApps.map((app) => app.name), ...draft.services.map((service) => service.name)];
 
-  // AI-suggested variables, analyzed from each primary-repo app's `.env.example`.
-  const suggestionApps = deployableApps
-    .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim() !== "")
-    .map((app) => ({
-      name: app.name.trim(),
-      path: app.path.trim() === "" ? "." : app.path.trim(),
-      primary: app.primary,
-    }));
-  const suggestionServices = draft.services
-    .filter((service) => service.name.trim() !== "")
-    .map((service) => ({ name: service.name.trim(), recipe: service.recipe }));
-  const { data: envSuggestions, isPending: envSuggestionsPending } = useSuggestEnvVars(
-    appId,
-    !configQuery.data.saved,
-    suggestionApps,
-    suggestionServices,
-  );
-
-  function envSuggestionOwnerKeys(appName: string): Set<string> {
-    const app = deployableApps.find((candidate) => candidate.name === appName);
-    return new Set((app?.env ?? []).map((row) => row.key.trim()).filter((key) => key !== ""));
-  }
-
-  function appendEnvSuggestions(appName: string, suggestions: SuggestedEnvVar[]) {
-    setHandledEnvSuggestions(
-      (current) => new Set([...current, ...suggestions.map((suggestion) => envSuggestionKey(appName, suggestion.key))]),
-    );
-    const app = deployableApps.find((candidate) => candidate.name === appName);
-    if (app == null) return;
-    const rows = envRowsFromSuggestions(app.env, suggestions, app.repoKey === PRIMARY_REPO_KEY);
-    if (rows.length > 0) updateApp(app.id, { env: sortEnvRows([...app.env, ...rows]) });
-  }
-
-  function acceptEnvSuggestion(appName: string, suggestion: SuggestedEnvVar) {
-    appendEnvSuggestions(appName, [suggestion]);
-  }
-
-  function acceptAllEnvSuggestions(appName: string, suggestions: SuggestedEnvVar[]) {
-    appendEnvSuggestions(appName, suggestions);
-  }
-
-  function dismissEnvSuggestion(appName: string, suggestion: SuggestedEnvVar) {
-    setHandledEnvSuggestions((current) => new Set([...current, envSuggestionKey(appName, suggestion.key)]));
-  }
-
   const activeStepIndex = CONFIG_STEPS.findIndex((step) => step.id === activeStep);
   const previousStep = activeStepIndex > 0 ? CONFIG_STEPS[activeStepIndex - 1] : undefined;
 
@@ -598,18 +524,6 @@ function PreviewkitConfigContent({
 
           {activeStep === "services" ? (
             <div className="space-y-6">
-              <ServiceSuggestions
-                appId={appId}
-                enabled={!configQuery.data.saved}
-                apps={deployableApps
-                  .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim() !== "")
-                  .map((app) => ({ name: app.name.trim(), path: app.path.trim() === "" ? "." : app.path.trim() }))}
-                existingRecipes={new Set(draft.services.map((service) => service.recipe))}
-                handled={handledServiceSuggestions}
-                onAccept={acceptServiceSuggestion}
-                onAcceptAll={acceptAllServiceSuggestions}
-                onDismiss={dismissServiceSuggestion}
-              />
               <ServicesSection
                 services={draft.services}
                 onChange={(services) => setDraft((current) => applyServicesChange(current, services))}
@@ -628,16 +542,6 @@ function PreviewkitConfigContent({
 
           {activeStep === "variables" ? (
             <div className="space-y-6">
-              <EnvSuggestionsBanner
-                enabled={!configQuery.data.saved}
-                isPending={envSuggestionsPending}
-                data={envSuggestions}
-                ownerEnvKeys={envSuggestionOwnerKeys}
-                handled={handledEnvSuggestions}
-                onAccept={acceptEnvSuggestion}
-                onAcceptAll={acceptAllEnvSuggestions}
-                onDismiss={dismissEnvSuggestion}
-              />
               {deployableApps.length === 0 ? (
                 <p className="text-sm text-text-secondary">Add an app first to configure its variables.</p>
               ) : (
@@ -848,41 +752,6 @@ function AppsStep({
   );
 }
 
-/** AI-assisted service suggestions for the services step, inferred from the accepted apps. */
-function ServiceSuggestions({
-  appId,
-  enabled,
-  apps,
-  existingRecipes,
-  handled,
-  onAccept,
-  onAcceptAll,
-  onDismiss,
-}: {
-  appId: string;
-  enabled: boolean;
-  apps: Array<{ name: string; path: string }>;
-  existingRecipes: Set<string>;
-  handled: Set<string>;
-  onAccept: (suggestion: SuggestedService) => void;
-  onAcceptAll: (suggestions: SuggestedService[]) => void;
-  onDismiss: (suggestion: SuggestedService) => void;
-}) {
-  const { data, isPending } = useSuggestServices(appId, enabled, apps);
-  return (
-    <ServiceSuggestionsBanner
-      enabled={enabled}
-      isPending={isPending}
-      data={data}
-      existingRecipes={existingRecipes}
-      handled={handled}
-      onAccept={onAccept}
-      onAcceptAll={onAcceptAll}
-      onDismiss={onDismiss}
-    />
-  );
-}
-
 function isConfigStepEnabled(_step: ConfigStepId): boolean {
   // Every step is a config-editing step now (variables saves with the config),
   // so all are always reachable; deploy readiness is gated in the footer.
@@ -1066,17 +935,6 @@ function applyServicesChange(current: TopologyDraft, services: ServiceDraft[]): 
           dependsOn: app.dependsOn.map((name) => renameByOldName.get(name) ?? name),
         }));
   return pruneDanglingDependsOn({ ...current, services, apps });
-}
-
-/** Adds a suggested managed service to the draft; a recipe already present is a no-op. */
-function addServiceSuggestion(current: TopologyDraft, suggestion: SuggestedService): TopologyDraft {
-  if (current.services.some((service) => service.recipe === suggestion.recipe)) return current;
-  const service = serviceDraftForRecipe(
-    suggestion.recipe,
-    current.services.map((existing) => existing.name),
-  );
-  if (suggestion.version != null) service.version = suggestion.version;
-  return { ...current, services: [...current.services, service] };
 }
 
 function getConfigStepCompletion({
