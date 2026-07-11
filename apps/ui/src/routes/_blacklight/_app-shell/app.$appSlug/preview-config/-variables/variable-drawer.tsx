@@ -1,5 +1,16 @@
-import { Button, Input, Switch, Textarea, cn } from "@autonoma/blacklight";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
+  Switch,
+  Textarea,
+  cn,
+} from "@autonoma/blacklight";
 import { connectionTokens } from "@autonoma/types";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { EyeIcon } from "@phosphor-icons/react/Eye";
 import { EyeSlashIcon } from "@phosphor-icons/react/EyeSlash";
 import { LockIcon } from "@phosphor-icons/react/Lock";
@@ -7,6 +18,30 @@ import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useRef, useState, type ReactNode } from "react";
 import type { AppDraft } from "../../../../onboarding/-components/previewkit/topology-draft";
 import { formFromView, validateForm, type BindTarget, type VariableForm, type VariableView } from "./variable-model";
+
+// Human-readable meaning for each connection property, shown as the subtitle in
+// the reference picker so a user doesn't have to know what `{{db.url}}` resolves to.
+const PROPERTY_MEANINGS: Record<string, string> = {
+  url: "connection string",
+  host: "hostname",
+  port: "port",
+};
+
+interface ConnectionReference {
+  token: string;
+  meaning: string;
+}
+
+/** Every `{{name.property}}` a connection can reference, paired with a readable meaning. */
+function connectionReferences(targets: BindTarget[]): ConnectionReference[] {
+  return targets.flatMap((target) =>
+    target.properties.map((property) => {
+      const meaning =
+        target.kind === "app" && property === "url" ? "public URL" : (PROPERTY_MEANINGS[property] ?? property);
+      return { token: `{{${target.name}.${property}}}`, meaning: `${target.kind} · ${meaning}` };
+    }),
+  );
+}
 
 interface VariableDrawerProps {
   app: AppDraft;
@@ -37,9 +72,7 @@ export function VariableDrawer({ app, view, targets, secretsSupported, onChange,
   const isNew = view.key === "";
   const error = validateForm(form, app, view, targets, secretsSupported);
   const pristine = form.key === "" && form.value === "";
-  const tokens = targets.flatMap((candidate) =>
-    candidate.properties.map((property) => `{{${candidate.name}.${property}}}`),
-  );
+  const references = connectionReferences(targets);
   const referencedTargets = [...new Set(connectionTokens(form.value).map((token) => token.target))].map((name) => ({
     name,
     known: targets.some((candidate) => candidate.name === name),
@@ -158,23 +191,28 @@ export function VariableDrawer({ app, view, targets, secretsSupported, onChange,
               ))}
             </div>
           ) : undefined}
-          {tokens.length > 0 ? (
+          {references.length > 0 ? (
             <div className="mt-2">
-              <p className="mb-1 font-mono text-4xs uppercase tracking-widest text-text-secondary">
-                Insert a reference
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {tokens.map((token) => (
-                  <button
-                    key={token}
-                    type="button"
-                    onClick={() => insertToken(token)}
-                    className="border border-border-mid px-1.5 py-0.5 font-mono text-4xs text-text-secondary transition-colors hover:border-primary hover:text-text-primary"
-                  >
-                    {token}
-                  </button>
-                ))}
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="inline-flex items-center gap-1.5 border border-border-mid px-2 py-1 font-mono text-4xs uppercase tracking-widest text-text-secondary transition-colors hover:border-primary hover:text-text-primary">
+                  Insert a reference
+                  <CaretDownIcon size={11} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+                  {references.map((reference) => (
+                    <DropdownMenuItem
+                      key={reference.token}
+                      onClick={() => insertToken(reference.token)}
+                      className="flex-col items-start gap-0.5"
+                    >
+                      <span className="font-mono text-2xs text-text-primary">{reference.token}</span>
+                      <span className="font-mono text-4xs uppercase tracking-widest text-text-secondary">
+                        {reference.meaning}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ) : (
             <p className="mt-2 text-2xs text-status-warn">
