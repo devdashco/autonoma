@@ -20,6 +20,11 @@ export const env = createEnv({
         PREVIEWKIT_ENV: z.stringbool().default(false),
         INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
         ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
+        // Public origin where this API's own /v1/auth handler is reachable - NOT
+        // the UI's origin (APP_URL). They coincide in prod/beta (unified behind
+        // one ingress) but diverge in local dev (UI :3000, API :4000) and
+        // previewkit (separate UI/API deploys). Falls back to APP_URL when unset.
+        BETTER_AUTH_URL: z.string().url().optional(),
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
         GOOGLE_CLIENT_ID: z.string().min(1),
         GOOGLE_CLIENT_SECRET: z.string().min(1),

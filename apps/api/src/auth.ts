@@ -31,6 +31,11 @@ function titleCase(str: string): string {
 }
 
 const APP_URL = env.APP_URL;
+// The API's own origin, where /v1/auth is actually served - falls back to
+// APP_URL when the UI and API share one origin (prod/beta behind a single
+// ingress). Diverges in local dev (UI :3000, API :4000) and previewkit
+// (separate UI/API deploys) - see BETTER_AUTH_URL in .env.example and .preview.yaml.
+const AUTH_BASE_URL = env.BETTER_AUTH_URL ?? APP_URL;
 const isProduction = env.NODE_ENV === "production";
 
 function decodeIdTokenPayload(idToken: string): {
@@ -210,10 +215,9 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
         // discovery metadata has an `issuer`/`baseURL` - without it better-auth's
         // oAuthDiscoveryMetadata throws and the .well-known endpoints return null,
         // and the WWW-Authenticate challenge is built with the wrong (http) scheme
-        // behind the TLS-terminating ingress. APP_URL is the canonical app origin,
-        // which is already where every auth request lands, so this is a no-op for
-        // existing cookie/session auth and only enables the OAuth server metadata.
-        baseURL: APP_URL,
+        // behind the TLS-terminating ingress. Must be this service's own origin
+        // (AUTH_BASE_URL), not APP_URL - see its definition above.
+        baseURL: AUTH_BASE_URL,
         basePath: "/v1/auth",
         database: prismaAdapter(conn, { provider: "postgresql" }),
         secondaryStorage: redisStorage({

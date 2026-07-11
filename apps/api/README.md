@@ -41,6 +41,7 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `GOOGLE_CLIENT_SECRET` | Yes | - | Google OAuth client secret |
 | `REDIS_URL` | Yes | - | Redis connection URL (sessions, caching) |
 | `APP_URL` | No | `http://localhost:3000` | Frontend URL for redirects |
+| `BETTER_AUTH_URL` | No | - | This API's own origin, used for better-auth's `baseURL` (OAuth redirect URIs, issuer metadata); falls back to `APP_URL` when unset. Only diverges from `APP_URL` when the UI and API have different origins (local dev, previewkit) |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated CORS origins |
 | `INTERNAL_DOMAIN` | No | `autonoma.app` | Domain for internal users and cross-subdomain cookies |
 | `AGENT_VERSION` | No | `latest` | Version tag for Temporal worker agent images |
