@@ -25,7 +25,7 @@ const RECONCILE_TIMEOUT_MS = 3 * 60_000;
 
 // Cap the prompt so a PR that touched many tests (each modification carries THREE full plans) can never blow
 // the model's context window or the reconcile timeout. ~300k chars ≈ 75k input tokens - safe headroom under
-// gpt-5.5's window, with room for the output. Edits are packed into batches under this budget; the shared main
+// gpt-5.6-luna's window, with room for the output. Edits are packed into batches under this budget; the shared main
 // catalog is resent per batch (each batch needs it to spot existing coverage), so it is excluded from the cap.
 const MAX_EDIT_CHARS_PER_BATCH = 300_000;
 

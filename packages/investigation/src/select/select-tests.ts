@@ -14,7 +14,7 @@ export interface SelectContext {
     prBody?: string;
 }
 
-// The select tool loop (up to maxSteps gpt-5.5 calls) on a large app (1,300+ tests) runs well past 5 min; that
+// The select tool loop (up to maxSteps gpt-5.6-luna calls) on a large app (1,300+ tests) runs well past 5 min; that
 // cap aborted mid-loop and burned 3 retries (~15 min) without ever finishing. Give it one generous window that
 // still fits the 20-min Temporal activity ceiling (clone + catalog load take ~1.5 min on top of this).
 const SELECTION_TIMEOUT_MS = 12 * 60_000;

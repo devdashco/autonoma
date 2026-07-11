@@ -15,7 +15,7 @@ export const env = createEnv({
         // The native-OpenAI classifier key (injected into the model session). The OpenRouter/Gemini/Groq
         // keys are read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
         OPENAI_API_KEY: z.string().min(1),
-        INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.5"),
+        INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.6-luna"),
         // The selector + classifier + recipe-repair tool-loop step budgets.
         INVESTIGATION_SELECT_MAX_STEPS: z.coerce.number().default(40),
         INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),

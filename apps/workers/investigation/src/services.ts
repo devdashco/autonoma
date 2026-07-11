@@ -20,7 +20,7 @@ export function getGithubApp(): GitHubApp {
 
 /**
  * Open a fresh, metered model session for one activity (reuses @autonoma/ai's registry: smart-visual
- * Gemini-Flash via OpenRouter + the local native-OpenAI gpt-5.5 classifier).
+ * Gemini-Flash via OpenRouter + the local native-OpenAI gpt-5.6-luna classifier).
  */
 export function createModelSession(): ModelSession {
     return openModelSession({

@@ -64,7 +64,7 @@ export async function selectInvestigationTests(
                 // that get assigned onto it after the fork; scoping to pre-snapshot test cases keeps selection on
                 // the genuine pre-PR suite so we independently propose coverage instead of seeing it "already
                 // covered" by the deployed agent's own work.
-                // Use the reliable text classifier model (gpt-5.5), not gemini/smart-visual: selection reads
+                // Use the reliable text classifier model (gpt-5.6-luna), not gemini/smart-visual: selection reads
                 // the diff + code (no vision needed), and gemini repeatedly returned no structured output.
                 snapshotId,
                 testsCreatedBefore: context.createdAt,
