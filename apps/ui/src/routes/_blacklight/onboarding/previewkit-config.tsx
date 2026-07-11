@@ -1,4 +1,13 @@
-import { Badge, Button, Skeleton, cn } from "@autonoma/blacklight";
+import {
+  Badge,
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Skeleton,
+  cn,
+} from "@autonoma/blacklight";
 import {
   previewConfigSchema,
   validatePreviewConfigSemantics,
@@ -7,12 +16,17 @@ import {
 } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
-import { FileCodeIcon } from "@phosphor-icons/react/FileCode";
-import { MinusIcon } from "@phosphor-icons/react/Minus";
+import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+import { CodeIcon } from "@phosphor-icons/react/Code";
+import { CubeIcon } from "@phosphor-icons/react/Cube";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
+import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { type ConfigStepId } from "lib/onboarding/config-steps";
 import {
   usePreviewkitConfig,
   useSavePreviewkitConfig,
@@ -28,7 +42,9 @@ import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AddAppDialog } from "./-components/previewkit/add-app-dialog";
 import { AppCard } from "./-components/previewkit/app-card";
 import { BranchMatchingField } from "./-components/previewkit/branch-matching-field";
+import { DatabaseSection } from "./-components/previewkit/database-section";
 import { HooksSection } from "./-components/previewkit/hooks-section";
+import { ReviewSection } from "./-components/previewkit/review-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import {
   PRIMARY_REPO_KEY,
@@ -40,6 +56,9 @@ import {
   emptyDraftIssues,
   fieldIssueKey,
   hookFieldErrors,
+  repoAliasFrom,
+  serviceRecipeIsDatabase,
+  uniqueServiceName,
   withSecretRows,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
@@ -62,29 +81,56 @@ export interface PreviewkitConfigPageProps {
   focusApp?: string;
   focusField?: string;
   focusSection?: "config" | "secrets" | "logs";
+  /** Active sub-step, mirrored to the URL so the sidebar reflects it. */
+  configStep?: ConfigStepId;
 }
 
-type ConfigStepId = "apps" | "services" | "variables" | "hooks";
+type ConfigStepGroup = "required" | "optional";
 
-const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string; optional?: boolean }> = [
-  { id: "apps", label: "Apps", description: "Deployable apps + dependency repos" },
-  { id: "services", label: "Services", description: "Managed backing services" },
-  { id: "variables", label: "Variables", description: "Secrets + connections per app" },
-  { id: "hooks", label: "Hooks", description: "Pre/post-deploy commands", optional: true },
+const CONFIG_STEPS: Array<{ id: ConfigStepId; label: string; description: string; group: ConfigStepGroup }> = [
+  { id: "apps", label: "Apps", description: "Deployable apps + dependency repos", group: "required" },
+  { id: "database", label: "Database", description: "Engines + guided setup tasks", group: "required" },
+  { id: "variables", label: "Variables", description: "Secrets + connections per app", group: "required" },
+  { id: "review", label: "Review", description: "Confirm + deploy", group: "required" },
+  { id: "services", label: "Extra services", description: "Non-database Docker images", group: "optional" },
+  { id: "hooks", label: "Lifecycle hooks", description: "Pre/post-deploy commands", group: "optional" },
 ];
 
-// Steps that count toward the completion tally. Optional steps (hooks) are shown
-// in the stepper but never counted - the tally reflects only required progress.
-const REQUIRED_STEP_COUNT = CONFIG_STEPS.filter((step) => step.optional !== true).length;
+// The linear flow the primary "Continue" button walks. These are the only steps
+// that count toward the completion tally; the review step is the terminal deploy
+// screen and the optional steps sit off the flow, so neither is tallied.
+const FLOW_STEP_IDS: ConfigStepId[] = ["apps", "database", "variables"];
 
-export function PreviewkitConfigPage({ appId, focusApp, focusField, focusSection }: PreviewkitConfigPageProps) {
+// Where the back button returns for each step. Review and the optional steps all
+// fork off the variables step, so they walk back to it.
+const PREVIOUS_STEP_BY_ID: Partial<Record<ConfigStepId, ConfigStepId>> = {
+  database: "apps",
+  variables: "database",
+  review: "variables",
+  services: "variables",
+  hooks: "variables",
+};
+
+export function PreviewkitConfigPage({
+  appId,
+  focusApp,
+  focusField,
+  focusSection,
+  configStep,
+}: PreviewkitConfigPageProps) {
   if (appId == null) {
     return <p className="font-mono text-sm text-text-secondary">No application found. Please start from setup.</p>;
   }
 
   return (
     <Suspense fallback={<PreviewkitConfigSkeleton />}>
-      <PreviewkitConfigContent appId={appId} focusApp={focusApp} focusField={focusField} focusSection={focusSection} />
+      <PreviewkitConfigContent
+        appId={appId}
+        focusApp={focusApp}
+        focusField={focusField}
+        focusSection={focusSection}
+        configStep={configStep}
+      />
     </Suspense>
   );
 }
@@ -107,6 +153,7 @@ function PreviewkitConfigContent({
   focusApp,
   focusField,
   focusSection,
+  configStep,
 }: { appId: string } & Omit<PreviewkitConfigPageProps, "appId">) {
   const navigate = useNavigate();
   const configQuery = usePreviewkitConfig(appId);
@@ -129,15 +176,18 @@ function PreviewkitConfigContent({
     configQuery.data.saved ? draftFromConfigSnapshot(configQuery.data) : {},
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
-  const [activeStep, setActiveStep] = useState<ConfigStepId>(() => (focusSection === "secrets" ? "variables" : "apps"));
+  const [activeStep, setActiveStep] = useState<ConfigStepId>(
+    () => configStep ?? (focusSection === "secrets" ? "variables" : "apps"),
+  );
   const [addAppDialogOpen, setAddAppDialogOpen] = useState(false);
   // The hooks step is optional: it only reads as complete once the user has
   // advanced past it (clicked next/save from the hooks step), even when nothing
   // is configured - never before. A previously saved config counts as advanced.
   const [hooksAcknowledged, setHooksAcknowledged] = useState<boolean>(configQuery.data.saved);
-  // Services follow the same acknowledgement rule: an empty list is a valid
-  // config, but the step only reads as complete once the user has advanced past
-  // it (or configured a service). A previously saved config counts as advanced.
+  // Database + extra services follow the same acknowledgement rule: an empty list
+  // is a valid config, but the step only reads as complete once the user has
+  // advanced past it (or configured one). A previously saved config counts as advanced.
+  const [databaseAcknowledged, setDatabaseAcknowledged] = useState<boolean>(configQuery.data.saved);
   const [servicesAcknowledged, setServicesAcknowledged] = useState<boolean>(configQuery.data.saved);
   // Variables is complete-by-default (an app may have none), so - like services -
   // it only reads complete once visited or when the config was already saved.
@@ -225,15 +275,37 @@ function PreviewkitConfigContent({
     issues,
     hooksValid: hookErrors.size === 0,
     hooksAcknowledged,
+    databaseAcknowledged,
     servicesAcknowledged,
     variablesAcknowledged,
   });
-  const completedStepCount = CONFIG_STEPS.filter((step) => step.optional !== true && stepCompletion[step.id]).length;
+  const completedStepCount = FLOW_STEP_IDS.filter((id) => stepCompletion[id]).length;
 
   useEffect(() => {
     if (focusSection === "secrets") setActiveStep("variables");
     if (focusSection === "config") setActiveStep("apps");
   }, [focusSection]);
+
+  // When the sidebar navigates (the URL's configStep changes), adopt it as the
+  // active step. Depends only on configStep so an internal setActiveStep - which
+  // the mirror effect below writes back to the URL - doesn't bounce through here.
+  useEffect(() => {
+    if (configStep != null && configStep !== activeStep) setActiveStep(configStep);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configStep]);
+
+  // Mirror the active sub-step into the URL so the sidebar reflects it (and the
+  // step survives a refresh). Held off while a focus deep-link is in flight so
+  // its focusApp/focusField params aren't stripped before they're consumed.
+  useEffect(() => {
+    if (focusApp != null || focusField != null) return;
+    if (configStep === activeStep) return;
+    void navigate({
+      to: "/onboarding",
+      replace: true,
+      search: buildOnboardingSearch("previewkit-config", appId, { configStep: activeStep }),
+    });
+  }, [activeStep, configStep, focusApp, focusField, appId, navigate]);
 
   function clearFocusParams() {
     void navigate({ to: "/onboarding", replace: true, search: buildOnboardingSearch("previewkit-config", appId) });
@@ -282,14 +354,32 @@ function PreviewkitConfigContent({
     }));
   }
 
-  function addApp(repoKey: string, prefilled?: AppDraft) {
-    setDraft((current) => addApps(current, [prefilled ?? emptyAppDraft(repoKey)]));
+  // A fresh app's name defaults to its repo: the primary repo's short name for
+  // this-repo apps, the alias for a dependency repo - deduped against the names
+  // already in use, so a second app from the same repo gets `name-2`.
+  function defaultAppName(repoKey: string, current: TopologyDraft): string {
+    const base =
+      repoKey === PRIMARY_REPO_KEY
+        ? repoAliasFrom(repositoryQuery.data?.fullName?.split("/").pop() ?? "app", [])
+        : repoKey;
+    const taken = [...current.apps.map((app) => app.name), ...current.services.map((service) => service.name)].filter(
+      (name) => name.trim() !== "",
+    );
+    return uniqueServiceName(base, taken);
+  }
+
+  function addApp(repoKey: string) {
+    setDraft((current) => addApps(current, [{ ...emptyAppDraft(repoKey), name: defaultAppName(repoKey, current) }]));
   }
 
   // Registering a dependency repo and seeding its first app is one action: the repo
   // exists only to host apps, so it never appears in the config without one.
   function addAppFromNewRepo(repo: RepoDraft) {
-    setDraft((current) => addApps({ ...current, repos: [...current.repos, repo] }, [emptyAppDraft(repo.name)]));
+    setDraft((current) =>
+      addApps({ ...current, repos: [...current.repos, repo] }, [
+        { ...emptyAppDraft(repo.name), name: defaultAppName(repo.name, current) },
+      ]),
+    );
   }
 
   function updateRepo(id: number, patch: Partial<RepoDraft>) {
@@ -477,23 +567,22 @@ function PreviewkitConfigContent({
   const deployableApps = draft.apps;
   const allNames = [...deployableApps.map((app) => app.name), ...draft.services.map((service) => service.name)];
 
-  const activeStepIndex = CONFIG_STEPS.findIndex((step) => step.id === activeStep);
-  const previousStep = activeStepIndex > 0 ? CONFIG_STEPS[activeStepIndex - 1] : undefined;
+  const previousStepId = PREVIOUS_STEP_BY_ID[activeStep];
+  const previousStep = previousStepId != null ? CONFIG_STEPS.find((step) => step.id === previousStepId) : undefined;
 
   return (
     <>
       <OnboardingPageHeader
         leading={
-          <div className="mb-4 flex size-12 items-center justify-center border border-primary-ink/30 bg-surface-base">
-            <FileCodeIcon size={22} weight="duotone" className="text-primary-ink" />
+          <div className="mb-4 flex size-10 items-center justify-center border border-primary-ink text-primary-ink shadow-[0_0_15px_var(--accent-glow)]">
+            <CodeIcon size={20} weight="bold" />
           </div>
         }
         title="Build with PreviewKit"
         description={
           <p className="max-w-3xl">
-            Map every deployable app to its repo, path, and entrypoints for{" "}
-            <span className="text-text-primary">{repoName}</span>. Managed services come from recipes. This onboarding
-            deploy reads the saved config.
+            Map every deployable app to its repo, then attach the databases it needs. Extra services and lifecycle hooks
+            are optional - add them only if you use them.
           </p>
         }
       />
@@ -507,6 +596,7 @@ function PreviewkitConfigContent({
         activeStep={activeStep}
         completedStepCount={completedStepCount}
         completion={stepCompletion}
+        summaries={configStepSummaries(draft)}
         onSelect={(step) => {
           if (!isConfigStepEnabled(step)) return;
           setActiveStep(step);
@@ -517,6 +607,11 @@ function PreviewkitConfigContent({
         <div className="space-y-6">
           {activeStep === "apps" ? (
             <div className="space-y-6">
+              <AddAppMenu
+                thisRepoName={repositoryQuery.data?.fullName?.split("/").pop()}
+                onAddToThisRepo={() => addApp(PRIMARY_REPO_KEY)}
+                onAddFromAnotherRepo={() => setAddAppDialogOpen(true)}
+              />
               <AppsStep
                 draftApps={draft.apps}
                 repoGroups={repoGroups}
@@ -526,16 +621,11 @@ function PreviewkitConfigContent({
                 issues={issues}
                 allNames={allNames}
                 groupSaved={groupSaved}
-                onAddApp={addApp}
                 onUpdateApp={updateApp}
                 onUpdateRepo={updateRepo}
                 onSetPrimaryApp={setPrimaryApp}
                 onRemoveApp={removeApp}
               />
-              <Button variant="outline" size="sm" className="w-fit gap-2" onClick={() => setAddAppDialogOpen(true)}>
-                <PlusIcon size={14} weight="bold" />
-                Add an app from another repo
-              </Button>
               {draft.repos.length > 0 ? (
                 <BranchMatchingField
                   convention={draft.branchConvention}
@@ -553,14 +643,39 @@ function PreviewkitConfigContent({
             </div>
           ) : undefined}
 
-          {activeStep === "services" ? (
+          {activeStep === "database" ? (
             <div className="space-y-6">
-              <ServicesSection
-                services={draft.services}
-                onChange={(services) => setDraft((current) => applyServicesChange(current, services))}
+              <DatabaseSection
+                databases={draft.services.filter((service) => serviceRecipeIsDatabase(service.recipe))}
+                existingNames={draft.services.map((service) => service.name)}
+                appNames={hookAppNames}
+                repos={draft.repos}
+                onChange={(databases) =>
+                  setDraft((current) => {
+                    const extras = current.services.filter((service) => !serviceRecipeIsDatabase(service.recipe));
+                    return applyServicesChange(current, [...extras, ...databases]);
+                  })
+                }
               />
             </div>
           ) : undefined}
+
+          {activeStep === "services" ? (
+            <div className="space-y-6">
+              <ServicesSection
+                services={draft.services.filter((service) => !serviceRecipeIsDatabase(service.recipe))}
+                existingNames={draft.services.map((service) => service.name)}
+                onChange={(extras) =>
+                  setDraft((current) => {
+                    const databases = current.services.filter((service) => serviceRecipeIsDatabase(service.recipe));
+                    return applyServicesChange(current, [...databases, ...extras]);
+                  })
+                }
+              />
+            </div>
+          ) : undefined}
+
+          {activeStep === "review" ? <ReviewSection draft={draft} repoName={repoName} /> : undefined}
 
           {activeStep === "hooks" ? (
             <HooksSection
@@ -593,15 +708,19 @@ function PreviewkitConfigContent({
                   </div>
                 ))
               )}
+              <VariablesFinishFork
+                disabled={hasBlockingIssues}
+                onFinish={() => {
+                  setVariablesAcknowledged(true);
+                  setActiveStep("review");
+                }}
+                onAddService={() => setActiveStep("services")}
+                onAddHook={() => setActiveStep("hooks")}
+              />
             </div>
           ) : undefined}
 
-          {activeStep === "apps" ||
-          activeStep === "services" ||
-          activeStep === "variables" ||
-          activeStep === "hooks" ? (
-            <ConfigIssuesBanner issues={issues} configReadyForSecrets={configReadyForSecrets} />
-          ) : undefined}
+          <ConfigIssuesBanner issues={issues} configReadyForSecrets={configReadyForSecrets} />
 
           <ConfigStepFooter
             previousStep={previousStep}
@@ -611,8 +730,9 @@ function PreviewkitConfigContent({
             isDeploying={deploy.isPending}
             onSelect={setActiveStep}
             onSaveAndDeploy={saveAndDeploy}
+            onAdvanceFromDatabase={() => setDatabaseAcknowledged(true)}
             onAdvanceFromServices={() => setServicesAcknowledged(true)}
-            onAdvanceFromVariables={() => setVariablesAcknowledged(true)}
+            onAdvanceFromHooks={() => setHooksAcknowledged(true)}
           />
         </div>
       </div>
@@ -624,86 +744,217 @@ function ConfigStepper({
   activeStep,
   completedStepCount,
   completion,
+  summaries,
   onSelect,
 }: {
   activeStep: ConfigStepId;
   completedStepCount: number;
   completion: Record<ConfigStepId, boolean>;
+  summaries: Record<ConfigStepId, string>;
+  onSelect: (step: ConfigStepId) => void;
+}) {
+  const requiredSteps = CONFIG_STEPS.filter((step) => step.group === "required" && step.id !== "review");
+  const optionalSteps = CONFIG_STEPS.filter((step) => step.group === "optional");
+  return (
+    <section className="relative mb-6 border border-border-dim bg-surface-base">
+      <ConfigBarCorners />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-dim px-4 py-3">
+        <span className="flex items-center gap-2 font-mono text-2xs font-bold uppercase tracking-widest text-text-primary">
+          <span className="size-1.5 bg-primary-ink" />
+          PreviewKit config
+        </span>
+        <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-primary-ink">
+          {completedStepCount} / {FLOW_STEP_IDS.length} required complete
+        </span>
+      </div>
+      <div className="flex flex-col gap-3.5 p-4 lg:flex-row">
+        <div className="flex flex-[3] flex-col gap-2">
+          <span className="font-mono text-4xs font-bold uppercase tracking-widest text-text-secondary">
+            Required · the flow
+          </span>
+          <div className="flex flex-1 border border-border-mid">
+            {requiredSteps.map((step, index) => (
+              <RequiredStepCell
+                key={step.id}
+                step={step}
+                position={index + 1}
+                active={step.id === activeStep}
+                complete={completion[step.id]}
+                summary={summaries[step.id]}
+                bordered={index < requiredSteps.length - 1}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-[2] flex-col gap-2">
+          <span className="font-mono text-4xs font-bold uppercase tracking-widest text-text-secondary">
+            Optional · off the flow
+          </span>
+          <div className="flex flex-1 border border-dashed border-border-mid bg-surface-void">
+            {optionalSteps.map((step, index) => (
+              <OptionalStepCell
+                key={step.id}
+                step={step}
+                active={step.id === activeStep}
+                summary={summaries[step.id]}
+                bordered={index < optionalSteps.length - 1}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConfigBarCorners() {
+  return (
+    <>
+      <span className="pointer-events-none absolute left-0 top-0 size-2 border-l border-t border-border-mid" />
+      <span className="pointer-events-none absolute right-0 top-0 size-2 border-r border-t border-border-mid" />
+      <span className="pointer-events-none absolute bottom-0 left-0 size-2 border-b border-l border-border-mid" />
+      <span className="pointer-events-none absolute bottom-0 right-0 size-2 border-b border-r border-border-mid" />
+    </>
+  );
+}
+
+function RequiredStepCell({
+  step,
+  position,
+  active,
+  complete,
+  summary,
+  bordered,
+  onSelect,
+}: {
+  step: { id: ConfigStepId; label: string };
+  position: number;
+  active: boolean;
+  complete: boolean;
+  summary: string;
+  bordered: boolean;
   onSelect: (step: ConfigStepId) => void;
 }) {
   return (
-    <section className="mb-6 border border-border-dim bg-surface-base">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-dim bg-surface-raised px-5 py-3">
-        <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">PreviewKit config</h2>
-        <span className="font-mono text-2xs uppercase tracking-widest text-primary-ink">
-          {completedStepCount}/{REQUIRED_STEP_COUNT} complete
+    <button
+      type="button"
+      onClick={() => onSelect(step.id)}
+      className={cn(
+        "relative flex flex-1 items-start gap-2.5 px-3.5 py-3 text-left transition-colors hover:bg-surface-void",
+        bordered && "border-r border-border-dim",
+      )}
+    >
+      {active ? (
+        <span className="pointer-events-none absolute inset-0 border border-primary-ink bg-accent-dim" />
+      ) : undefined}
+      <span
+        className={cn(
+          "relative flex size-5.5 shrink-0 items-center justify-center font-mono text-2xs font-bold",
+          complete ? "bg-primary-ink text-surface-void" : "border border-border-mid text-text-secondary",
+        )}
+      >
+        {complete ? <CheckIcon size={13} weight="bold" /> : position}
+      </span>
+      <span className="relative min-w-0">
+        <span className="block text-sm font-medium text-text-primary">{step.label}</span>
+        <span className="mt-0.5 block font-mono text-4xs font-semibold uppercase tracking-widest text-text-secondary">
+          {summary}
         </span>
-      </div>
-      <div className="grid gap-px bg-border-dim sm:grid-cols-2 lg:grid-cols-4">
-        {CONFIG_STEPS.map((step, index) => {
-          const active = step.id === activeStep;
-          const complete = completion[step.id];
-          const enabled = isConfigStepEnabled(step.id);
-          const isOptional = step.optional === true;
-          // An optional step that isn't complete is skippable, not a pending required
-          // todo - show a neutral dash rather than a step number so it never reads as
-          // unfinished work.
-          const showDash = isOptional && !complete;
-          // Required steps are numbered by their position among required steps only,
-          // so the optional step never leaves a gap in the sequence.
-          const requiredPosition = CONFIG_STEPS.slice(0, index + 1).filter((s) => s.optional !== true).length;
-          return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => onSelect(step.id)}
-              disabled={!enabled}
-              className={cn(
-                "flex min-h-20 items-start gap-3 bg-surface-base px-4 py-4 text-left transition-colors hover:bg-surface-raised",
-                active && "bg-primary-ink/10",
-                !enabled && "cursor-not-allowed opacity-45 hover:bg-surface-base",
-              )}
-            >
-              <span
-                className={cn(
-                  "mt-0.5 flex size-6 shrink-0 items-center justify-center border font-mono text-3xs",
-                  complete
-                    ? "border-primary-ink bg-primary-ink text-surface-void"
-                    : active
-                      ? "border-primary-ink text-primary-ink"
-                      : "border-border-mid text-text-secondary",
-                )}
-              >
-                {complete ? (
-                  <CheckIcon size={12} weight="bold" />
-                ) : showDash ? (
-                  <MinusIcon size={12} weight="bold" />
-                ) : (
-                  requiredPosition
-                )}
-              </span>
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <span
-                    className={cn("block text-sm font-medium", active ? "text-text-primary" : "text-text-secondary")}
-                  >
-                    {step.label}
-                  </span>
-                  {isOptional ? (
-                    <Badge variant="outline" className="text-3xs uppercase tracking-widest">
-                      Optional
-                    </Badge>
-                  ) : undefined}
-                </span>
-                <span className="mt-1 block font-mono text-3xs uppercase tracking-widest text-text-secondary">
-                  {step.description}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </section>
+      </span>
+    </button>
+  );
+}
+
+function OptionalStepCell({
+  step,
+  active,
+  summary,
+  bordered,
+  onSelect,
+}: {
+  step: { id: ConfigStepId; label: string };
+  active: boolean;
+  summary: string;
+  bordered: boolean;
+  onSelect: (step: ConfigStepId) => void;
+}) {
+  const Icon = step.id === "services" ? CubeIcon : TerminalWindowIcon;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(step.id)}
+      className={cn(
+        "relative flex flex-1 flex-col gap-1 px-3.5 py-3 text-left transition-colors hover:bg-surface-base",
+        bordered && "border-r border-dashed border-border-dim",
+      )}
+    >
+      {active ? (
+        <span className="pointer-events-none absolute inset-0 border border-primary-ink bg-accent-dim" />
+      ) : undefined}
+      <span className="relative flex items-center gap-1.5 text-sm font-medium text-text-secondary">
+        <Icon size={14} />
+        {step.label}
+      </span>
+      <span className="relative font-mono text-4xs font-semibold uppercase tracking-widest text-text-secondary">
+        {summary}
+      </span>
+    </button>
+  );
+}
+
+/** Dynamic sub-labels shown under each config-bar cell, reflecting what's configured. */
+function configStepSummaries(draft: TopologyDraft): Record<ConfigStepId, string> {
+  const databases = draft.services.filter((service) => serviceRecipeIsDatabase(service.recipe));
+  const extras = draft.services.filter((service) => !serviceRecipeIsDatabase(service.recipe));
+  const hookCount = draft.hooks.pre_deploy.length + draft.hooks.post_deploy.length;
+  const primary = draft.apps.find((app) => app.primary) ?? draft.apps[0];
+  const runtime = primary?.buildMode === "runtime" ? primary.runtime : undefined;
+
+  return {
+    apps:
+      draft.apps.length === 0
+        ? "no apps"
+        : `${draft.apps.length} app${draft.apps.length === 1 ? "" : "s"}${runtime != null ? ` · ${runtime}` : ""}`,
+    database:
+      databases.length === 0 ? "no databases" : `${databases.length} db${databases.length === 1 ? "" : "s"} · setup`,
+    variables: "secrets per app",
+    review: "confirm + deploy",
+    services: extras.length === 0 ? "docker images" : `${extras.length} image${extras.length === 1 ? "" : "s"}`,
+    hooks: hookCount === 0 ? "deploy scripts" : `${hookCount} hook${hookCount === 1 ? "" : "s"}`,
+  };
+}
+
+/** The single "Add app" entry point: a dropdown offering the primary repo or another repo. */
+function AddAppMenu({
+  thisRepoName,
+  onAddToThisRepo,
+  onAddFromAnotherRepo,
+}: {
+  thisRepoName?: string;
+  onAddToThisRepo: () => void;
+  onAddFromAnotherRepo: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="sm" className="w-fit gap-2">
+            <PlusIcon size={14} weight="bold" />
+            Add app
+            <CaretDownIcon size={12} />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onClick={onAddToThisRepo}>
+          This repo
+          {thisRepoName != null ? <span className="ml-1 text-text-secondary">({thisRepoName})</span> : undefined}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onAddFromAnotherRepo}>Another repo</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -716,7 +967,6 @@ function AppsStep({
   issues,
   allNames,
   groupSaved,
-  onAddApp,
   onUpdateApp,
   onUpdateRepo,
   onSetPrimaryApp,
@@ -730,7 +980,6 @@ function AppsStep({
   issues: DraftIssues;
   allNames: string[];
   groupSaved: (repoKey: string) => boolean;
-  onAddApp: (repoKey: string, prefilled?: AppDraft) => void;
   onUpdateApp: (id: number, patch: Partial<AppDraft>) => void;
   onUpdateRepo: (id: number, patch: Partial<RepoDraft>) => void;
   onSetPrimaryApp: (id: number) => void;
@@ -756,13 +1005,9 @@ function AppsStep({
                 {/* The primary/dependency repo distinction is only meaningful once
                     the project spans more than one repo. */}
                 {hasDependencyRepos ? <Badge variant="outline">{group.badge}</Badge> : undefined}
-                <Badge variant={groupSaved(group.key) ? "success" : "secondary"}>
+                <Badge variant={groupSaved(group.key) ? "success" : "secondary"} className="ml-auto">
                   {groupSaved(group.key) ? "Saved" : "Unsaved"}
                 </Badge>
-                <Button variant="outline" size="xs" className="ml-auto gap-1" onClick={() => onAddApp(group.key)}>
-                  <PlusIcon size={12} weight="bold" />
-                  Add app
-                </Button>
               </div>
               <div className="space-y-4 p-5">
                 {groupApps.length === 0 ? (
@@ -836,17 +1081,62 @@ function ConfigIssuesBanner({
         </div>
       ) : undefined}
       {configReadyForSecrets ? (
-        <p className="text-sm text-text-secondary">Config saved. Deploy from the hooks step when you're ready.</p>
+        <p className="text-sm text-text-secondary">Config saved. Deploy from the review step when you're ready.</p>
       ) : undefined}
     </>
   );
 }
 
 /**
- * The footer's primary button advances through the steps
- * (`apps → services → variables → hooks`), and on the final `hooks` step it does
- * the real work with a single `Save and deploy` action: it persists the document
- * + secrets in one call and then triggers the deploy, advancing to deploy-verify.
+ * The variables step is where most people finish. This lime-bordered card is the
+ * fork: deploy now (Finish & review), or opt into the off-path extra-services /
+ * lifecycle-hooks steps.
+ */
+function VariablesFinishFork({
+  disabled,
+  onFinish,
+  onAddService,
+  onAddHook,
+}: {
+  disabled: boolean;
+  onFinish: () => void;
+  onAddService: () => void;
+  onAddHook: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3.5 border border-primary-ink bg-accent-dim px-5 py-4">
+      <div className="flex items-center gap-2">
+        <CheckCircleIcon size={16} weight="fill" className="text-primary-ink" />
+        <span className="text-sm font-semibold text-text-primary">You're set - most people finish here.</span>
+      </div>
+      <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">
+        Your app and databases are configured. You can deploy now, or add optional pieces if your setup needs them.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="accent" className="gap-2" disabled={disabled} onClick={onFinish}>
+          <RocketLaunchIcon size={14} weight="bold" />
+          Finish &amp; review
+        </Button>
+        <span className="text-2xs text-text-secondary">or, if you need more -</span>
+        <Button variant="outline" size="sm" className="gap-2" onClick={onAddService}>
+          <PlusIcon size={13} weight="bold" />
+          Extra service
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" onClick={onAddHook}>
+          <PlusIcon size={13} weight="bold" />
+          Lifecycle hook
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The footer wires the flow. The required path is `apps → database → variables`,
+ * and variables is the fork: from there most people finish (`→ review`) but can
+ * opt into the off-path extra-services / lifecycle-hooks steps. Those optional
+ * steps and the review step all walk back to variables; review does the real work
+ * (`Save and deploy`) - persisting the document + secrets and triggering the deploy.
  */
 function ConfigStepFooter({
   previousStep,
@@ -856,8 +1146,9 @@ function ConfigStepFooter({
   isDeploying,
   onSelect,
   onSaveAndDeploy,
+  onAdvanceFromDatabase,
   onAdvanceFromServices,
-  onAdvanceFromVariables,
+  onAdvanceFromHooks,
 }: {
   previousStep: { id: ConfigStepId; label: string } | undefined;
   activeStep: ConfigStepId;
@@ -866,21 +1157,30 @@ function ConfigStepFooter({
   isDeploying: boolean;
   onSelect: (step: ConfigStepId) => void;
   onSaveAndDeploy: () => void;
+  onAdvanceFromDatabase: () => void;
   onAdvanceFromServices: () => void;
-  onAdvanceFromVariables: () => void;
+  onAdvanceFromHooks: () => void;
 }) {
-  const primaryAction = getPrimaryAction();
+  const backButton =
+    previousStep != null ? (
+      <Button variant="outline" className="gap-2" onClick={() => onSelect(previousStep.id)}>
+        <ArrowLeftIcon size={14} />
+        {previousStep.label}
+      </Button>
+    ) : (
+      <span />
+    );
 
+  // The variables step forks in the body (the "You're set" card); the footer is
+  // just the back link so the two Continue affordances don't compete.
+  if (activeStep === "variables") {
+    return <div className="flex border-t border-border-dim pt-4">{backButton}</div>;
+  }
+
+  const primaryAction = getPrimaryAction();
   return (
     <div className="flex justify-between border-t border-border-dim pt-4">
-      {previousStep != null ? (
-        <Button variant="outline" className="gap-2" onClick={() => onSelect(previousStep.id)}>
-          <ArrowLeftIcon size={14} />
-          {previousStep.label}
-        </Button>
-      ) : (
-        <span />
-      )}
+      {backButton}
       <Button variant="accent" className="gap-2" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
         {primaryAction.label}
         <ArrowRightIcon size={14} />
@@ -891,32 +1191,44 @@ function ConfigStepFooter({
   function getPrimaryAction(): { label: string; onClick: () => void; disabled: boolean } {
     if (activeStep === "apps") {
       return {
-        label: "Continue to services",
-        onClick: () => onSelect("services"),
+        label: "Continue to database",
+        onClick: () => onSelect("database"),
         disabled: hasBlockingIssues,
       };
     }
-    if (activeStep === "services") {
+    if (activeStep === "database") {
       return {
         label: "Continue to variables",
         onClick: () => {
-          onAdvanceFromServices();
+          onAdvanceFromDatabase();
           onSelect("variables");
         },
         disabled: hasBlockingIssues,
       };
     }
-    if (activeStep === "variables") {
+    // The optional steps fork off variables (the back button returns there); their
+    // forward action finishes into the review screen.
+    if (activeStep === "services") {
       return {
-        label: "Continue to hooks",
+        label: "Done - review",
         onClick: () => {
-          onAdvanceFromVariables();
-          onSelect("hooks");
+          onAdvanceFromServices();
+          onSelect("review");
         },
         disabled: hasBlockingIssues,
       };
     }
-    // Hooks is the last step: one action saves the config (incl. secrets) and deploys.
+    if (activeStep === "hooks") {
+      return {
+        label: "Done - review",
+        onClick: () => {
+          onAdvanceFromHooks();
+          onSelect("review");
+        },
+        disabled: hasBlockingIssues,
+      };
+    }
+    // Review is the terminal step: one action saves the config (incl. secrets) and deploys.
     const label = isDeploying ? "Starting deploy..." : isSaving ? "Saving..." : "Save and deploy";
     return {
       label,
@@ -984,6 +1296,7 @@ function getConfigStepCompletion({
   issues,
   hooksValid,
   hooksAcknowledged,
+  databaseAcknowledged,
   servicesAcknowledged,
   variablesAcknowledged,
 }: {
@@ -991,6 +1304,7 @@ function getConfigStepCompletion({
   issues: DraftIssues;
   hooksValid: boolean;
   hooksAcknowledged: boolean;
+  databaseAcknowledged: boolean;
   servicesAcknowledged: boolean;
   variablesAcknowledged: boolean;
 }): Record<ConfigStepId, boolean> {
@@ -1002,17 +1316,24 @@ function getConfigStepCompletion({
       return requiredFieldsComplete && !hasAppFieldErrors(issues, app.id);
     }) &&
     noBlockingDocumentErrors;
-  // An empty services list is valid, but the step only reads complete once a
-  // service is configured or the user has advanced past it (acknowledgement
-  // mirrors hooks) - never before.
-  const hasConfiguredServices = draft.services.length > 0;
-  const servicesValid = draft.services.every((service) => service.name.trim() !== "" && service.recipe.trim() !== "");
-  const servicesComplete = servicesValid && (hasConfiguredServices || servicesAcknowledged) && noBlockingDocumentErrors;
+
+  const databases = draft.services.filter((service) => serviceRecipeIsDatabase(service.recipe));
+  const extras = draft.services.filter((service) => !serviceRecipeIsDatabase(service.recipe));
+  // An empty database / extra-services list is valid, but each step only reads
+  // complete once one is configured or the user has advanced past it (acknowledged).
+  const databasesValid = databases.every((service) => service.name.trim() !== "");
+  const databaseComplete = databasesValid && (databases.length > 0 || databaseAcknowledged) && noBlockingDocumentErrors;
+  const extrasValid = extras.every((service) => service.name.trim() !== "");
+  const servicesComplete = extrasValid && (extras.length > 0 || servicesAcknowledged) && noBlockingDocumentErrors;
 
   return {
     apps: appsComplete,
-    services: servicesComplete,
+    database: databaseComplete,
     variables: noBlockingDocumentErrors && variablesAcknowledged,
+    // Review is the terminal deploy screen; it is never "complete" (leaving it
+    // means the deploy has started and the flow has moved on).
+    review: false,
+    services: servicesComplete,
     // Hooks are optional: complete only once the user has advanced past the step
     // (acknowledged), even with nothing configured - never before. An invalid row
     // (missing/unknown app or missing command) keeps it incomplete regardless.

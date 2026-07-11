@@ -27,12 +27,20 @@ const probeSchema = z
         "readiness must specify exactly one of: http, exec, tcp",
     );
 
+const envVarSchema = z.object({
+    key: z.string().min(1),
+    value: z.string(),
+});
+
 export const dockerImageOptionsSchema = z.object({
     image: z.string().min(1),
     port_definition: portSchema,
     additional_ports: z.array(portSchema).default([]),
     command: z.array(z.string()).optional(),
     args: z.array(z.string()).optional(),
+    // Plain environment variables for the container (an extra service like an
+    // OTel collector or mail catcher needs a DSN, a config path, an SMTP host).
+    env: z.array(envVarSchema).default([]),
     readiness: probeSchema.optional(),
 });
 
@@ -80,6 +88,7 @@ export class DockerImageRecipe extends BaseRecipe<DockerImageOptions> {
 
         if (options.command != null) container.command = options.command;
         if (options.args != null) container.args = options.args;
+        if (options.env.length > 0) container.env = options.env.map((e) => ({ name: e.key, value: e.value }));
         if (containerPorts.length > 0) container.ports = containerPorts;
         const probe = this.buildReadinessProbe(options);
         if (probe != null) container.readinessProbe = probe;

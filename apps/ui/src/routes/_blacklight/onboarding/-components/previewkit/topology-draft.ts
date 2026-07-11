@@ -1,5 +1,6 @@
 import {
     hasConnectionToken,
+    isPreviewkitDatabaseEngine,
     PREVIEWKIT_RUNTIME_CATALOG,
     validateHookSteps,
     type Build,
@@ -15,7 +16,15 @@ import { z } from "zod";
 
 export const PRIMARY_REPO_KEY = "primary";
 
-export type ServiceRecipe = "postgres" | "redis" | "valkey" | "temporal" | "mongodb" | "upstash" | "docker-image";
+export type ServiceRecipe =
+    | "postgres"
+    | "mysql"
+    | "redis"
+    | "valkey"
+    | "temporal"
+    | "mongodb"
+    | "upstash"
+    | "docker-image";
 
 export const SERVICE_OPTIONS: Array<{
     recipe: ServiceRecipe;
@@ -27,6 +36,7 @@ export const SERVICE_OPTIONS: Array<{
     defaultPort?: number;
 }> = [
     { recipe: "postgres", label: "Postgres", defaultName: "db", version: "16", meta: "16 · 5432", defaultPort: 5432 },
+    { recipe: "mysql", label: "MySQL", defaultName: "db", version: "8", meta: "8 · 3306", defaultPort: 3306 },
     { recipe: "redis", label: "Redis", defaultName: "cache", version: "7", meta: "7 · 6379", defaultPort: 6379 },
     { recipe: "valkey", label: "Valkey", defaultName: "valkey", version: "7", meta: "7 · 6379", defaultPort: 6379 },
     { recipe: "mongodb", label: "MongoDB", defaultName: "mongo", version: "7", meta: "7 · 27017", defaultPort: 27017 },
@@ -47,16 +57,28 @@ export function serviceRecipeUsesCustomImage(recipe: ServiceRecipe): boolean {
 }
 
 /**
+ * Whether a recipe is a database engine - the ones surfaced in the onboarding
+ * Database step (postgres, mysql, mongodb, redis, valkey). Everything else
+ * (docker-image, and legacy upstash/temporal) is an "extra service". Mirrors
+ * {@link isPreviewkitDatabaseEngine} in `@autonoma/types`.
+ */
+export function serviceRecipeIsDatabase(recipe: ServiceRecipe): boolean {
+    return isPreviewkitDatabaseEngine(recipe);
+}
+
+/**
  * Whether a service recipe resolves `{{<name>.url}}` to an in-cluster
  * connection string at deploy time (postgres -> `postgresql://…`,
- * redis/valkey -> `redis://…`, mongodb -> `mongodb://…?directConnection=true`).
- * Temporal speaks gRPC with no single-scheme URL, and Upstash exposes both a
- * REST and a RESP endpoint with no single canonical URL, so only
- * `{{<name>.host}}`/`{{<name>.port}}` are offered for those. Mirrors the recipe
- * `connectionInfo.url` support in apps/previewkit.
+ * mysql -> `mysql://…`, redis/valkey -> `redis://…`,
+ * mongodb -> `mongodb://…?directConnection=true`). Temporal speaks gRPC with no
+ * single-scheme URL, and Upstash exposes both a REST and a RESP endpoint with no
+ * single canonical URL, so only `{{<name>.host}}`/`{{<name>.port}}` are offered
+ * for those. Mirrors the recipe `connectionInfo.url` support in apps/previewkit.
  */
 export function serviceRecipeSupportsUrlToken(recipe: ServiceRecipe): boolean {
-    return recipe === "postgres" || recipe === "redis" || recipe === "valkey" || recipe === "mongodb";
+    return (
+        recipe === "postgres" || recipe === "mysql" || recipe === "redis" || recipe === "valkey" || recipe === "mongodb"
+    );
 }
 
 /** Where an env/secret row came from on load, so a save can diff secret changes. */
@@ -166,11 +188,60 @@ export function emptyServiceReadinessDraft(): ServiceReadinessDraft {
     return { kind: "none", httpPath: "", port: "", execCommand: "", initialDelaySeconds: "", periodSeconds: "" };
 }
 
+/** Task frequency: run once when the database is first created, or on every deploy. */
+export type SetupTaskFrequency = "on_create" | "every_commit";
+
+/** Where a setup task runs: folded into an app's build, or its own throwaway job. */
+export type SetupTaskLocationType = "in_build" | "separate_job";
+
+/**
+ * One database setup command (schema, seed, or migration) in the editor. Compiles
+ * to a `setup_tasks` entry. `app` + `position` apply when `locationType` is
+ * `in_build`; `repo` (a dependency-repo alias, blank = the primary repo) applies
+ * when `separate_job`. `id` is a stable React key (mirrors {@link ServiceDraft}).
+ */
+export interface SetupTaskDraft {
+    id: number;
+    command: string;
+    frequency: SetupTaskFrequency;
+    locationType: SetupTaskLocationType;
+    app: string;
+    position: "before" | "after";
+    repo: string;
+}
+
+export function emptySetupTaskDraft(frequency: SetupTaskFrequency): SetupTaskDraft {
+    return {
+        id: nextDraftId(),
+        command: "",
+        frequency,
+        locationType: "separate_job",
+        app: "",
+        position: "after",
+        repo: "",
+    };
+}
+
+/** One plain environment variable of an extra (docker-image) service. */
+export interface ServiceEnvDraft {
+    id: number;
+    key: string;
+    value: string;
+}
+
+export function serviceEnvRow(key = "", value = ""): ServiceEnvDraft {
+    return { id: nextDraftId(), key, value };
+}
+
 export interface ServiceDraft {
     id: number;
     recipe: ServiceRecipe;
     name: string;
     version: string;
+    /** Guided setup tasks (database recipes only): schema, seed, migrations. */
+    setupTasks: SetupTaskDraft[];
+    /** Plain environment variables (docker-image extra services only). */
+    env: ServiceEnvDraft[];
     /** Container image for custom-image recipes (docker-image). Empty otherwise. */
     image: string;
     /** Primary container port for custom-image recipes (docker-image). Empty otherwise. */
@@ -332,6 +403,8 @@ export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: stri
         recipe,
         name: uniqueServiceName(option?.defaultName ?? recipe, existingNames),
         version: option?.version ?? "",
+        setupTasks: [],
+        env: [],
         image: "",
         port: "",
         portName: "",
@@ -407,6 +480,8 @@ export function draftFromConfig(
                           recipe,
                           name: service.name,
                           version: service.version ?? "",
+                          setupTasks: service.setup_tasks.map(setupTaskDraftFromConfig),
+                          env: serviceEnvFromOptions(service.options),
                           image: custom.image,
                           port: custom.port,
                           portName: custom.portName,
@@ -472,8 +547,33 @@ function hookDraftFromConfig(step: PreviewConfig["hooks"]["pre_deploy"][number])
     return { id: nextDraftId(), app: step.app, command: step.command };
 }
 
+function setupTaskDraftFromConfig(task: PreviewConfig["services"][number]["setup_tasks"][number]): SetupTaskDraft {
+    const base = emptySetupTaskDraft(task.frequency);
+    base.command = task.command;
+    if (task.location.type === "in_build") {
+        base.locationType = "in_build";
+        base.app = task.location.app;
+        base.position = task.location.position;
+    } else {
+        base.locationType = "separate_job";
+        base.repo = task.location.repo ?? "";
+    }
+    return base;
+}
+
+// Lenient read-back of a docker-image service's `options.env` (an array of
+// {key, value}); tolerant of malformed saved data like the other option reads.
+const readServiceEnvSchema = z.array(z.object({ key: z.string(), value: z.string() }));
+
+function serviceEnvFromOptions(options: Record<string, unknown>): ServiceEnvDraft[] {
+    const parsed = readServiceEnvSchema.safeParse(options.env);
+    if (!parsed.success) return [];
+    return parsed.data.map((entry) => serviceEnvRow(entry.key, entry.value));
+}
+
 function toServiceRecipe(recipe: string): ServiceRecipe {
     if (
+        recipe === "mysql" ||
         recipe === "redis" ||
         recipe === "valkey" ||
         recipe === "temporal" ||
@@ -518,6 +618,7 @@ const MODELED_SERVICE_OPTION_KEYS = new Set([
     "additional_ports",
     "command",
     "args",
+    "env",
     "readiness",
 ]);
 
@@ -634,6 +735,8 @@ function compileDocument(
         if (service.version.trim() !== "") compiled.version = service.version.trim();
         const options = compileServiceOptions(service);
         if (options != null) compiled.options = options;
+        const setupTasks = compileSetupTasks(service.setupTasks);
+        if (setupTasks.length > 0) compiled.setup_tasks = setupTasks;
         return compiled;
     });
 
@@ -675,9 +778,33 @@ function compileServiceOptions(service: ServiceDraft): Record<string, unknown> |
 
         const readiness = compileReadiness(service);
         if (readiness != null) options.readiness = readiness;
+
+        const env = service.env
+            .map((row) => ({ key: row.key.trim(), value: row.value }))
+            .filter((row) => row.key !== "");
+        if (env.length > 0) options.env = env;
     }
 
     return Object.keys(options).length > 0 ? options : undefined;
+}
+
+/**
+ * Compiles the database setup-task drafts into `setup_tasks` config entries,
+ * dropping rows with a blank command. `in_build` tasks carry their app +
+ * before/after position; `separate_job` tasks carry an optional repo alias (a
+ * blank repo means the primary repo, so it is omitted).
+ */
+function compileSetupTasks(tasks: SetupTaskDraft[]): Array<Record<string, unknown>> {
+    return tasks
+        .filter((task) => task.command.trim() !== "")
+        .map((task) => {
+            const location: Record<string, unknown> =
+                task.locationType === "in_build"
+                    ? { type: "in_build", app: task.app, position: task.position }
+                    : { type: "separate_job" };
+            if (task.locationType === "separate_job" && task.repo.trim() !== "") location.repo = task.repo.trim();
+            return { command: task.command.trim(), frequency: task.frequency, location };
+        });
 }
 
 /** Splits a multiline field into trimmed, non-empty lines (one argv token / port per line). */

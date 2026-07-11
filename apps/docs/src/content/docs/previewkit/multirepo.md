@@ -7,7 +7,7 @@ description: Deploy your frontend and the apps it depends on from more than one 
 
 ## The frontend
 
-Every preview has exactly one **frontend**: the app Autonoma opens in the browser to run its tests, and whose address becomes the preview's URL. It lives in the repository you open pull requests against.
+Every project has exactly one **frontend**: the app Autonoma opens in the browser to run its tests, and whose address becomes the preview's URL. It lives in the repository you open pull requests against.
 
 The frontend rarely stands alone - it calls an API, background workers, a database. Those can sit in the same repository, or in their own. Either way they deploy together, into the single preview environment for that pull request, and Previewkit wires them to each other. Think of the frontend as the root of a tree: everything else is there to support the one thing the browser opens.
 

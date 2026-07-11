@@ -1,4 +1,14 @@
-import { Badge, Button, Input, Label } from "@autonoma/blacklight";
+import {
+  Badge,
+  Button,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
@@ -41,11 +51,6 @@ export function HooksSection({ hooks, appNames, errors, onChange }: HooksSection
           skip this step or add commands to run around each deploy
         </span>
       </div>
-      <datalist id="pk-hook-app-options">
-        {appNames.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
       <div className="space-y-6 p-5">
         {HOOK_GROUPS.map((group) => (
           <HookGroupEditor
@@ -53,6 +58,7 @@ export function HooksSection({ hooks, appNames, errors, onChange }: HooksSection
             label={group.label}
             description={group.description}
             steps={hooks[group.key]}
+            appNames={appNames}
             errors={errors}
             onChange={(steps) => updateGroup(group.key, steps)}
           />
@@ -66,12 +72,14 @@ function HookGroupEditor({
   label,
   description,
   steps,
+  appNames,
   errors,
   onChange,
 }: {
   label: string;
   description: string;
   steps: HookDraft[];
+  appNames: string[];
   errors: Map<string, string[]>;
   onChange: (steps: HookDraft[]) => void;
 }) {
@@ -113,15 +121,22 @@ function HookGroupEditor({
               >
                 <div>
                   <Label htmlFor={`pk-hook-${step.id}-app`}>App</Label>
-                  <Input
-                    id={`pk-hook-${step.id}-app`}
-                    list="pk-hook-app-options"
-                    value={step.app}
-                    onChange={(event) => updateStep(step.id, { app: event.target.value })}
-                    placeholder="api"
-                    aria-invalid={appError != null}
-                    className="mt-1 font-mono"
-                  />
+                  <Select<string> value={step.app} onValueChange={(value) => updateStep(step.id, { app: value ?? "" })}>
+                    <SelectTrigger
+                      id={`pk-hook-${step.id}-app`}
+                      aria-invalid={appError != null}
+                      className="mt-1 w-full font-mono"
+                    >
+                      <SelectValue placeholder="Pick an app" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {appNames.map((name) => (
+                        <SelectItem key={name} value={name} className="font-mono">
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {appError != null ? <p className="mt-1 text-2xs text-status-critical">{appError}</p> : undefined}
                 </div>
                 <div>

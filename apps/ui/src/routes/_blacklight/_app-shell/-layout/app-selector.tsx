@@ -129,6 +129,7 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
                   focusApp: undefined,
                   focusField: undefined,
                   focusSection: undefined,
+                  configStep: undefined,
                 },
               });
             }}

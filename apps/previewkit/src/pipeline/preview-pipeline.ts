@@ -708,6 +708,18 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
         });
 
+        // Database setup (schema, seed, migrations) runs now that the database
+        // services are up and before the apps boot, so an app never starts
+        // against an unmigrated database.
+        await this.runDatabaseSetupTasks(
+            mergedConfig,
+            infraResult.namespace,
+            repoFullName,
+            prNumber,
+            imageTags,
+            addonOutputs,
+        );
+
         await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "pre-deploy-hooks");
         logger.info("Deploy step 2/7 running pre-deploy hooks", {
             repo: repoFullName,
@@ -1729,6 +1741,113 @@ export class PreviewPipeline {
         logger.info("Finished running post-deploy hooks", { namespace: result.namespace, hooks: runnable.length });
     }
 
+    /**
+     * Runs each service's database setup tasks (schema, seed, migrations) after
+     * the database services are up and before the apps deploy. Tasks run as
+     * one-off Jobs with the repo checked out - the same Job runner as deploy
+     * hooks, from a built app image that carries the repo. `on_create` tasks run
+     * once per database lifetime (gated by a namespace marker ConfigMap);
+     * `every_commit` tasks run on every deploy. A failing task aborts the deploy,
+     * like a pre-deploy hook, so an app never boots against a half-set-up database.
+     */
+    private async runDatabaseSetupTasks(
+        config: PreviewConfig,
+        namespace: string,
+        repoFullName: string,
+        prNumber: number,
+        imageTags: Record<string, string>,
+        addonOutputs: AddonOutputs,
+    ): Promise<void> {
+        const servicesWithTasks = config.services.filter((s) => s.setup_tasks.length > 0);
+        if (servicesWithTasks.length === 0) return;
+
+        for (const service of servicesWithTasks) {
+            const setupHasRun = await this.deployer.databaseSetupHasRun(namespace, service.name);
+            const tasks = setupHasRun
+                ? service.setup_tasks.filter((task) => task.frequency === "every_commit")
+                : service.setup_tasks;
+            const hasOnCreateTasks = service.setup_tasks.some((task) => task.frequency === "on_create");
+            logger.info("Running database setup tasks", {
+                namespace,
+                service: service.name,
+                tasks: tasks.length,
+                onCreateAlreadyRan: setupHasRun,
+            });
+            for (const task of tasks) {
+                await this.runSetupTaskStep(
+                    task,
+                    service.name,
+                    config,
+                    namespace,
+                    repoFullName,
+                    prNumber,
+                    imageTags,
+                    addonOutputs,
+                );
+            }
+            // Mark the database's one-time setup done once its on_create tasks have
+            // succeeded (they throw on failure above, so a failed run re-runs next
+            // deploy). The marker is per-database, not per-task: it gates EVERY
+            // on_create task for the database's lifetime (the PVC persists across a
+            // PR's redeploys), so editing or adding an on_create task after this
+            // point does not re-run it - the database already counts as created.
+            // every_commit tasks are unaffected and run on every deploy.
+            if (!setupHasRun && hasOnCreateTasks) {
+                await this.deployer.markDatabaseSetupComplete(namespace, service.name);
+            }
+        }
+    }
+
+    private async runSetupTaskStep(
+        task: PreviewConfig["services"][number]["setup_tasks"][number],
+        serviceName: string,
+        config: PreviewConfig,
+        namespace: string,
+        repoFullName: string,
+        prNumber: number,
+        imageTags: Record<string, string>,
+        addonOutputs: AddonOutputs,
+    ): Promise<void> {
+        const appName = resolveSetupTaskApp(task, config);
+        if (appName == null) {
+            throw new Error(`Database setup task for "${serviceName}" has no app to run in`);
+        }
+        const imageTag = imageTags[appName];
+        if (imageTag == null) {
+            throw new Error(
+                `Database setup task for "${serviceName}" runs in app "${appName}" which has no built image - did the build fail?`,
+            );
+        }
+        const appConfig = config.apps.find((a) => a.name === appName);
+        if (appConfig == null) {
+            throw new Error(`Database setup task references unknown app "${appName}"`);
+        }
+        const org = repoFullName.split("/")[0]!.toLowerCase();
+        const context = { pr: String(prNumber), namespace, owner: org };
+        const publicUrlInfo: PublicUrlInfo = {
+            domain: config.domain ?? this.deployer.getDomain(),
+            repoFullName,
+            secret: this.deployer.getSecret(),
+            prNumber,
+        };
+        const resolvedEnv = this.deployer
+            .getEnvInjector()
+            .resolveConnections(
+                appConfig.connections,
+                config.apps,
+                config.services,
+                namespace,
+                context,
+                publicUrlInfo,
+                addonOutputs,
+            );
+        this.appendHookLog(namespace, appName, `$ [db-setup ${serviceName}] ${task.command}`);
+        const kc = this.deployer.getKubeConfig();
+        await runHookJob(kc, namespace, appName, imageTag, task.command, resolvedEnv, {
+            onLog: (line) => this.appendHookLog(namespace, appName, line),
+        });
+    }
+
     /** Builds the PR comment payload from the flat deploy result. */
     private async buildResultPayload(prNumber: number, headSha: string, result: DeployPreviewEnvironmentOutput) {
         const services = result.services.map((service) => ({
@@ -1781,4 +1900,19 @@ async function recordSafe(fn: () => Promise<void>): Promise<void> {
     } catch (err) {
         logger.error("Failed to record Previewkit DB event", err);
     }
+}
+
+/**
+ * Picks the built app image a database setup task runs in - it carries the
+ * repo checkout the task's command needs. An `in_build` task names its app
+ * directly; a `separate_job` task runs in the primary app's image (the primary
+ * repo's checkout). Returns undefined only when the config has no apps.
+ */
+function resolveSetupTaskApp(
+    task: PreviewConfig["services"][number]["setup_tasks"][number],
+    config: PreviewConfig,
+): string | undefined {
+    if (task.location.type === "in_build") return task.location.app;
+    const primary = config.apps.find((app) => app.primary === true) ?? config.apps[0];
+    return primary?.name;
 }

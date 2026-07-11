@@ -1,31 +1,24 @@
-import { Button } from "@autonoma/blacklight";
+import { CubeIcon } from "@phosphor-icons/react/Cube";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { ServiceCard } from "./service-card";
-import { SERVICE_OPTIONS, serviceDraftForRecipe, type ServiceDraft, type ServiceRecipe } from "./topology-draft";
+import { serviceDraftForRecipe, type ServiceDraft } from "./topology-draft";
 
 interface ServicesSectionProps {
   services: ServiceDraft[];
+  /** All service names in the topology, so a freshly-added service gets a unique name. */
+  existingNames: string[];
   onChange: (services: ServiceDraft[]) => void;
 }
 
 /**
- * Managed services come from the recipe catalog (not from repos), so they are a
- * separate section from deployable apps: no entrypoints, just recipe + version.
- *
- * The catalog backend allows any number of services per recipe (constrained only
- * by unique names), so the picker is an "add" palette plus a flat list of
- * configured instances - each independently editable and removable - rather than
- * a one-toggle-per-recipe grid.
+ * Extra services are arbitrary Docker images that aren't databases - Sentry, an
+ * OTel collector, an nginx, a mail catcher. Databases live in their own step, so
+ * this palette only offers a custom Docker image, added via one big square
+ * button.
  */
-export function ServicesSection({ services, onChange }: ServicesSectionProps) {
-  function addService(recipe: ServiceRecipe) {
-    onChange([
-      ...services,
-      serviceDraftForRecipe(
-        recipe,
-        services.map((service) => service.name),
-      ),
-    ]);
+export function ServicesSection({ services, existingNames, onChange }: ServicesSectionProps) {
+  function addService() {
+    onChange([...services, serviceDraftForRecipe("docker-image", existingNames)]);
   }
 
   function removeService(id: number) {
@@ -37,39 +30,46 @@ export function ServicesSection({ services, onChange }: ServicesSectionProps) {
   }
 
   return (
-    <section className="border border-border-dim bg-surface-base">
-      <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
-        <h3 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Managed services</h3>
-        <span className="font-mono text-2xs text-text-secondary">from the recipe catalog</span>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="flex items-center gap-2 font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
+          Extra services
+          <span className="border border-border-mid px-1.5 py-0.5 font-mono text-4xs uppercase tracking-widest text-text-secondary">
+            Optional
+          </span>
+        </span>
+        <span className="text-sm text-text-secondary">
+          Extra Docker images that aren't databases - Sentry, OTel, nginx, a mail catcher.
+        </span>
       </div>
-      <div className="flex flex-wrap gap-2 border-b border-border-dim p-4">
-        {SERVICE_OPTIONS.map((option) => (
-          <Button
-            key={option.recipe}
-            type="button"
-            variant="outline"
-            size="xs"
-            onClick={() => addService(option.recipe)}
-          >
-            <PlusIcon size={12} weight="bold" />
-            {option.label}
-          </Button>
-        ))}
-      </div>
-      <div className="grid gap-3 p-5">
-        {services.length === 0 ? (
-          <p className="text-sm text-text-secondary">No managed services yet. Add one from the catalog above.</p>
-        ) : (
-          services.map((service) => (
-            <ServiceCard
-              key={service.id}
-              service={service}
-              onUpdate={(patch) => updateService(service.id, patch)}
-              onRemove={() => removeService(service.id)}
-            />
-          ))
-        )}
-      </div>
-    </section>
+
+      {services.map((service) => (
+        <ServiceCard
+          key={service.id}
+          service={service}
+          onUpdate={(patch) => updateService(service.id, patch)}
+          onRemove={() => removeService(service.id)}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={addService}
+        className="group flex w-full max-w-xs items-center gap-3 border border-dashed border-border-mid bg-surface-base p-4 text-left transition-colors hover:border-primary-ink/60 hover:bg-accent-dim"
+      >
+        <span className="flex size-10 items-center justify-center border border-border-mid text-text-secondary transition-colors group-hover:border-primary-ink group-hover:text-primary-ink">
+          <CubeIcon size={20} />
+        </span>
+        <span className="flex flex-col gap-0.5">
+          <span className="font-mono text-2xs font-bold uppercase tracking-widest text-text-primary">Add service</span>
+          <span className="text-2xs text-text-secondary">Custom Docker image</span>
+        </span>
+        <PlusIcon
+          size={16}
+          weight="bold"
+          className="ml-auto text-text-secondary transition-colors group-hover:text-primary-ink"
+        />
+      </button>
+    </div>
   );
 }

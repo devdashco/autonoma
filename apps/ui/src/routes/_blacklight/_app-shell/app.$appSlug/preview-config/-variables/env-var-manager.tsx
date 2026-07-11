@@ -132,15 +132,8 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
       <InjectedBlock vars={injected} />
 
       {variables.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 border border-border-dim px-6 py-14 text-center">
+        <div className="flex items-center justify-center border border-border-dim px-6 py-14 text-center">
           <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">No variables yet</p>
-          <div className="flex items-center gap-2">
-            <PasteEnvDialog onImport={importDotenv} />
-            <Button variant="cta" size="sm" className="gap-1" onClick={addVariable}>
-              <PlusIcon size={12} weight="bold" />
-              Add variable
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="grid border border-border-dim sm:grid-cols-[18rem_minmax(0,1fr)] sm:items-start">

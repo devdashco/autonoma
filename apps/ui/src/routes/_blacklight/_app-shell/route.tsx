@@ -56,6 +56,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
         focusApp: undefined,
         focusField: undefined,
         focusSection: undefined,
+        configStep: undefined,
       },
     });
   }

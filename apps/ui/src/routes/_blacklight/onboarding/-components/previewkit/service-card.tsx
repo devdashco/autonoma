@@ -9,12 +9,16 @@ import {
   SelectValue,
   Textarea,
 } from "@autonoma/blacklight";
-import { DatabaseIcon } from "@phosphor-icons/react/Database";
+import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { StackIcon } from "@phosphor-icons/react/Stack";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
+import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
 import {
   SERVICE_OPTIONS,
+  serviceEnvRow,
   serviceRecipeUsesCustomImage,
   type ServiceDraft,
+  type ServiceEnvDraft,
   type ServiceReadinessDraft,
   type ServiceReadinessKind,
 } from "./topology-draft";
@@ -33,7 +37,7 @@ export function ServiceCard({ service, onUpdate, onRemove }: ServiceCardProps) {
   return (
     <div className="border border-border-dim">
       <div className="flex items-center gap-3 border-b border-border-dim bg-surface-raised px-4 py-3">
-        <DatabaseIcon size={18} className="text-text-secondary" />
+        <StackIcon size={18} className="text-text-secondary" />
         <span className="font-medium text-text-primary">{label}</span>
         <span className="font-mono text-2xs text-text-secondary">{option?.meta ?? service.recipe}</span>
         <Button
@@ -96,6 +100,11 @@ export function ServiceCard({ service, onUpdate, onRemove }: ServiceCardProps) {
           </div>
         )}
         {customImage ? (
+          <div className="sm:col-span-2">
+            <ServiceEnvEditor service={service} onUpdate={onUpdate} />
+          </div>
+        ) : undefined}
+        {customImage ? (
           <details className="sm:col-span-2">
             <summary className="cursor-pointer font-mono text-2xs uppercase tracking-widest text-text-secondary">
               Advanced service config
@@ -106,6 +115,102 @@ export function ServiceCard({ service, onUpdate, onRemove }: ServiceCardProps) {
           </details>
         ) : undefined}
       </div>
+    </div>
+  );
+}
+
+/** Plain key/value environment variables passed into a docker-image service's container. */
+function ServiceEnvEditor({
+  service,
+  onUpdate,
+}: {
+  service: ServiceDraft;
+  onUpdate: (patch: Partial<ServiceDraft>) => void;
+}) {
+  function updateRow(id: number, patch: Partial<ServiceEnvDraft>) {
+    onUpdate({ env: service.env.map((row) => (row.id === id ? { ...row, ...patch } : row)) });
+  }
+
+  function removeRow(id: number) {
+    onUpdate({ env: service.env.filter((row) => row.id !== id) });
+  }
+
+  function addRow() {
+    onUpdate({ env: [...service.env, serviceEnvRow()] });
+  }
+
+  // Bulk-import a pasted `.env`: named keys merge in place (new ones append),
+  // blank-key rows are left untouched so a half-typed row isn't dropped.
+  function importDotenv(entries: Array<{ key: string; value: string }>) {
+    if (entries.length === 0) return;
+    const blanks = service.env.filter((row) => row.key.trim() === "");
+    const byKey = new Map(service.env.filter((row) => row.key.trim() !== "").map((row) => [row.key.trim(), row]));
+    for (const { key, value } of entries) {
+      const trimmed = key.trim();
+      if (trimmed === "") continue;
+      const current = byKey.get(trimmed);
+      byKey.set(trimmed, current != null ? { ...current, value } : serviceEnvRow(trimmed, value));
+    }
+    onUpdate({ env: [...byKey.values(), ...blanks] });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="flex items-center gap-2 font-mono text-2xs font-bold uppercase tracking-wider text-text-secondary">
+          <span className="size-1.5 bg-primary" />
+          Environment variables
+        </p>
+        <span className="border border-border-mid px-1.5 py-0.5 font-mono text-3xs text-text-secondary">
+          {service.env.length}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <PasteEnvDialog
+            description="Add every variable at once. Each KEY=value becomes an environment variable passed to the container. Existing keys are updated."
+            onImport={importDotenv}
+          />
+          <Button variant="cta" size="sm" className="gap-1" onClick={addRow}>
+            <PlusIcon size={12} weight="bold" />
+            Add env var
+          </Button>
+        </div>
+      </div>
+
+      {service.env.length === 0 ? (
+        <div className="flex items-center justify-center border border-border-dim px-6 py-14 text-center">
+          <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">No variables yet</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {service.env.map((row) => (
+            <div key={row.id} className="grid grid-cols-[minmax(7rem,0.5fr)_minmax(10rem,1fr)_auto] items-center gap-2">
+              <Input
+                aria-label="Env var name"
+                value={row.key}
+                onChange={(event) => updateRow(row.id, { key: event.target.value })}
+                placeholder="LOG_LEVEL"
+                className="font-mono"
+              />
+              <Input
+                aria-label="Env var value"
+                value={row.value}
+                onChange={(event) => updateRow(row.id, { value: event.target.value })}
+                placeholder="info"
+                className="font-mono"
+              />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Remove env var"
+                aria-label="Remove env var"
+                onClick={() => removeRow(row.id)}
+              >
+                <TrashIcon size={14} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

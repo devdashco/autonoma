@@ -122,6 +122,7 @@ function AppSelector() {
             focusApp: undefined,
             focusField: undefined,
             focusSection: undefined,
+            configStep: undefined,
           }}
         >
           <Button variant="outline" className="gap-2" aria-label="open-create-application-dialog">

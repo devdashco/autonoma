@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { TalkToSupport } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
+import { isConfigStepId } from "lib/onboarding/config-steps";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { isOnboardingStep, type OnboardingStep } from "lib/onboarding/onboarding-steps";
 import { useDeleteApplication } from "lib/query/applications.queries";
@@ -50,7 +51,10 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     const focusApp = typeof search.focusApp === "string" ? search.focusApp : undefined;
     const focusField = typeof search.focusField === "string" ? search.focusField : undefined;
     const focusSection = readFocusSection(search.focusSection);
-    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection };
+    // The active PreviewKit config sub-step, mirrored here so the sidebar reflects it.
+    const configStep =
+      typeof search.configStep === "string" && isConfigStepId(search.configStep) ? search.configStep : undefined;
+    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection, configStep };
   },
   loader: async ({ context: { queryClient }, location }) => {
     const session = await ensureSessionData(queryClient);
@@ -145,7 +149,7 @@ function OnboardingLayout() {
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
-  const { step, appId, error, focusApp, focusField, focusSection } = Route.useSearch();
+  const { step, appId, error, focusApp, focusField, focusSection, configStep } = Route.useSearch();
   const currentStepId = resolveViewStep(step, backendStep, appId != null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -188,7 +192,13 @@ function OnboardingLayout() {
     if (currentStepId === "preview-environment") return <PreviewEnvironmentPage appId={appId} />;
     if (currentStepId === "previewkit-config")
       return (
-        <PreviewkitConfigPage appId={appId} focusApp={focusApp} focusField={focusField} focusSection={focusSection} />
+        <PreviewkitConfigPage
+          appId={appId}
+          focusApp={focusApp}
+          focusField={focusField}
+          focusSection={focusSection}
+          configStep={configStep}
+        />
       );
     if (currentStepId === "existing-deploys") return <ExistingDeploysPage appId={appId} />;
     if (currentStepId === "deploy-verify") return <PreviewDeployVerifyPage appId={appId} />;
@@ -233,7 +243,7 @@ function OnboardingLayout() {
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-secondary">New Application</h3>
-          <StepProgress currentStepId={currentStepId} />
+          <StepProgress currentStepId={currentStepId} configStep={configStep} appId={appId} />
         </div>
 
         <div className="border-t border-border-dim px-8 py-6">

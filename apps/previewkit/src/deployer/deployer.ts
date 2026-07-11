@@ -22,6 +22,11 @@ import {
     buildCentralGatekeeperRoleBinding,
 } from "./resource-factory";
 
+/** ConfigMap name marking that a database's one-time setup already ran. */
+function setupMarkerName(service: string): string {
+    return `previewkit-db-setup-${service}`;
+}
+
 /**
  * Per-app outcome of the deploy phase. Apps are deployed independently — one
  * app's failure does not abort the others.
@@ -545,6 +550,44 @@ export class Deployer {
      *  the deployer applies to runtime env. */
     getEnvInjector(): EnvInjector {
         return this.envInjector;
+    }
+
+    /**
+     * Whether a database's one-time (`on_create`) setup has already run in this
+     * namespace, tracked by a marker ConfigMap. The namespace - and the marker -
+     * is deleted on teardown, so a reopened PR's fresh database re-runs on-create
+     * setup. Redeploys of the same open PR keep the marker (and the PVC), so
+     * on-create setup runs exactly once per database lifetime.
+     */
+    async databaseSetupHasRun(namespace: string, service: string): Promise<boolean> {
+        try {
+            await this.coreApi.readNamespacedConfigMap({ namespace, name: setupMarkerName(service) });
+            return true;
+        } catch (err) {
+            if (isNotFound(err)) return false;
+            throw err;
+        }
+    }
+
+    /** Records that a database's one-time setup completed (see {@link databaseSetupHasRun}). */
+    async markDatabaseSetupComplete(namespace: string, service: string): Promise<void> {
+        const body: k8s.V1ConfigMap = {
+            apiVersion: "v1",
+            kind: "ConfigMap",
+            metadata: {
+                name: setupMarkerName(service),
+                namespace,
+                labels: { "previewkit.dev/managed-by": "previewkit", "previewkit.dev/service": service },
+            },
+            data: { service },
+        };
+        try {
+            await this.coreApi.createNamespacedConfigMap({ namespace, body });
+        } catch (err) {
+            // A racing redeploy may have created it first - the marker is what
+            // matters, not who wrote it.
+            if (!isConflict(err)) throw err;
+        }
     }
 
     async getNamespaceAnnotations(repoFullName: string, prNumber: number) {

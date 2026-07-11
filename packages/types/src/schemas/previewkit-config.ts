@@ -129,6 +129,61 @@ const hooksSchema = z
     })
     .default({ pre_deploy: [], post_deploy: [] });
 
+/**
+ * The database engines offered in the onboarding Database step. Each maps to a
+ * service recipe of the same name (see apps/previewkit `recipes/`): a database
+ * is stored as a `service` whose `recipe` is one of these, so it provisions
+ * through the same tested recipe machinery as every other service and is a
+ * `{{name.host}}` connection target for free. Valkey is its own recipe (a
+ * drop-in Redis) rather than a variant of `redis`.
+ */
+export const PREVIEWKIT_DATABASE_ENGINES = ["postgres", "mysql", "mongodb", "redis", "valkey"] as const;
+export type PreviewkitDatabaseEngine = (typeof PREVIEWKIT_DATABASE_ENGINES)[number];
+
+export function isPreviewkitDatabaseEngine(recipe: string): recipe is PreviewkitDatabaseEngine {
+    const engines: readonly string[] = PREVIEWKIT_DATABASE_ENGINES;
+    return engines.includes(recipe);
+}
+
+/**
+ * Where a database setup task runs. The repo is always checked out so the task
+ * can read files that live in the repo (a `db/schema.sql`, a `migrate` script)
+ * rather than in the production database image.
+ * - `in_build`: rides an app's build container - the repo is already checked
+ *   out there and the build output is available - running before or after that
+ *   app's build step.
+ * - `separate_job`: its own throwaway container with a fresh checkout of the
+ *   chosen repo (`repo` names a connected repo from `config.multirepo.repos`;
+ *   absent = the primary repo), independent of any app build.
+ *
+ * NOTE: the runner does not yet honor `type` / `position` / `repo` - every task
+ * currently runs as a standalone job from the primary app's image between infra
+ * and app deploy. These fields are persisted for when that wiring lands.
+ */
+const databaseSetupLocationSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("in_build"),
+        app: z.string().min(1, "an app is required for an in-build task"),
+        position: z.enum(["before", "after"]),
+    }),
+    z.object({
+        type: z.literal("separate_job"),
+        repo: z.string().optional(),
+    }),
+]);
+
+/**
+ * A single database setup command (schema creation, seed data, or a migration).
+ * `frequency` separates one-time setup (`on_create`, e.g. table creation and
+ * initial seed) from per-deploy setup (`every_commit`, e.g. migrations). Runs
+ * with the repo checked out; see {@link databaseSetupLocationSchema} for where.
+ */
+const databaseSetupTaskSchema = z.object({
+    command: z.string(),
+    frequency: z.enum(["on_create", "every_commit"]),
+    location: databaseSetupLocationSchema,
+});
+
 // `build` selects an app's build strategy, discriminated on `framework`:
 // - node / bun / next / vite: previewkit generates a Dockerfile from the
 //   install / build / run commands (defaulted from the framework + package
@@ -281,10 +336,12 @@ function buildPreviewConfigSchema(allowCustomResources: boolean) {
         name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
         recipe: z.string(),
         version: z.string().optional(),
-        // Recipe-functional knobs (e.g. postgres user/database) live in `options`,
-        // validated per-recipe. There is no free-text service env: it was an
-        // unbounded plaintext bag, so it was removed.
+        // Recipe-functional knobs (e.g. postgres user/database, or a docker-image
+        // service's image/ports/env) live in `options`, validated per-recipe.
         options: z.record(z.string(), z.unknown()).default({}),
+        // Guided setup for database-recipe services (schema, seed, migrations),
+        // run with the repo checked out. Empty for non-database services.
+        setup_tasks: z.array(databaseSetupTaskSchema).default([]),
         resources: buildResourcesSchema("service", allowCustomResources),
         s3: z.boolean().optional(),
         sqs: z.boolean().optional(),
@@ -409,6 +466,9 @@ export type ConfigIssueCode =
     | "duplicate_name"
     | "unknown_connection_target"
     | "duplicate_connection_key"
+    | "empty_setup_task_command"
+    | "unknown_setup_task_app"
+    | "unknown_setup_task_repo"
     | "path_not_found"
     | "dockerfile_not_found";
 
@@ -516,9 +576,58 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
         }
     }
 
+    const repoNames = new Set((config.config?.multirepo?.repos ?? []).map((repo) => repo.name));
+    config.services.forEach((service, serviceIndex) => {
+        issues.push(...validateSetupTasks(service.setup_tasks, appNames, repoNames, serviceIndex));
+    });
+
     issues.push(...validateHookSteps(config.hooks.pre_deploy, appNames, "pre_deploy"));
     issues.push(...validateHookSteps(config.hooks.post_deploy, appNames, "post_deploy"));
 
+    return issues;
+}
+
+/**
+ * Validates one service's database setup tasks. A task is invalid when it has no
+ * command, an `in_build` task names an app that isn't declared, or a
+ * `separate_job` task names a connected repo that isn't declared in
+ * `config.multirepo.repos`. Shared by the semantic validator and the dashboard's
+ * database editor so client and server apply the same rules.
+ */
+export function validateSetupTasks(
+    tasks: ReadonlyArray<z.infer<typeof databaseSetupTaskSchema>>,
+    appNames: ReadonlySet<string>,
+    repoNames: ReadonlySet<string>,
+    serviceIndex: number,
+): ConfigIssue[] {
+    const issues: ConfigIssue[] = [];
+    tasks.forEach((task, index) => {
+        const base = ["services", serviceIndex, "setup_tasks", index];
+        if (task.command.trim() === "") {
+            issues.push({
+                severity: "error",
+                code: "empty_setup_task_command",
+                path: [...base, "command"],
+                message: "Setup task is missing a command",
+            });
+        }
+        if (task.location.type === "in_build" && !appNames.has(task.location.app)) {
+            issues.push({
+                severity: "error",
+                code: "unknown_setup_task_app",
+                path: [...base, "location", "app"],
+                message: `Setup task references unknown app "${task.location.app}"`,
+            });
+        }
+        if (task.location.type === "separate_job" && task.location.repo != null && !repoNames.has(task.location.repo)) {
+            issues.push({
+                severity: "error",
+                code: "unknown_setup_task_repo",
+                path: [...base, "location", "repo"],
+                message: `Setup task references unknown repository "${task.location.repo}"`,
+            });
+        }
+    });
     return issues;
 }
 
@@ -580,6 +689,8 @@ function standardResources(role: PreviewResourceRole): ContainerResources {
 export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConfig["services"][number], "options"> & {
     options: TOptions;
 };
+export type DatabaseSetupTask = z.infer<typeof databaseSetupTaskSchema>;
+export type DatabaseSetupLocation = z.infer<typeof databaseSetupLocationSchema>;
 export type AddonConfig = z.infer<typeof addonSchema>;
 export type BranchConvention = z.infer<typeof branchConventionSchema>;
 export type RepoDependency = z.infer<typeof repoDependencySchema>;

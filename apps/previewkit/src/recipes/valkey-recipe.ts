@@ -16,6 +16,7 @@ export class ValkeyRecipe extends BaseRecipe<DockerImageOptions> {
             image: `valkey/valkey:${version}`,
             port_definition: { port: PORT },
             additional_ports: [],
+            env: [],
             readiness: {
                 exec: { command: ["valkey-cli", "ping"] },
                 initial_delay_seconds: 3,

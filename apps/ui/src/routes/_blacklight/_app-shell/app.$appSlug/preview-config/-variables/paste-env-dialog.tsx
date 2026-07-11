@@ -10,12 +10,14 @@ import {
   DialogTitle,
   Textarea,
 } from "@autonoma/blacklight";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { parseDotenv } from "../../../../onboarding/-components/previewkit/topology-draft";
 
 interface PasteEnvDialogProps {
   /** Receives the parsed `KEY=value` pairs; the manager merges them into the app. */
   onImport: (entries: Array<{ key: string; value: string }>) => void;
+  /** Overrides the dialog copy (services have plain env vars, not secrets/connections). */
+  description?: ReactNode;
 }
 
 /**
@@ -23,7 +25,7 @@ interface PasteEnvDialogProps {
  * time. Parses live so the count updates as the user pastes; the manager decides
  * secret-vs-connection and merges (see `envRowsFromDotenv`).
  */
-export function PasteEnvDialog({ onImport }: PasteEnvDialogProps) {
+export function PasteEnvDialog({ onImport, description }: PasteEnvDialogProps) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const entries = parseDotenv(text);
@@ -46,9 +48,13 @@ export function PasteEnvDialog({ onImport }: PasteEnvDialogProps) {
           <DialogHeader>
             <DialogTitle>Paste a .env file</DialogTitle>
             <DialogDescription>
-              Add every variable at once. Each <span className="font-mono">KEY=value</span> becomes a secret; a value
-              with a <span className="font-mono">{"{{name.property}}"}</span> token becomes a connection. Existing keys
-              are updated. Values are stored encrypted.
+              {description ?? (
+                <>
+                  Add every variable at once. Each <span className="font-mono">KEY=value</span> becomes a secret; a
+                  value with a <span className="font-mono">{"{{name.property}}"}</span> token becomes a connection.
+                  Existing keys are updated. Values are stored encrypted.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogBody>

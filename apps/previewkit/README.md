@@ -148,10 +148,21 @@ Every runtime is a Debian-family (`apt`) image, so the generator installs one co
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `name` | Yes | | Name used in `{{name.host}}` templates |
-| `recipe` | Yes | | One of: `postgres`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `api-gateway`, `docker-image` |
+| `recipe` | Yes | | One of: `postgres`, `mysql`, `redis`, `valkey`, `temporal`, `mongodb`, `upstash`, `api-gateway`, `docker-image` |
 | `version` | No | | Image tag (e.g. `"16"` for `postgres:16`) |
-| `options` | No | `{}` | Recipe-specific options (e.g. postgres `user` / `database`, `docker-image`'s `image` / `port` / `readiness`) |
+| `options` | No | `{}` | Recipe-specific options (e.g. postgres `user` / `database`, `docker-image`'s `image` / `port` / `readiness` / `env`) |
+| `setup_tasks` | No | `[]` | Lifecycle commands the service needs (e.g. migrations, seeds). See below. |
 | `resources` | No | | **Ignored for user-authored config** (see app fields). Service containers request 100m CPU / 256Mi memory with a 1Gi memory limit. |
+
+**Setup tasks** (`setup_tasks[]`) let a database or service run bootstrap commands (migrations, seeds) at deploy time. Each task:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `command` | Yes | The bash command to run |
+| `frequency` | Yes | `on_create` (once when the preview is first created) or `every_commit` (on every deploy) |
+| `location` | Yes | Discriminated on `type`. `{ type: "in_build", app, position }` (`position`: `before` / `after` the named app's build) or `{ type: "separate_job", repo? }` (`repo` names a connected repo; absent = the primary repo) |
+
+**Current behavior:** every setup task runs as a standalone one-off Kubernetes Job between the infra-deploy and app-deploy steps, from the primary app's built image. The `location.type`, `location.position`, and `location.repo` fields are persisted but not yet honored - build-phase ordering and per-repo checkout are on the roadmap.
 
 ### Connections
 
@@ -449,6 +460,7 @@ services:
 | `port` | No | Primary container port. Omit for workers / jobs that don't need a Service |
 | `command` | No | Container `command` (entrypoint override) |
 | `args` | No | Container `args` |
+| `env` | No | Plain environment variables for the container: `[{ key, value }]` |
 | `additional_ports` | No | Extra named ports exposed by the Service: `[{ name, port }]` |
 | `readiness` | No | Exactly one of `http`, `exec`, `tcp`. Omit for instant readiness |
 

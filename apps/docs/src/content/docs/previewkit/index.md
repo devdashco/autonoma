@@ -7,13 +7,13 @@ description: Vercel-style preview environments for every pull request. Configure
 
 ![A pull request gets an isolated preview environment with its apps, database, and cache, and a live URL posted back to the PR](/img/previewkit/lifecycle.jpg)
 
-You describe your stack once - apps, the services they depend on, and their environment variables - and Previewkit handles the rest: building the containers, provisioning the supporting services, wiring environment variables, and posting the URL back to the PR.
+You describe your stack once - apps, the databases they need, and their environment variables - and Previewkit handles the rest: building the containers, provisioning the databases and extra services, running setup tasks, wiring environment variables, and posting the URL back to the PR.
 
 ## How it works
 
 Once the Previewkit GitHub App is installed on your repository, every `pull_request` event triggers the pipeline:
 
-1. **Opened / synchronized / reopened** - Previewkit fetches the head commit, builds each app, provisions service recipes (Postgres, Redis, etc.), deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
+1. **Opened / synchronized / reopened** - Previewkit fetches the head commit, builds each app, provisions the databases and extra services it needs, runs the database setup tasks, deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
 2. **Closed** - Previewkit deletes the namespace and all resources tied to that PR, then updates the comment.
 
 Each preview gets a stable, unguessable URL - a short hash derived from the service name, PR number, and repo, so the same PR always resolves to the same address. One PR may expose several apps, each with its own hostname under `preview.autonoma.app`.
@@ -22,12 +22,15 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 ## What you configure
 
-You set up your stack in the Autonoma dashboard (the Previewkit onboarding flow), which walks through four steps - **Apps**, **Services**, **Env vars and secrets**, and **Hooks** - and saves the configuration for your repository. It declares:
+You set up your stack in the Autonoma dashboard (the Previewkit onboarding flow), which saves the configuration for your repository. The flow has three required steps - **Apps**, **Databases**, and **Variables** - plus two optional pieces most projects never need. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL) - see [Apps and builds](/previewkit/apps/)
-- **Services** the apps depend on (databases, caches, etc.), picked from a curated catalog of recipes
-- **Environment variables and secrets** for each app and service, with templates that resolve service hostnames at deploy time and a per-row toggle to mark a value as a secret
-- **Hooks** that run after deploy (typical use: database migrations)
+- **Databases** the apps need (Postgres, MySQL, MongoDB, Redis / Valkey), each with guided setup for schema, seed data, and migrations - see [Databases](/previewkit/databases/)
+- **Variables** - environment variables and secrets for each app and database, with templates that resolve hostnames at deploy time and a per-row toggle to mark a value as a secret
+- **Extra services** (optional) - non-database Docker images like Sentry or an OTel collector - see [Extra services](/previewkit/services/)
+- **Lifecycle hooks** (optional) - commands that run around each deploy - see [Lifecycle hooks](/previewkit/hooks/)
+
+Extra services and lifecycle hooks sit off the main path: the flow finishes at Variables, and you reach them only if your setup needs them.
 
 ## How apps are built
 
@@ -40,10 +43,13 @@ Either way, images are pushed to a private registry and pulled by the preview cl
 
 ## Secrets
 
-Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the per-row toggle in the onboarding **Env vars and secrets** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Previewkit also injects a few [built-in environment variables](/previewkit/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/previewkit/secrets/).
+Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the per-row toggle in the onboarding **Variables** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Previewkit also injects a few [built-in environment variables](/previewkit/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/previewkit/secrets/).
 
 ## What's next
 
 - [Apps and builds](/previewkit/apps/) - build methods, runtimes, and per-app settings
+- [Databases](/previewkit/databases/) - engines, guided setup tasks, and where they run
+- [Extra services](/previewkit/services/) - non-database side containers
+- [Lifecycle hooks](/previewkit/hooks/) - commands that run around each deploy
 - [Multiple repositories](/previewkit/multirepo/) - pull apps from more than one repository
 - [Manage secrets](/previewkit/secrets/) - REST API reference

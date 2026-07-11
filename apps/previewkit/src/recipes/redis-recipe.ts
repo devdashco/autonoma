@@ -16,6 +16,7 @@ export class RedisRecipe extends BaseRecipe<DockerImageOptions> {
             image: `redis:${version}`,
             port_definition: { port: PORT },
             additional_ports: [],
+            env: [],
             readiness: {
                 exec: { command: ["redis-cli", "ping"] },
                 initial_delay_seconds: 3,

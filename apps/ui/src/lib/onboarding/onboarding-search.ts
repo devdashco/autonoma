@@ -1,3 +1,4 @@
+import type { ConfigStepId } from "./config-steps";
 import type { OnboardingStep } from "./onboarding-steps";
 
 type FocusSection = "config" | "secrets" | "logs";
@@ -9,6 +10,8 @@ interface OnboardingSearchOverrides {
     focusApp?: string;
     focusField?: string;
     focusSection?: FocusSection;
+    /** Active sub-step of the PreviewKit config step, so the sidebar can reflect it. */
+    configStep?: ConfigStepId;
 }
 
 /**
@@ -26,5 +29,6 @@ export function buildOnboardingSearch(step: OnboardingStep, appId?: string, over
         focusApp: overrides.focusApp,
         focusField: overrides.focusField,
         focusSection: overrides.focusSection,
+        configStep: overrides.configStep,
     };
 }

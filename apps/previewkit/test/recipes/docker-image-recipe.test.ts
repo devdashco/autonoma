@@ -50,6 +50,30 @@ describe("DockerImageRecipe", () => {
         expect(result.services[0]?.spec?.ports).toEqual([{ name: "grpc", port: 7233, targetPort: 7233 }]);
     });
 
+    it("renders environment variables into the container", () => {
+        const config = baseService({
+            options: {
+                image: "otel/opentelemetry-collector:latest",
+                port_definition: { port: 4317 },
+                env: [
+                    { key: "OTEL_LOG_LEVEL", value: "debug" },
+                    { key: "CONFIG_PATH", value: "/etc/otel.yaml" },
+                ],
+            },
+        });
+        const container = recipe.generate(config, "ns").deployments[0]?.spec?.template?.spec?.containers?.[0];
+        expect(container?.env).toEqual([
+            { name: "OTEL_LOG_LEVEL", value: "debug" },
+            { name: "CONFIG_PATH", value: "/etc/otel.yaml" },
+        ]);
+    });
+
+    it("omits container env when no environment variables are set", () => {
+        const config = baseService({ options: { image: "x:1", port_definition: { port: 8080 } } });
+        const container = recipe.generate(config, "ns").deployments[0]?.spec?.template?.spec?.containers?.[0];
+        expect(container?.env).toBeUndefined();
+    });
+
     it("connectionInfo returns host and port", () => {
         const config = baseService({ options: { image: "x:1", port_definition: { port: 8080 } } });
         expect(recipe.connectionInfo(config)).toEqual({ host: "svc", port: 8080 });
@@ -149,6 +173,7 @@ describe("DockerImageRecipe", () => {
                 image: "x:1",
                 port_definition: { port: 9000 },
                 additional_ports: [],
+                env: [],
             },
         };
         const result = recipe.typedGenerate(config, "ns");
