@@ -221,8 +221,15 @@ function RepoAndNameStep({ appId, settingsUrl }: { appId?: string; settingsUrl?:
       ? { id: selectedRepoLinkedToOtherApp.applicationId, name: selectedRepoLinkedToOtherApp.applicationName }
       : undefined;
   const slug = toSlug(name.trim());
-  const isNameTaken = conflictError || (slug.length > 0 && applications.some((app) => app.slug === slug));
   const isBusy = createApp.isPending || linkRepository.isPending || completeGithub.isPending;
+  // Once we start creating the app, stop running the client-side "name already
+  // exists" pre-check: on success the applications list refetches and now holds
+  // the app we just created, which would otherwise flash a false "already exists"
+  // error while we navigate to the next step. `conflictError` (a real server
+  // CONFLICT) still surfaces.
+  const submitting = isBusy || createApp.isSuccess;
+  const nameCollidesWithExisting = slug.length > 0 && applications.some((app) => app.slug === slug);
+  const isNameTaken = conflictError || (!submitting && nameCollidesWithExisting);
 
   function selectRepo(repoId: number | undefined) {
     setSelectedRepoId(repoId);
