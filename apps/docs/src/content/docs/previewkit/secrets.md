@@ -1,11 +1,38 @@
 ---
 title: Secrets
-description: How to manage credentials, API keys, and other sensitive values for your Previewkit environments.
+description: How to give your preview apps the credentials they need - API keys, database URLs, tokens - without committing them, and how the platform stores and injects them.
 ---
 
-Anything you wouldn't commit to your repo - API keys, database URLs, signed tokens - should not live in your stack configuration. Manage it through the autonoma API instead. Every key you upload is mounted into your running app as an environment variable; your code just reads `process.env.STRIPE_API_KEY` and gets the value.
+<p class="lead">A secret is any value you wouldn't commit to your repo - a Stripe key, a database URL, a signed token. You set it once, the platform stores it encrypted, and every preview deploy mounts it into your app as an environment variable. Your code just reads <code>process.env.STRIPE_API_KEY</code> and gets the value.</p>
 
-## Managing secrets
+![Set a secret in the config UI or via the API, it is stored encrypted in AWS Secrets Manager, then mounted as an environment variable into every preview of that app](/img/previewkit/secret-flow.jpg)
+
+## Two ways to set a secret
+
+- **In the config UI (most common).** The **Variables** step of preview setup lets you add each key and value inline. This is the right place for a one-off, or when you're setting things up by hand for the first time.
+- **From the API (for CI / automation).** Script it when you have many keys, or rotate them from a pipeline. See [Managing secrets from the API](#managing-secrets-from-the-api) below.
+
+Both routes write to the same encrypted store, so a value set in the UI is visible to the API and vice versa. The value lives in AWS Secrets Manager - never in your config, never in your repo - and is only ever readable by your own organization. Updates take effect on the next preview deploy for that app.
+
+## Secret, connection, or config value?
+
+Not everything your app reads from `process.env` is a secret. Picking the right home is the thing people get wrong most often, so start here:
+
+![Decision flow: a sensitive value becomes a Secret, the address of another app or service becomes a Connection, a non-sensitive per-environment value goes in config env, and a value needed during the build becomes a build secret](/img/previewkit/what-goes-where.jpg)
+
+| Value | Where it goes | Why |
+| --- | --- | --- |
+| Sensitive - API keys, database URLs, signed tokens | **Secret** (UI Variables step or API) | Stored encrypted, never in the repo or config. |
+| The address of another app/service in the same preview (`{{db.host}}`, `{{api.url}}`) | **Connection** - a templated value in the Variables step | The platform resolves the real in-cluster address at deploy time. Nothing to upload. |
+| Non-sensitive value that varies per environment (`PLAID_ENV=sandbox`) | **Config `env`** | Pinned alongside the rest of the config. Nothing to upload. |
+| A value baked into a client bundle at build time (`NEXT_PUBLIC_*`, `VITE_*`) | **Secret + `build_secrets`** | Must be present *during* the build, not just at runtime. See [Build-time secrets](#build-time-secrets-build_secrets). |
+| PR / owner / namespace metadata (`{{pr}}`, `AUTONOMA_PREVIEWKIT_PR`) | Injected automatically | Reserved built-ins. See [Built-in environment variables](#built-in-environment-variables). |
+
+When in doubt, if the value is sensitive, make it a **Secret**. You only need `build_secrets` when a value must exist *during* the build (the client-bundle case).
+
+## Managing secrets from the API
+
+Automate secrets from CI with four endpoints:
 
 ```
 GET    /v1/previewkit/secrets/:applicationId/:app                # list keys (no values)
@@ -46,8 +73,6 @@ curl -X DELETE "https://api.autonoma.app/v1/previewkit/secrets/app_abc123/web/ST
 
 Calls without a valid Bearer token get a 401. Calls referencing an `applicationId` your key doesn't have access to are indistinguishable from "no secrets yet" - the API never reveals whether a foreign application exists.
 
-Updates take effect on the next preview deploy for that app.
-
 ## Build-time secrets (`build_secrets`)
 
 `NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in an app's `build_secrets` and Previewkit will pass them to your builder:
@@ -62,7 +87,7 @@ apps:
       - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ```
 
-Each name must already be a key you've uploaded via the API. The build fails fast with a clear error if a listed key isn't there.
+Each name must already be a key you've uploaded (via the UI or the API). The build fails fast with a clear error if a listed key isn't there.
 
 Server-only secrets (those your running pod reads via `process.env`) do NOT need to be in `build_secrets` - the runtime mount already covers them. Listing them anyway is harmless but verbose.
 
@@ -87,7 +112,7 @@ Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the
 Previewkit injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved, so the API rejects any secret you try to set with one of these keys.
 
 | Variable | Value | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `AUTONOMA_PREVIEWKIT` | `true` | Always set inside a preview. Use it to detect the environment. |
 | `AUTONOMA_PREVIEWKIT_PR` | `123` | The pull request number this preview was built from. |
 | `AUTONOMA_PREVIEWKIT_URL` | `https://<code>.preview.autonoma.app` | The public HTTPS URL of this app in the preview. In a multi-app preview, each app gets its own URL. |
@@ -105,17 +130,3 @@ Sentry.init({
     : "production",
 });
 ```
-
-## What goes where
-
-| Value type | Where it lives |
-|---|---|
-| Third-party API keys, database URLs, signed tokens | Previewkit API |
-| `NEXT_PUBLIC_*` / `VITE_*` baked into a client bundle | Previewkit API, also listed in `build_secrets` |
-| In-cluster service URLs (`{{db.host}}`, `{{api.host}}`) | Stack config `env` - resolved automatically, no upload needed |
-| PR / owner / namespace metadata (`{{pr}}`, `{{owner}}`, `{{namespace}}`) | Stack config `env` - resolved automatically, no upload needed |
-| Behaviour switches (`PLAID_ENV=sandbox`, `SEND_EMAILS_LOCALLY=false`) | Stack config `env` - pinned alongside the rest of the configuration |
-| Anything non-sensitive that varies between environments | Stack config `env` |
-| Preview metadata (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) | Injected automatically - reserved, no upload needed |
-
-If you're unsure, default to the Previewkit API. You only need to think about `build_secrets` when a value must be present *during* the build (the client-bundle case above).

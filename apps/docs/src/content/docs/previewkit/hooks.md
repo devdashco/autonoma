@@ -5,6 +5,8 @@ description: Commands that run around each deploy of the whole preview - pre-dep
 
 <p class="lead">Lifecycle hooks are commands Previewkit runs around each deploy of the whole preview: before your apps start, and after they're ready. Most projects never need them.</p>
 
+![A preview deploy runs the pre-deploy hooks as one-off jobs, then the apps start, then the post-deploy hooks run as one-off jobs](/img/previewkit/hooks-timeline.jpg)
+
 Think of a hook as a step that belongs to the preview itself, not to any single app or database. When a preview deploys, Previewkit runs your pre-deploy hooks, brings the apps up, then runs your post-deploy hooks. Both groups are optional, and you add as many commands to each as you like.
 
 ## Pre-deploy and post-deploy

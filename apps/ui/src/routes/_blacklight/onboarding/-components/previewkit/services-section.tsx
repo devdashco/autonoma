@@ -14,9 +14,9 @@ interface ServicesSectionProps {
 }
 
 /**
- * Extra services are arbitrary Docker images that aren't databases - Sentry, an
- * OTel collector, an nginx, a mail catcher. Databases live in their own step, so
- * this palette only offers a custom Docker image, added via one big square
+ * Extra services are arbitrary Docker images that aren't databases - MinIO, a
+ * mock API server, a Mailpit inbox, an OTel collector. Databases live in their own
+ * step, so this palette only offers a custom Docker image, added via one big square
  * button.
  */
 export function ServicesSection({ services, existingNames, onChange }: ServicesSectionProps) {
@@ -42,7 +42,7 @@ export function ServicesSection({ services, existingNames, onChange }: ServicesS
           </span>
         </span>
         <span className="text-sm text-text-secondary">
-          Extra Docker images that aren't databases - Sentry, OTel, nginx, a mail catcher.{" "}
+          Extra Docker images that aren't databases - MinIO, a mock API server, a Mailpit inbox, an OTel collector.{" "}
           <a
             href={SERVICES_DOCS_URL}
             target="_blank"

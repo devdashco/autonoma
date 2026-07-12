@@ -1,9 +1,11 @@
 ---
 title: Extra services
-description: Run non-database side containers - Sentry, an OTel collector, nginx, a mail catcher - alongside your app in every preview. Optional, and only needed when your app depends on one.
+description: Run non-database side containers - MinIO, a mock API server, a Mailpit inbox, an OTel collector - alongside your app in every preview. Optional, and only needed when your app depends on one.
 ---
 
-<p class="lead">Extra services are extra Docker images that aren't databases: things like Sentry, an OpenTelemetry collector, an nginx, or a mail catcher that run alongside your app in every preview. They're optional - most projects never need one.</p>
+<p class="lead">Extra services are extra Docker images that aren't databases: things like MinIO for object storage, a mock API server, a Mailpit inbox, or an OpenTelemetry collector that run alongside your app in every preview. They're optional - most projects never need one.</p>
+
+![A preview namespace containing your app alongside extra service containers - MinIO, a mock API, and Mailpit](/img/previewkit/extra-services.jpg)
 
 This step is off the main onboarding flow. You don't have to add anything here to finish setup. Only add an extra service if your app genuinely depends on a non-database side container running next to it.
 
@@ -13,11 +15,11 @@ An extra service is any container your app needs that isn't your app and isn't a
 
 Common examples:
 
-- **Sentry** - a local error-tracking endpoint for your app to report to.
+- **MinIO** - S3-compatible object storage, so uploads and file handling work in the preview.
+- **Mock API server** (WireMock, Mockoon) - stubs a third-party API your app calls so previews don't hit the real one.
+- **Mailpit** - captures outbound email so tests can inspect it.
 - **OpenTelemetry collector** - receives traces and metrics from your app.
 - **nginx** - a reverse proxy or static file server in front of your app.
-- **Mail catcher** (MailHog) - captures outbound email so tests can inspect it.
-- **RTSP server** - a media stream your app consumes.
 
 You can add **several**. If nothing on this list resembles your setup, skip the step.
 
@@ -27,7 +29,7 @@ Each extra service is one Docker image with a few fields:
 
 | Field | What it does |
 | --- | --- |
-| **Image** | The Docker image to run, e.g. `mailhog/mailhog` or `otel/opentelemetry-collector`. |
+| **Image** | The Docker image to run, e.g. `axllent/mailpit` or `otel/opentelemetry-collector`. |
 | **Port(s)** | The port or ports the service listens on, so your app and other services can reach it. |
 | **Environment variables** | Config passed into the container. Use **Add env var** for each key/value pair the image needs. |
 

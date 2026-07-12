@@ -5,6 +5,8 @@ description: Add every database your preview needs - Postgres, MySQL, MongoDB, R
 
 <p class="lead">A database is a first-class part of every preview: pick the engines your app needs, and Previewkit runs the schema, seed, and migration steps that bring each one to life - with your repo checked out, so the files those steps depend on are actually there.</p>
 
+![On create, the database runs schema and seed steps; on every commit it runs migrations; the running preview then has the database ready](/img/previewkit/database-lifecycle.jpg)
+
 Databases are their own step in onboarding. Most apps declare at least one; many declare several. Add as many as your app needs - each gets its own card and its own setup.
 
 ## Add the databases your app needs
