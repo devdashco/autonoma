@@ -7,6 +7,13 @@ import { z } from "zod";
 import { env } from "../../env";
 import { internalProcedure, router } from "../../trpc";
 
+const ListOrganizationsInputSchema = z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().min(1).max(100),
+    query: z.string().trim().min(1).optional(),
+    organizationType: z.enum(["company", "individual"]),
+});
+
 export const adminRouter = router({
     /**
      * Returns deployment-level config admins use to deep-link into observability
@@ -89,7 +96,15 @@ export const adminRouter = router({
     previewkitEnvFactoryDown: internalProcedure
         .input(PreviewkitEnvFactoryDownInputSchema)
         .mutation(({ ctx: { services }, input }) => services.previewkitEnvFactory.down(input)),
-    listOrganizations: internalProcedure.query(({ ctx: { services } }) => services.admin.listOrganizations()),
+    listOrganizations: internalProcedure.input(ListOrganizationsInputSchema).query(({ ctx, input }) =>
+        ctx.services.admin.listOrganizations({
+            page: input.page,
+            pageSize: input.pageSize,
+            query: input.query,
+            organizationType: input.organizationType,
+            activeOrganizationId: ctx.organizationId,
+        }),
+    ),
     listPendingOrgs: internalProcedure.query(({ ctx: { services } }) => services.admin.listPendingOrgs()),
     approveOrg: internalProcedure
         .input(z.object({ orgId: z.string() }))

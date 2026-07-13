@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { Prisma, PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import type { Auth } from "../../auth";
 import { env } from "../../env";
@@ -17,6 +17,30 @@ type AdminGitHubRepository = {
     installationAccountLogin: string;
     installationAccountType: string;
 };
+
+type OrganizationListType = "company" | "individual";
+
+type ListOrganizationsInput = {
+    page: number;
+    pageSize: number;
+    query?: string;
+    organizationType: OrganizationListType;
+    activeOrganizationId: string;
+};
+
+const organizationListSelect = {
+    id: true,
+    name: true,
+    slug: true,
+    domain: true,
+    createdAt: true,
+    _count: {
+        select: {
+            members: true,
+            applications: true,
+        },
+    },
+} satisfies Prisma.OrganizationSelect;
 
 /** One organization that owns an app for a given slug - a candidate the caller can switch into. */
 export interface OrgCandidate {
@@ -45,27 +69,90 @@ export class AdminService extends Service {
         await ctx.secondaryStorage?.set(sessionToken, JSON.stringify(parsed), ttl);
     }
 
-    async listOrganizations() {
-        this.logger.info("Listing organizations");
-
-        const orgs = await this.db.organization.findMany({
-            include: {
-                members: { select: { id: true } },
-                applications: { select: { id: true } },
+    async listOrganizations(input: ListOrganizationsInput) {
+        this.logger.info("Listing organizations", {
+            extra: {
+                page: input.page,
+                pageSize: input.pageSize,
+                query: input.query,
+                organizationType: input.organizationType,
             },
-            orderBy: { createdAt: "desc" },
         });
 
-        this.logger.info("Organizations listed", { count: orgs.length });
+        const organizationTypeWhere: Prisma.OrganizationWhereInput =
+            input.organizationType === "individual"
+                ? { domain: { contains: "@" } }
+                : {
+                      OR: [{ domain: null }, { domain: { not: { contains: "@" } } }],
+                  };
+        const searchWhere: Prisma.OrganizationWhereInput | undefined =
+            input.query == null
+                ? undefined
+                : {
+                      OR: [
+                          { name: { contains: input.query, mode: "insensitive" } },
+                          { slug: { contains: input.query, mode: "insensitive" } },
+                          { domain: { contains: input.query, mode: "insensitive" } },
+                      ],
+                  };
+        const where: Prisma.OrganizationWhereInput =
+            searchWhere == null ? organizationTypeWhere : { AND: [organizationTypeWhere, searchWhere] };
 
-        return orgs.map((org) => ({
+        const { organizations, total } = await this.db.$transaction(async (tx) => {
+            const activeOrganization = await tx.organization.findFirst({
+                where: { AND: [where, { id: input.activeOrganizationId }] },
+                select: organizationListSelect,
+            });
+            const total = await tx.organization.count({ where });
+
+            const pinnedOrganizationCount = activeOrganization == null ? 0 : 1;
+            const skip = Math.max(0, (input.page - 1) * input.pageSize - pinnedOrganizationCount);
+            const take = input.page === 1 && activeOrganization != null ? input.pageSize - 1 : input.pageSize;
+            const pageOrganizations = await tx.organization.findMany({
+                where: {
+                    AND: [where, { id: { not: input.activeOrganizationId } }],
+                },
+                select: organizationListSelect,
+                orderBy: [{ name: "asc" }, { slug: "asc" }],
+                skip,
+                take,
+            });
+
+            if (input.page !== 1 || activeOrganization == null) {
+                return { organizations: pageOrganizations, total };
+            }
+
+            return { organizations: [activeOrganization, ...pageOrganizations], total };
+        });
+
+        const totalPages = Math.max(1, Math.ceil(total / input.pageSize));
+        const items = organizations.map((org) => ({
             id: org.id,
             name: org.name,
             slug: org.slug,
+            domain: org.domain ?? undefined,
             createdAt: org.createdAt,
-            memberCount: org.members.length,
-            applicationCount: org.applications.length,
+            memberCount: org._count.members,
+            applicationCount: org._count.applications,
         }));
+
+        this.logger.info("Organizations listed", {
+            extra: {
+                page: input.page,
+                pageSize: input.pageSize,
+                resultCount: items.length,
+                total,
+                totalPages,
+            },
+        });
+
+        return {
+            items,
+            page: input.page,
+            pageSize: input.pageSize,
+            total,
+            totalPages,
+        };
     }
 
     async listPendingOrgs() {

@@ -12,7 +12,9 @@ import {
   Input,
   Label,
   Skeleton,
+  Switch,
 } from "@autonoma/blacklight";
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { BuildingsIcon } from "@phosphor-icons/react/Buildings";
 import { CalendarBlankIcon } from "@phosphor-icons/react/CalendarBlank";
 import { CheckIcon } from "@phosphor-icons/react/Check";
@@ -26,11 +28,14 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { UsersIcon } from "@phosphor-icons/react/Users";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/X";
-import { Link, Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
+import { QueryErrorResetBoundary } from "@tanstack/react-query";
+import { CatchBoundary, Link, Navigate, createFileRoute, useRouteContext, useRouter } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
+  type AdminOrganizationsInput,
   type AdminPromoCodesInput,
   useAdminGitHubRepositories,
   useAdminOrganizations,
@@ -44,7 +49,7 @@ import {
   useSetPromoCodeActiveAdmin,
   useSwitchToOrg,
 } from "lib/query/admin.queries";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { clearLastApp } from "../-last-app";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/admin/")({
@@ -52,6 +57,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/admin/")({
 });
 
 type Tab = "organizations" | "pending" | "promoCodes" | "githubRepos";
+const ORGANIZATIONS_PER_PAGE = 20;
+const ORGANIZATION_SEARCH_DEBOUNCE_MS = 300;
 
 // ─── Guard ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +79,7 @@ interface OrgRowProps {
     id: string;
     name: string;
     slug: string;
+    domain?: string;
     createdAt: Date;
     memberCount: number;
     applicationCount: number;
@@ -101,7 +109,15 @@ function OrgRow({ org, activeOrgId, onActivate, isActivating }: OrgRowProps) {
             </Badge>
           )}
         </div>
-        <p className="mt-0.5 font-mono text-2xs text-text-tertiary">{org.slug}</p>
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-2xs text-text-secondary">
+          <span>{org.slug}</span>
+          {org.domain != null && (
+            <span className="flex items-center gap-1">
+              <GlobeIcon size={12} />
+              {org.domain}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="hidden items-center gap-6 shrink-0 sm:flex">
@@ -139,26 +155,91 @@ function OrgRow({ org, activeOrgId, onActivate, isActivating }: OrgRowProps) {
 // ─── Org list ─────────────────────────────────────────────────────────────────
 
 function OrgList() {
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [showIndividualUsers, setShowIndividualUsers] = useState(false);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, ORGANIZATION_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const listInput: AdminOrganizationsInput = {
+    page,
+    pageSize: ORGANIZATIONS_PER_PAGE,
+    query: debouncedSearch.trim() === "" ? undefined : debouncedSearch.trim(),
+    organizationType: showIndividualUsers ? "individual" : "company",
+  };
+  const resultsResetKey = `${listInput.organizationType}:${listInput.page}:${listInput.query ?? ""}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input
+          placeholder="Search organizations..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="sm:flex-1"
+        />
+        <div className="flex shrink-0 items-center justify-center gap-2 rounded-md border border-border-dim bg-surface-base px-3 py-2">
+          <span className={`text-2xs ${showIndividualUsers ? "text-text-secondary" : "font-medium text-text-primary"}`}>
+            Company domains
+          </span>
+          <Switch
+            checked={showIndividualUsers}
+            onCheckedChange={(checked) => {
+              setShowIndividualUsers(checked);
+              setPage(1);
+            }}
+            aria-label="Show individual user organizations"
+          />
+          <span className={`text-2xs ${showIndividualUsers ? "font-medium text-text-primary" : "text-text-secondary"}`}>
+            Individual users
+          </span>
+        </div>
+      </div>
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <CatchBoundary
+            getResetKey={() => resultsResetKey}
+            errorComponent={({ reset: resetBoundary }) => (
+              <OrganizationResultsError
+                onRetry={() => {
+                  reset();
+                  resetBoundary();
+                }}
+              />
+            )}
+          >
+            <Suspense fallback={<OrgListSkeleton />}>
+              <OrganizationResults input={listInput} onPageChange={setPage} />
+            </Suspense>
+          </CatchBoundary>
+        )}
+      </QueryErrorResetBoundary>
+    </div>
+  );
+}
+
+function OrganizationResults({
+  input,
+  onPageChange,
+}: {
+  input: AdminOrganizationsInput;
+  onPageChange: (page: number) => void;
+}) {
   const activeOrg = useRouteContext({
     from: "/_blacklight/_app-shell",
     select: (ctx) => ctx.activeOrganization,
   });
   const activeOrgId = activeOrg?.id;
   const [activatingId, setActivatingId] = useState<string | undefined>();
-  const [search, setSearch] = useState("");
-
   const router = useRouter();
-  const { data: orgs } = useAdminOrganizations();
-
-  const q = search.toLowerCase().trim();
-  const matched =
-    q === "" ? orgs : orgs.filter((org) => org.name.toLowerCase().includes(q) || org.slug.toLowerCase().includes(q));
-  const filteredOrgs = [...matched].sort((a: (typeof orgs)[number], b: (typeof orgs)[number]) => {
-    if (a.id === activeOrgId) return -1;
-    if (b.id === activeOrgId) return 1;
-    return 0;
-  });
-
+  const { data } = useAdminOrganizations(input);
   const switchMutation = useSwitchToOrg();
 
   function handleActivate(orgId: string) {
@@ -167,20 +248,19 @@ function OrgList() {
       { orgId },
       {
         onSuccess: () => {
-          setActivatingId(undefined);
           // The last-viewed app belongs to the previous org - drop it so the new org lands on its own first app.
           clearLastApp();
           void router.navigate({ to: "/", reloadDocument: true });
         },
+        onSettled: () => setActivatingId(undefined),
       },
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <Input placeholder="Search organizations..." value={search} onChange={(e) => setSearch(e.target.value)} />
       <div className="flex flex-col gap-2">
-        {filteredOrgs.map((org: (typeof orgs)[number]) => (
+        {data.items.map((org) => (
           <OrgRow
             key={org.id}
             org={org}
@@ -189,15 +269,46 @@ function OrgList() {
             isActivating={activatingId === org.id}
           />
         ))}
-        {filteredOrgs.length === 0 && (
+        {data.items.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-dim py-14 text-center">
-            <BuildingsIcon size={24} className="text-text-tertiary" />
-            <p className="text-sm text-text-tertiary">
-              {search !== "" ? `No organizations matching "${search}"` : "No organizations found"}
+            <BuildingsIcon size={24} className="text-text-secondary" />
+            <p className="text-sm text-text-secondary">
+              {input.query != null
+                ? `No organizations matching "${input.query}"`
+                : input.organizationType === "individual"
+                  ? "No individual user organizations found"
+                  : "No company domain organizations found"}
             </p>
           </div>
         )}
       </div>
+      {data.items.length > 0 && (
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="text-2xs text-text-secondary">
+            Page {data.page} of {data.totalPages} · {data.total} organizations
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(Math.max(1, data.page - 1))}
+              disabled={data.page === 1}
+              aria-label="Previous organizations page"
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(Math.min(data.totalPages, data.page + 1))}
+              disabled={data.page === data.totalPages}
+              aria-label="Next organizations page"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -208,6 +319,22 @@ function OrgListSkeleton() {
       {[1, 2, 3].map((i) => (
         <Skeleton key={i} className="h-16 w-full rounded-md" />
       ))}
+    </div>
+  );
+}
+
+function OrganizationResultsError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-status-critical/30 bg-status-critical/5 py-14 text-center">
+      <WarningCircleIcon size={24} weight="duotone" className="text-status-critical" />
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-text-primary">Couldn't load organizations</p>
+        <p className="text-2xs text-text-secondary">Check your connection and try again.</p>
+      </div>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        <ArrowCounterClockwiseIcon size={14} />
+        Retry
+      </Button>
     </div>
   );
 }
@@ -851,11 +978,7 @@ function AdminContent() {
           </div>
         </div>
 
-        {tab === "organizations" && (
-          <Suspense fallback={<OrgListSkeleton />}>
-            <OrgList />
-          </Suspense>
-        )}
+        {tab === "organizations" && <OrgList />}
 
         {tab === "pending" && (
           <Suspense fallback={<OrgListSkeleton />}>

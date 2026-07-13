@@ -5,10 +5,11 @@ import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
 type RouterInputs = inferRouterInputs<AppRouter>;
+export type AdminOrganizationsInput = RouterInputs["admin"]["listOrganizations"];
 export type AdminPromoCodesInput = RouterInputs["admin"]["billing"]["listPromoCodes"];
 
-export function useAdminOrganizations() {
-    return useSuspenseQuery(trpc.admin.listOrganizations.queryOptions());
+export function useAdminOrganizations(input: AdminOrganizationsInput) {
+    return useSuspenseQuery(trpc.admin.listOrganizations.queryOptions(input));
 }
 
 export function useAdminDeploymentConfig() {
