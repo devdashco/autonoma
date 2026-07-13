@@ -12,6 +12,12 @@ type PreviewEnvironmentStatus =
     | "unknown";
 type PreviewServiceStatus = "ready" | "building" | "failed" | "fallback" | "stopped" | "unknown";
 type PreviewServiceKind = "web" | "api" | "worker" | "database" | "service" | "unknown";
+// Which log streams a service exposes. Apps are built from the PR and run as
+// scraped pods, so they have both. Recipe services (postgres, redis, ...) run as
+// in-cluster pods the Alloy DaemonSet scrapes but are not built from the PR, so
+// they have runtime output only. Addons are external providers with no pod to
+// scrape, so they have neither.
+type PreviewServiceLogAvailability = "build_and_runtime" | "runtime_only" | "none";
 type PreviewServiceIconKey =
     | "web"
     | "api"
@@ -46,6 +52,7 @@ type PreviewServiceSummary = {
     kind: PreviewServiceKind;
     iconKey: PreviewServiceIconKey;
     status: PreviewServiceStatus;
+    logAvailability: PreviewServiceLogAvailability;
     branch: string | null;
     branchSource: "matched_pr_branch" | "fallback_default_branch" | "seeded_ephemeral" | "manual_override" | "unknown";
     branchHint: string | null;
@@ -180,6 +187,7 @@ export function buildServiceSummaries({
             kind,
             iconKey: resolvePreviewServiceIconKey({ name, kind, runtime: build?.runtime }),
             status: deriveAppStatus(environment.status, instance, build),
+            logAvailability: "build_and_runtime",
             branch: branchName,
             branchSource: "matched_pr_branch" as const,
             branchHint: "matched PR branch",
@@ -208,6 +216,7 @@ export function buildServiceSummaries({
             kind,
             iconKey: resolvePreviewServiceIconKey({ name, kind, provider }),
             status: mapAddonStatus(addon?.status),
+            logAvailability: "none",
             branch: null,
             branchSource: "unknown" as const,
             branchHint: addon?.provider != null ? addon.provider : (manifestAddon?.provider ?? null),
@@ -229,6 +238,7 @@ export function buildServiceSummaries({
             iconKey: resolvePreviewServiceIconKey({ name: service.name, kind, recipe: service.recipe }),
             status:
                 environment.status === "torn_down" ? "stopped" : environment.status === "ready" ? "ready" : "unknown",
+            logAvailability: "runtime_only",
             branch: null,
             branchSource: "unknown",
             branchHint:

@@ -365,12 +365,12 @@ function PreviewLogsBody({
   const navigate = Route.useNavigate();
   const { logs } = Route.useSearch();
 
-  // Build and runtime logs are labeled per app (web/api/worker). Addons and managed services run
-  // outside the build/deploy pipeline, so they carry no per-app logs.
-  if (service != null && !isAppService(service)) {
+  // Apps carry both build and runtime logs; recipe services (postgres, redis, ...) run as in-cluster
+  // pods with runtime output but are not built from the PR; only external addons have no logs at all.
+  if (service != null && service.logAvailability === "none") {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center border border-border-dim bg-surface-base px-4 py-5 text-center text-sm text-text-secondary">
-        No build or runtime logs for this service.
+        No logs for this service.
       </div>
     );
   }
@@ -383,6 +383,7 @@ function PreviewLogsBody({
       pr={prNumber}
       app={service?.name}
       appBuilding={service?.status === "building"}
+      runtimeOnly={service?.logAvailability === "runtime_only"}
       source={logs}
       onSourceChange={(next) => void navigate({ search: (prev) => ({ ...prev, logs: next }), replace: true })}
       fill

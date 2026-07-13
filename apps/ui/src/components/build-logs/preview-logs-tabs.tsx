@@ -20,6 +20,8 @@ interface PreviewLogsTabsProps {
   app?: string | undefined;
   /** When true, the app is still building, so the App logs tab shows a placeholder (no runtime logs yet). */
   appBuilding?: boolean | undefined;
+  /** When true, hide the Build logs tab and show only runtime output - for services not built from the PR (recipe pods). */
+  runtimeOnly?: boolean | undefined;
   /** When true, the tabs grow to fill their flex parent (full-height layout) instead of a fixed body height. */
   fill?: boolean | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
@@ -45,6 +47,7 @@ export function PreviewLogsTabs({
   pr,
   app,
   appBuilding,
+  runtimeOnly,
   fill,
   headers,
   source,
@@ -71,7 +74,7 @@ export function PreviewLogsTabs({
 
   return (
     <Tabs
-      value={source}
+      value={runtimeOnly === true ? "app" : source}
       defaultValue="app"
       onValueChange={(value) => onSourceChange?.(value === "build" ? "build" : "app")}
       className={cn("gap-2", fill === true && "min-h-0 flex-1", className)}
@@ -79,7 +82,7 @@ export function PreviewLogsTabs({
       <div className="flex items-center gap-3">
         <TabsList>
           <TabsTrigger value="app">App logs</TabsTrigger>
-          <TabsTrigger value="build">Build logs</TabsTrigger>
+          {runtimeOnly !== true && <TabsTrigger value="build">Build logs</TabsTrigger>}
         </TabsList>
         <div className="relative ml-auto w-full max-w-xs">
           {isSearchPending ? (
@@ -127,14 +130,16 @@ export function PreviewLogsTabs({
           />
         )}
       </TabsContent>
-      <TabsContent value="build" className={contentClassName}>
-        <BuildLogStreamViewer
-          url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app, filter)}
-          headers={headers}
-          waitingText={buildWaitingText}
-          fill={fill}
-        />
-      </TabsContent>
+      {runtimeOnly !== true && (
+        <TabsContent value="build" className={contentClassName}>
+          <BuildLogStreamViewer
+            url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app, filter)}
+            headers={headers}
+            waitingText={buildWaitingText}
+            fill={fill}
+          />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }

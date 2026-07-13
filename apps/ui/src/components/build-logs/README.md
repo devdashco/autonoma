@@ -10,7 +10,7 @@ pattern. Nothing here touches routing or the tRPC layer.
 |------|------|
 | `use-build-log-stream.ts` | The reusable core - subscribes via `@microsoft/fetch-event-source` (so it can send an `Authorization` header) and accumulates entries. Transport-only; takes a `url` + optional `headers`. |
 | `build-log-stream-viewer.tsx` | Presentational terminal-style viewer + `PreviewBuildLogStreamExample` (builds the URL from owner/repo/pr + a bearer token). |
-| `preview-logs-tabs.tsx` | `PreviewLogsTabs` - build vs. runtime (`?source=app`) tab pair with a debounced server-side search box. Scoped to one app via the `app` prop. |
+| `preview-logs-tabs.tsx` | `PreviewLogsTabs` - build vs. runtime (`?source=app`) tab pair with a debounced server-side search box. Scoped to one app via the `app` prop. Pass `runtimeOnly` for services that run as in-cluster pods but aren't built from the PR (recipe services): the Build logs tab is hidden and only runtime output shows. |
 | `log-app-filter.tsx` | `LogAppFilter` - segmented app/service selector that drives `PreviewLogsTabs`' `app` prop (one app is always selected). Shared by the admin PreviewKit page and the onboarding deploy step. |
 
 ## Usage
