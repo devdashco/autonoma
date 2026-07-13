@@ -42,8 +42,15 @@ analytics.capture(userId, "test_generation.completed", {
 - `distinctId` - always an explicit user ID (from auth context or job payload)
 - `event` - dot-separated event name (e.g. `"test_run.started"`)
 - `properties` - optional key-value metadata
+- `groups` - optional PostHog group analytics mapping (`{ groupType: groupKey }`), so an event can be attributed to a customer/organization, not just a user
 
 If a Sentry span is active when `capture()` is called, the trace ID is automatically attached as `$sentry_trace_id`.
+
+To break usage down per customer, pass the `groups` argument with the organization group:
+
+```ts
+analytics.capture(userId, "mcp.tool_called", { tool, success }, { organization: organizationId });
+```
 
 ### Shutdown
 

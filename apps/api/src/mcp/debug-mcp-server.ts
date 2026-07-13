@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
+import type { McpAnalytics } from "./mcp-analytics";
 
 /** Ceiling on log lines a single tail tool can request. */
 const MAX_LOG_LINES = 1000;
@@ -59,6 +60,8 @@ export interface DebugMcpDeps {
     resolveOrg: (repoFullName: string) => Promise<string>;
     /** List the repos the authenticated user can debug (across their orgs). */
     listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
+    /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
+    analytics: McpAnalytics;
 }
 
 /** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
@@ -127,7 +130,7 @@ function toToolResult(err: unknown) {
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveOrg, listRepos } = deps;
+    const { services, resolveOrg, listRepos, analytics } = deps;
 
     const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
 
@@ -141,15 +144,16 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments.",
             inputSchema: {},
         },
-        async () => {
-            logger.info("list_apps");
-            try {
-                const result = await listRepos();
-                return jsonResult(result);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async () =>
+            analytics.track("list_apps", async () => {
+                logger.info("list_apps");
+                try {
+                    const result = await listRepos();
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -161,18 +165,19 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "status/endpoint/build outcome, and the latest build. Start here when a preview is broken.",
             inputSchema: repoPrInput,
         },
-        async ({ repoFullName, prNumber }) => {
-            logger.info("get_deploy_status", { extra: { repoFullName, prNumber } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
-                if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
-                return jsonResult(summary);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("get_deploy_status", async () => {
+                logger.info("get_deploy_status", { extra: { repoFullName, prNumber } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                    if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
+                    return jsonResult(summary);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -187,33 +192,34 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "expected, not a bug. Use the URLs to hit the deployed app directly.",
             inputSchema: repoPrInput,
         },
-        async ({ repoFullName, prNumber }) => {
-            logger.info("get_endpoints", { extra: { repoFullName, prNumber } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
-                if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
-                const endpoints = summary.services.map((service) => {
-                    const hasUrl = service.endpoint != null && service.endpoint !== "";
-                    if (hasUrl) return { name: service.name, url: service.endpoint };
-                    return {
-                        name: service.name,
-                        url: null,
-                        reason:
-                            "No public HTTP endpoint - this is an internal service (e.g. a database or cache) " +
-                            "reachable only by other services inside the preview, or it is not exposed.",
-                    };
-                });
-                return jsonResult({
-                    primaryUrl: summary.primaryUrl,
-                    sdkUrl: derivePreviewSdkUrl(summary.primaryUrl, undefined),
-                    endpoints,
-                });
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("get_endpoints", async () => {
+                logger.info("get_endpoints", { extra: { repoFullName, prNumber } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const summary = await tryPreviewSummary(app.id, prNumber, organizationId);
+                    if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
+                    const endpoints = summary.services.map((service) => {
+                        const hasUrl = service.endpoint != null && service.endpoint !== "";
+                        if (hasUrl) return { name: service.name, url: service.endpoint };
+                        return {
+                            name: service.name,
+                            url: null,
+                            reason:
+                                "No public HTTP endpoint - this is an internal service (e.g. a database or cache) " +
+                                "reachable only by other services inside the preview, or it is not exposed.",
+                        };
+                    });
+                    return jsonResult({
+                        primaryUrl: summary.primaryUrl,
+                        sdkUrl: derivePreviewSdkUrl(summary.primaryUrl, undefined),
+                        endpoints,
+                    });
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -237,7 +243,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             },
         },
         async ({ repoFullName, prNumber, app, limit, filter, from }) =>
-            tailLogs("build", { repoFullName, prNumber, app, limit, filter, from }),
+            analytics.track("get_build_logs", () =>
+                tailLogs("build", { repoFullName, prNumber, app, limit, filter, from }),
+            ),
     );
 
     server.registerTool(
@@ -261,7 +269,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             },
         },
         async ({ repoFullName, prNumber, app, limit, filter, from }) =>
-            tailLogs("app", { repoFullName, prNumber, app, limit, filter, from }),
+            analytics.track("get_app_logs", () =>
+                tailLogs("app", { repoFullName, prNumber, app, limit, filter, from }),
+            ),
     );
 
     server.registerTool(
@@ -277,20 +287,21 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "a failure and you want the full evidence in one call.",
             inputSchema: repoPrInput,
         },
-        async ({ repoFullName, prNumber }) => {
-            logger.info("diagnose_deploy", { extra: { repoFullName, prNumber } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const result = await services.previewkitDiagnosis.signals(organizationId, {
-                    applicationId: app.id,
-                    prNumber,
-                });
-                return jsonResult(result);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("diagnose_deploy", async () => {
+                logger.info("diagnose_deploy", { extra: { repoFullName, prNumber } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const result = await services.previewkitDiagnosis.signals(organizationId, {
+                        applicationId: app.id,
+                        prNumber,
+                    });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -307,17 +318,18 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "fix). Takes the repo ('owner/repo').",
             inputSchema: { repoFullName: repoPrInput.repoFullName },
         },
-        async ({ repoFullName }) => {
-            logger.info("get_secret_status", { extra: { repoFullName } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const status = await services.previewkitSecretStatus.status(app.id, organizationId);
-                return jsonResult(status);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async ({ repoFullName }) =>
+            analytics.track("get_secret_status", async () => {
+                logger.info("get_secret_status", { extra: { repoFullName } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const app = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const status = await services.previewkitSecretStatus.status(app.id, organizationId);
+                    return jsonResult(status);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -344,25 +356,26 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 value: z.string().min(1).max(65536).optional(),
             },
         },
-        async ({ repoFullName, prNumber, app, key, value }) => {
-            logger.info("set_secret", { extra: { repoFullName, prNumber, app, key, removing: value == null } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const result = await services.previewkitWrite.setSecret({
-                    applicationId: application.id,
-                    repoFullName,
-                    prNumber,
-                    appName: app,
-                    key,
-                    value,
-                    organizationId,
-                });
-                return jsonResult(result);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        async ({ repoFullName, prNumber, app, key, value }) =>
+            analytics.track("set_secret", async () => {
+                logger.info("set_secret", { extra: { repoFullName, prNumber, app, key, removing: value == null } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const result = await services.previewkitWrite.setSecret({
+                        applicationId: application.id,
+                        repoFullName,
+                        prNumber,
+                        appName: app,
+                        key,
+                        value,
+                        organizationId,
+                    });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -410,25 +423,26 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             buildSecrets,
             connections,
             apply,
-        }) => {
-            logger.info("edit_previewkit_config", { extra: { repoFullName, prNumber, app, apply } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
-                const result = await services.previewkitWrite.editConfig({
-                    applicationId: application.id,
-                    repoFullName,
-                    prNumber,
-                    appName: app,
-                    patch: { path, dockerfile, port, healthCheck, buildSecrets, connections },
-                    apply: apply ?? true,
-                    organizationId,
-                });
-                return jsonResult(result);
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+        }) =>
+            analytics.track("edit_previewkit_config", async () => {
+                logger.info("edit_previewkit_config", { extra: { repoFullName, prNumber, app, apply } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const application = await services.applications.findByRepoFullName(repoFullName, organizationId);
+                    const result = await services.previewkitWrite.editConfig({
+                        applicationId: application.id,
+                        repoFullName,
+                        prNumber,
+                        appName: app,
+                        patch: { path, dockerfile, port, healthCheck, buildSecrets, connections },
+                        apply: apply ?? true,
+                        organizationId,
+                    });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
     );
 
     server.registerTool(
@@ -451,31 +465,32 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 timeoutSeconds: z.number().int().min(5).max(55).optional(),
             },
         },
-        async ({ repoFullName, prNumber, app, timeoutSeconds }) => {
-            logger.info("wait_for_deploy", { extra: { repoFullName, prNumber, app } });
-            try {
-                const organizationId = await resolveOrg(repoFullName);
-                const result = await services.previewkitEnvironments.waitForDeploy({
-                    repoFullName,
-                    prNumber,
-                    appName: app,
-                    callerOrgId: organizationId,
-                    timeoutMs: timeoutSeconds != null ? timeoutSeconds * 1000 : undefined,
-                });
-                if (result == null) {
-                    return noLiveEnvResult(repoFullName, prNumber);
+        async ({ repoFullName, prNumber, app, timeoutSeconds }) =>
+            analytics.track("wait_for_deploy", async () => {
+                logger.info("wait_for_deploy", { extra: { repoFullName, prNumber, app } });
+                try {
+                    const organizationId = await resolveOrg(repoFullName);
+                    const result = await services.previewkitEnvironments.waitForDeploy({
+                        repoFullName,
+                        prNumber,
+                        appName: app,
+                        callerOrgId: organizationId,
+                        timeoutMs: timeoutSeconds != null ? timeoutSeconds * 1000 : undefined,
+                    });
+                    if (result == null) {
+                        return noLiveEnvResult(repoFullName, prNumber);
+                    }
+                    const recentLogs = await tailRecentLogs(result.appStatus ?? result.status, {
+                        repoFullName,
+                        prNumber,
+                        app,
+                        organizationId,
+                    });
+                    return jsonResult({ ...result, recentLogs });
+                } catch (err) {
+                    return toToolResult(err);
                 }
-                const recentLogs = await tailRecentLogs(result.appStatus ?? result.status, {
-                    repoFullName,
-                    prNumber,
-                    app,
-                    organizationId,
-                });
-                return jsonResult({ ...result, recentLogs });
-            } catch (err) {
-                return toToolResult(err);
-            }
-        },
+            }),
     );
 
     // ─── Prompts: guided flows the user can invoke ────────────────────

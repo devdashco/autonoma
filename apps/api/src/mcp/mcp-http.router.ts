@@ -1,3 +1,4 @@
+import { analytics } from "@autonoma/analytics";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
@@ -6,6 +7,7 @@ import { auth, createContext } from "../context";
 import { env } from "../env";
 import { buildDebugMcpServer } from "./debug-mcp-server";
 import { listAccessibleRepos } from "./list-accessible-repos";
+import { McpAnalytics } from "./mcp-analytics";
 import { resolveOrgForRepo } from "./resolve-org-for-repo";
 
 const logger = rootLogger.child({ name: "mcpHttpRouter" });
@@ -48,12 +50,20 @@ mcpHttpRouter.all("/:server", async (c) => {
 
     logger.info("Handling MCP request", { userId: session.userId, extra: { serverName } });
 
+    // Per-request analytics: every tool call becomes an `mcp.tool_called` event,
+    // attributed to the customer org each tool resolves. The org is discovered
+    // deep inside a handler, so `observeOrgResolution` records it onto the
+    // request's observability context (below) for the event to read back.
+    const mcpAnalytics = new McpAnalytics(analytics, serverName, session.userId);
+
     // The org is NOT fixed up front: the token carries only a userId, and a user
     // can be in many orgs. Each tool resolves its org from the `repoFullName` it
     // names (which maps to exactly one owning org) and verifies membership - so
     // the MCP handshake (initialize / tools/list) needs no org, and multi-org
     // users work without disambiguation.
-    const resolveOrg = (repoFullName: string) => resolveOrgForRepo(db, session.userId, repoFullName);
+    const resolveOrg = mcpAnalytics.observeOrgResolution((repoFullName) =>
+        resolveOrgForRepo(db, session.userId, repoFullName),
+    );
     // Discovery: the repos this user can debug (across their orgs), so the agent
     // can pick one when it can't infer repoFullName from the working directory.
     const listRepos = () => listAccessibleRepos(db, session.userId);
@@ -61,10 +71,13 @@ mcpHttpRouter.all("/:server", async (c) => {
     // Reuse the same fully-wired service graph the tRPC layer builds. We only
     // borrow its `services`; auth came from the verified MCP token above.
     const { services } = await createContext(c);
-    const server = buildDebugMcpServer({ services, resolveOrg, listRepos });
+    const server = buildDebugMcpServer({ services, resolveOrg, listRepos, analytics: mcpAnalytics });
     const transport = new StreamableHTTPTransport();
     await server.connect(transport);
 
+    // No request-level observability scope: each tool call opens its own inside
+    // McpAnalytics.track, so org attribution doesn't depend on this async context
+    // surviving the transport dispatch.
     const response = await transport.handleRequest(c);
     return response ?? c.body(null, 204);
 });

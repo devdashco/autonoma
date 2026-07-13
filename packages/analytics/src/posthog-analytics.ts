@@ -18,7 +18,16 @@ export class PostHogAnalytics {
         return this.client != null;
     }
 
-    capture(distinctId: string, event: string, properties?: Record<string, unknown>): void {
+    /**
+     * `groups` ties the event to PostHog group analytics (e.g. `{ organization: orgId }`),
+     * so usage can be broken down per customer/organization, not just per user.
+     */
+    capture(
+        distinctId: string,
+        event: string,
+        properties?: Record<string, unknown>,
+        groups?: Record<string, string>,
+    ): void {
         const span = Sentry.getActiveSpan();
         const traceId = span != null ? Sentry.spanToJSON(span).trace_id : undefined;
 
@@ -29,7 +38,7 @@ export class PostHogAnalytics {
             ...(traceId != null && { $sentry_trace_id: traceId }),
         };
 
-        this.client?.capture({ distinctId, event, properties: enriched });
+        this.client?.capture({ distinctId, event, properties: enriched, groups });
     }
 
     async shutdown(): Promise<void> {
