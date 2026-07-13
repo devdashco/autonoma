@@ -110,6 +110,10 @@ integrationTestSuite({
             });
         });
 
+        // Free CLI credit cap enforcement is temporarily disabled in checkLlmProxyGate,
+        // so the gate no longer returns "free_cli_limit_reached". Re-enable these
+        // tests when the cap comparison is restored.
+        /*
         test("gate blocks a never-paid org that has spent the free CLI cap", async ({ harness }) => {
             // Fund well above zero so the balance check passes - it's the cap, not
             // an empty wallet, that must block here.
@@ -121,6 +125,7 @@ integrationTestSuite({
                 reason: "free_cli_limit_reached",
             });
         });
+        */
 
         test("gate allows a never-paid org still under the free CLI cap", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
@@ -129,6 +134,7 @@ integrationTestSuite({
             expect(await harness.creditsService.checkLlmProxyGate(orgId, FREE_CAP)).toEqual({ allowed: true });
         });
 
+        /*
         test("gate raises the CLI budget by net top-up purchases", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             await recordProxySpend(harness, orgId, "spent-over-free", FREE_CAP + 5_000);
@@ -150,6 +156,7 @@ integrationTestSuite({
                 reason: "free_cli_limit_reached",
             });
         });
+        */
 
         test("gate exempts an org with an active subscription from the cap", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
@@ -176,6 +183,7 @@ integrationTestSuite({
             expect(await harness.creditsService.checkLlmProxyGate(orgId, FREE_CAP)).toEqual({ allowed: true });
         });
 
+        /*
         test("gate does not exempt a trialing subscription from the cap", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             await recordProxySpend(harness, orgId, "trial-over-cap", FREE_CAP * 2);
@@ -189,6 +197,7 @@ integrationTestSuite({
                 reason: "free_cli_limit_reached",
             });
         });
+        */
 
         test("skips deduction for a non-positive cost", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(1_000);
