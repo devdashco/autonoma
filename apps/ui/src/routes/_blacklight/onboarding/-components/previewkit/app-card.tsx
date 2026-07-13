@@ -224,16 +224,6 @@ export function AppCard({
                 onChange={(command) => onChange(app.id, { command })}
               />
             ) : undefined}
-            <AppField
-              app={app}
-              issues={issues}
-              field="healthCheck"
-              label="Health check"
-              placeholder="/health"
-              value={app.healthCheck}
-              onChange={(healthCheck) => onChange(app.id, { healthCheck })}
-              hint="Path we request to check the app is up"
-            />
           </div>
 
           {showDependsOn ? (
