@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.8.33](https://github.com/Autonoma-AI/agent/compare/v1.8.32...v1.8.33) (2026-07-13)
+
+
+### Features
+
+* BugWhySection falls back to description + whatHappened for pre-report bugs ([#1344](https://github.com/Autonoma-AI/agent/issues/1344)) ([70359b4](https://github.com/Autonoma-AI/agent/commit/70359b48d5b260b727c0865594cb9699aff9a649))
+* **ci:** add Slack approval reaction ([#1462](https://github.com/Autonoma-AI/agent/issues/1462)) ([33c8fe2](https://github.com/Autonoma-AI/agent/commit/33c8fe206a3476c4d4a0dad81d2c38469d95701a))
+* **onboarding:** redesign preview-environment selection screen as two equal cards ([#1455](https://github.com/Autonoma-AI/agent/issues/1455)) ([75fec83](https://github.com/Autonoma-AI/agent/commit/75fec83b50ee0fd6cffb0e44493903be8422516a))
+* **onboarding:** redesign resume screen as an application hub ([#1458](https://github.com/Autonoma-AI/agent/issues/1458)) ([032a531](https://github.com/Autonoma-AI/agent/commit/032a531b39d8e79fe1162db2ffd944ef14e7dafc))
+* **previewkit:** add PR deployment history to the environment page ([#1461](https://github.com/Autonoma-AI/agent/issues/1461)) ([6f488f3](https://github.com/Autonoma-AI/agent/commit/6f488f3073e199be254f05f58fb58c0c864bac85))
+* **previewkit:** explain planner CLI files + add a Docker (sandbox) tab ([#1457](https://github.com/Autonoma-AI/agent/issues/1457)) ([733e303](https://github.com/Autonoma-AI/agent/commit/733e303db401a2ca30ff008494b157eb8ca844ae))
+* **previewkit:** filter turbo builds by workspace package name ([#1464](https://github.com/Autonoma-AI/agent/issues/1464)) ([2d2117e](https://github.com/Autonoma-AI/agent/commit/2d2117ea61aa5c66c5e436dca52d21e6463f0f19))
+* **previewkit:** link the new onboarding steps to their docs ([#1450](https://github.com/Autonoma-AI/agent/issues/1450)) ([05b11ba](https://github.com/Autonoma-AI/agent/commit/05b11bacc2dc401d5f401a272f65ade28db31ef5))
+* **previewkit:** link the Variables editor to the secrets docs ([#1452](https://github.com/Autonoma-AI/agent/issues/1452)) ([759de03](https://github.com/Autonoma-AI/agent/commit/759de035fc0982065d76a65db99d011acf4c4412))
+* **previewkit:** onboarding redesign - Database step, Extra services, guided setup tasks ([#1440](https://github.com/Autonoma-AI/agent/issues/1440)) ([1e2f3a3](https://github.com/Autonoma-AI/agent/commit/1e2f3a3b83b163d502d143dafde425b8c1b236ba))
+* **previewkit:** rich dropdown for connection references ([#1453](https://github.com/Autonoma-AI/agent/issues/1453)) ([2b5f6cd](https://github.com/Autonoma-AI/agent/commit/2b5f6cd7d109bfc153b5b3b66a11c111198ca388))
+* **previewkit:** show runtime logs for recipe services in the env page ([#1463](https://github.com/Autonoma-AI/agent/issues/1463)) ([25f6b0c](https://github.com/Autonoma-AI/agent/commit/25f6b0cbefdbe26a9a81b3f95f10ba4d7b3bb16a))
+
+
+### Bug Fixes
+
+* **api:** restore BETTER_AUTH_URL for local login ([#1449](https://github.com/Autonoma-AI/agent/issues/1449)) ([024c006](https://github.com/Autonoma-AI/agent/commit/024c006f1892422e439b48360778f72c75e9012b))
+* disable tests for cli usage cap temporary ([#1471](https://github.com/Autonoma-AI/agent/issues/1471)) ([68644f8](https://github.com/Autonoma-AI/agent/commit/68644f805ed47505a71ce8616000b75aba92eb15))
+* **previewkit:** clearer, property-aware connection reference feedback ([#1456](https://github.com/Autonoma-AI/agent/issues/1456)) ([9332d04](https://github.com/Autonoma-AI/agent/commit/9332d04a17e99e9b601e0996c57e442f91355c4a))
+* **previewkit:** finish lifecycle hooks + darken review stage arrows ([#1446](https://github.com/Autonoma-AI/agent/issues/1446)) ([4137930](https://github.com/Autonoma-AI/agent/commit/413793067d3092464025f55a1d21e6fba9e1a48e))
+* **previewkit:** hide internal Health check field from onboarding UI ([#1429](https://github.com/Autonoma-AI/agent/issues/1429)) ([1617d12](https://github.com/Autonoma-AI/agent/commit/1617d12d3a9e0ec35f097c0297f325cfbd1c22df))
+* **previewkit:** invoke turbo binary correctly for all package managers ([#1443](https://github.com/Autonoma-AI/agent/issues/1443)) ([5e6979a](https://github.com/Autonoma-AI/agent/commit/5e6979a91a8acb2a5e0ad115c0115e43e42755d6))
+* **previewkit:** keep deploy log scroll position when user scrolls up ([#1430](https://github.com/Autonoma-AI/agent/issues/1430)) ([498680f](https://github.com/Autonoma-AI/agent/commit/498680fe0ee22812d0056f18e0318cc92d8d7c64))
+* **previewkit:** show the database version in the card title ([#1447](https://github.com/Autonoma-AI/agent/issues/1447)) ([8faa532](https://github.com/Autonoma-AI/agent/commit/8faa532bf43643354fbb0b4cc6c815146bf894e2))
+* **previewkit:** stop the app-name field flashing "already exists" on submit ([#1451](https://github.com/Autonoma-AI/agent/issues/1451)) ([b138f8e](https://github.com/Autonoma-AI/agent/commit/b138f8e06a15ab400acc8f73ebab65499a99418f))
+
+
+### Reverts
+
+* **onboarding:** restore pre-[#1455](https://github.com/Autonoma-AI/agent/issues/1455) preview-environment screen ([#1459](https://github.com/Autonoma-AI/agent/issues/1459)) ([836140e](https://github.com/Autonoma-AI/agent/commit/836140e2cbab0b97443b6d7ad6c00849df8056aa))
+
 ## [1.8.32](https://github.com/Autonoma-AI/agent/compare/v1.8.31...v1.8.32) (2026-07-10)
 
 
