@@ -6,6 +6,8 @@ import { env } from "../../env";
 import { parseAnsi } from "./parse-ansi";
 import { type BuildLogConnection, type BuildLogEntry, useBuildLogStream } from "./use-build-log-stream";
 
+const STICK_TO_BOTTOM_THRESHOLD_PX = 32;
+
 interface BuildLogStreamViewerProps {
   /** Fully-formed SSE endpoint URL. See {@link buildPreviewLogStreamUrl}. */
   url?: string | undefined;
@@ -36,12 +38,18 @@ export function BuildLogStreamViewer({
 }: BuildLogStreamViewerProps) {
   const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers });
   const bodyRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
-  // Stick to the bottom as new lines stream in. Direct DOM scroll control is a
-  // true side effect, so a ref + effect is the right tool here.
+  const handleScroll = () => {
+    const node = bodyRef.current;
+    if (node == null) return;
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+    stickToBottomRef.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX;
+  };
+
   useEffect(() => {
     const node = bodyRef.current;
-    if (node != null) node.scrollTop = node.scrollHeight;
+    if (node != null && stickToBottomRef.current) node.scrollTop = node.scrollHeight;
   }, [entries]);
 
   return (
@@ -57,6 +65,7 @@ export function BuildLogStreamViewer({
 
       <div
         ref={bodyRef}
+        onScroll={handleScroll}
         className={cn(
           fill === true ? "min-h-0 flex-1" : "h-80",
           "overflow-y-auto bg-surface-void px-4 py-3 font-mono text-2xs leading-relaxed",
