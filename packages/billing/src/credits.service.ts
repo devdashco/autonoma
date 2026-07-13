@@ -285,23 +285,14 @@ export class CreditsService extends Service {
             return { allowed: true };
         }
 
-        const [cliSpent, netPaidGranted] = await Promise.all([
-            this.llmProxyLifetimeSpend(organizationId),
-            this.netPaidCreditsGranted(organizationId),
-        ]);
-        const cliBudget = freeCliCreditCap + netPaidGranted;
-        if (cliSpent >= cliBudget) {
-            this.logger.info("LLM proxy gate blocked - free CLI credit cap reached", {
-                organizationId,
-                cliSpent,
-                cliBudget,
-                freeCliCreditCap,
-                netPaidGranted,
-            });
-            return { allowed: false, reason: "free_cli_limit_reached" };
-        }
-
-        this.logger.info("LLM proxy gate allowed", { organizationId, cliSpent, cliBudget, balance });
+        // Free CLI credit cap enforcement is temporarily disabled: the cap no
+        // longer blocks non-subscribers. The balance and grace-period gates above
+        // still apply. Restore by re-enabling the cliSpent/cliBudget comparison.
+        this.logger.info("LLM proxy gate allowed - free CLI credit cap disabled", {
+            organizationId,
+            balance,
+            freeCliCreditCap,
+        });
         return { allowed: true };
     }
 
