@@ -445,6 +445,29 @@ export function mapBuildStatus(status: PreviewkitStatus): "ready" | "building" |
 }
 
 /**
+ * Display status for a single build row in the deployment-history list. A
+ * successful build row is `status='building'` with `finishedAt` set and no
+ * error (never `'ready'`), so success is derived from `error`/`finishedAt`
+ * rather than the raw `status` column - `mapBuildStatus` would mislabel it.
+ *
+ * The `superseded` check must come first: a superseded row is written with both
+ * `status='superseded'` and an `error` string (see `markBuildSuperseded`), so an
+ * `error != null` check ahead of it would mislabel every superseded build as
+ * failed. A supersede is a deliberate abandonment for a newer commit, not a
+ * failure.
+ */
+export function deriveDeploymentStatus(build: {
+    status: PreviewkitStatus;
+    error: string | null;
+    finishedAt: Date | null;
+}): "success" | "failed" | "building" | "superseded" {
+    if (build.status === "superseded") return "superseded";
+    if (build.error != null) return "failed";
+    if (build.finishedAt != null) return "success";
+    return "building";
+}
+
+/**
  * Projects the manifest-shaped subset the summary + readiness views need from a
  * stored resolved config. The merged config is the single source of truth -
  * there is no separate manifest column - so this parses it at read time.

@@ -1,15 +1,26 @@
-import { Badge, Skeleton, StatusDot, cn } from "@autonoma/blacklight";
+import { Badge, Button, Skeleton, StatusDot, cn } from "@autonoma/blacklight";
+import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CalendarBlankIcon } from "@phosphor-icons/react/CalendarBlank";
+import { ClockIcon } from "@phosphor-icons/react/Clock";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
+import type { Icon } from "@phosphor-icons/react/lib";
+import { LinkIcon } from "@phosphor-icons/react/Link";
+import { TimerIcon } from "@phosphor-icons/react/Timer";
+import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
-import { formatRelativeTime } from "lib/format";
-import { ensurePreviewSummaryByIdData, usePreviewSummaryById } from "lib/query/deployments.queries";
+import { formatDate, formatDuration, formatRelativeTime } from "lib/format";
+import {
+  ensurePreviewSummaryByIdData,
+  useDeploymentHistory,
+  usePreviewSummaryById,
+} from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { type ReactNode, Suspense } from "react";
+import { Component, type ReactNode, Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import {
@@ -17,9 +28,17 @@ import {
   SERVICE_ICON_BY_KEY,
   SERVICE_STATUS_META,
 } from "../pull-requests/-components/preview-status-meta";
+import { DeploymentRow } from "./-components/deployment-row";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 type PreviewService = PreviewSummary["services"][number];
+type PreviewLatestBuild = PreviewSummary["latestBuild"];
+
+// The deployment rail is docked to the right of the content area at a fixed width, full height, with
+// its own left border. Desktop-only (the layout is a fixed three-column row); hidden below lg so it
+// never squeezes the services + center columns on narrow screens. Shared by the rail, its skeleton,
+// and its error state so all three occupy the same column footprint.
+const DEPLOYMENT_RAIL_CLASS = "hidden shrink-0 flex-col border-l border-border-dim bg-surface-base lg:flex lg:w-80";
 
 // Persisted in the URL so a refresh keeps the selected service and the chosen
 // log focus (build vs app). `service` is the selected service's key.
@@ -29,6 +48,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/previ
   loader: async ({ context, params: { appSlug, environmentId } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
+    // Only the summary is prefetched - it's the primary page content. The deployment history is a
+    // secondary fetch owned entirely by the rail's own Suspense + error boundary, so a history
+    // failure degrades the rail in place instead of failing the loader and taking down the page.
     await ensurePreviewSummaryByIdData(context.queryClient, app.id, environmentId);
   },
   validateSearch: (search: Record<string, unknown>): PreviewSearch => ({
@@ -99,11 +121,6 @@ function PreviewHeader({
           <StatusDot status={statusMeta.dot} className="rounded-full" />
           {statusMeta.label}
         </Badge>
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-2xs uppercase tracking-wider text-text-secondary">
-          {summary.deployedAt != null && <span>Deployed {formatRelativeTime(summary.deployedAt)}</span>}
-          {summary.lastDeployedSha != null && <span>SHA {summary.lastDeployedSha.slice(0, 7)}</span>}
-          {summary.phase != null && <span>{summary.phase}</span>}
-        </div>
       </div>
 
       {summary.error != null && <p className="text-sm text-status-critical">{summary.error}</p>}
@@ -111,8 +128,9 @@ function PreviewHeader({
   );
 }
 
-// Master-detail: the environment's services on the left, the selected service's details plus the
-// environment build/app logs on the right.
+// Three columns: the environment's services on the left, the selected service's detail + logs in
+// the center, and the deployment rail docked on the right. The rail is bound to the environment
+// (not the selected service), so it spans the full content-area height alongside the other two.
 function PreviewServicesExplorer({ summary }: { summary: PreviewSummary }) {
   const services = summary.services;
   const apps = services.filter(isAppService);
@@ -122,6 +140,10 @@ function PreviewServicesExplorer({ summary }: { summary: PreviewSummary }) {
   const selectedService = services.find((service) => serviceKey(service) === selectedKey) ?? services[0];
   const onSelect = (service: PreviewService) =>
     void navigate({ search: (prev) => ({ ...prev, service: serviceKey(service) }), replace: true });
+  // Only the current deploy's logs are retained (Loki keeps the latest attempt per repo+PR), so the
+  // logs header is scoped to the currently-deployed SHA rather than any selected historical build.
+  const currentSha = summary.lastDeployedSha ?? undefined;
+  const environmentActive = summary.status === "building" || summary.phase === "deploy_requested";
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 lg:flex-row">
@@ -153,9 +175,27 @@ function PreviewServicesExplorer({ summary }: { summary: PreviewSummary }) {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        {selectedService != null && <PreviewAppDetail service={selectedService} />}
-        <PreviewLogsSection service={selectedService} repoFullName={summary.repoFullName} prNumber={summary.prNumber} />
+        {selectedService != null && <PreviewAppDetail service={selectedService} latestBuild={summary.latestBuild} />}
+        <PreviewLogsSection
+          service={selectedService}
+          repoFullName={summary.repoFullName}
+          prNumber={summary.prNumber}
+          currentSha={currentSha}
+        />
       </div>
+
+      {/* The rail owns a secondary, informational fetch - isolate its failures in an error boundary
+          so they degrade in place instead of taking down the services and logs via the router's
+          default error UI. */}
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <DeploymentRailErrorBoundary onRetry={reset}>
+            <Suspense fallback={<DeploymentRailSkeleton />}>
+              <DeploymentRail environmentActive={environmentActive} />
+            </Suspense>
+          </DeploymentRailErrorBoundary>
+        )}
+      </QueryErrorResetBoundary>
     </div>
   );
 }
@@ -220,14 +260,17 @@ function PreviewServiceListItem({
   );
 }
 
-function PreviewAppDetail({ service }: { service: PreviewService }) {
-  const Icon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
+function PreviewAppDetail({ service, latestBuild }: { service: PreviewService; latestBuild: PreviewLatestBuild }) {
+  const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
   const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
+  // "Date" is when the latest build finished (fall back to its start); "Build time" is how long it
+  // took. Both come from the environment's latest build, which is null while a fresh deploy builds.
+  const buildDate = latestBuild?.finishedAt ?? latestBuild?.startedAt;
 
   return (
     <div className="shrink-0 border border-border-dim bg-surface-base">
       <div className="flex items-center gap-3 border-b border-border-dim px-4 py-3">
-        <Icon size={18} className="shrink-0 text-text-secondary" />
+        <ServiceIcon size={18} className="shrink-0 text-text-secondary" />
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-text-primary">{service.name}</div>
           <div className="font-mono text-2xs uppercase tracking-wider text-text-secondary">{service.kind}</div>
@@ -239,7 +282,7 @@ function PreviewAppDetail({ service }: { service: PreviewService }) {
       </div>
 
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-2">
-        <DetailRow label="URL">
+        <DetailRow label="URL" icon={LinkIcon}>
           {service.endpoint != null ? (
             <a
               href={service.endpoint}
@@ -254,8 +297,14 @@ function PreviewAppDetail({ service }: { service: PreviewService }) {
             <span className="text-text-secondary">-</span>
           )}
         </DetailRow>
-        <DetailRow label="Last built">
+        <DetailRow label="Last built" icon={ClockIcon}>
           {service.lastBuiltAt != null ? formatRelativeTime(service.lastBuiltAt) : "-"}
+        </DetailRow>
+        <DetailRow label="Date" icon={CalendarBlankIcon}>
+          {buildDate != null ? formatDate(buildDate) : "-"}
+        </DetailRow>
+        <DetailRow label="Build time" icon={TimerIcon}>
+          {latestBuild?.durationMs != null ? formatDuration(latestBuild.durationMs) : "-"}
         </DetailRow>
       </dl>
 
@@ -266,10 +315,13 @@ function PreviewAppDetail({ service }: { service: PreviewService }) {
   );
 }
 
-function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+function DetailRow({ label, icon: RowIcon, children }: { label: string; icon: Icon; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <dt className="font-mono text-2xs uppercase tracking-wider text-text-secondary">{label}</dt>
+      <dt className="flex items-center gap-1.5 font-mono text-2xs uppercase tracking-wider text-text-secondary">
+        <RowIcon size={12} className="shrink-0" />
+        {label}
+      </dt>
       <dd className="min-w-0 text-sm text-text-primary">{children}</dd>
     </div>
   );
@@ -279,14 +331,23 @@ function PreviewLogsSection({
   service,
   repoFullName,
   prNumber,
+  currentSha,
 }: {
   service: PreviewService | undefined;
   repoFullName: string;
   prNumber: number;
+  currentSha: string | undefined;
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
-      <h2 className="text-sm font-semibold text-text-primary">Logs</h2>
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-sm font-semibold text-text-primary">Logs</h2>
+        {service != null && currentSha != null && (
+          <span className="truncate font-mono text-2xs text-text-secondary">
+            {service.name} @ {currentSha.slice(0, 7)}
+          </span>
+        )}
+      </div>
       <PreviewLogsBody service={service} repoFullName={repoFullName} prNumber={prNumber} />
     </section>
   );
@@ -330,6 +391,88 @@ function PreviewLogsBody({
   );
 }
 
+// The deployment rail: docked right, full content-area height, bound to the environment. Lists the
+// environment's deploys newest-first; the current deploy is highlighted, past deploys are display-
+// only (their per-commit logs aren't retained, so there's nothing to scope to).
+function DeploymentRail({ environmentActive }: { environmentActive: boolean }) {
+  const { environmentId } = Route.useParams();
+  const app = useCurrentApplication();
+  const { data: deployments } = useDeploymentHistory(app.id, environmentId, { pollWhileActive: environmentActive });
+
+  return (
+    <aside className={DEPLOYMENT_RAIL_CLASS}>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
+        <span className="size-2 shrink-0 rounded-full bg-primary" />
+        <h2 className="text-sm font-semibold text-text-primary">Deployments</h2>
+        <span className="ml-auto font-mono text-2xs tabular-nums text-text-secondary">{deployments.length}</span>
+      </div>
+      <div className="min-h-0 flex-1 divide-y divide-border-dim overflow-y-auto">
+        {deployments.length === 0 ? (
+          <div className="px-4 py-3 text-sm text-text-secondary">No deployments yet.</div>
+        ) : (
+          deployments.map((deployment) => <DeploymentRow key={deployment.id} deployment={deployment} />)
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function DeploymentRailSkeleton() {
+  return (
+    <aside className={DEPLOYMENT_RAIL_CLASS}>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
+        <Skeleton className="size-2 rounded-full" />
+        <Skeleton className="h-5 w-28" />
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+        {Array.from({ length: 6 }, (_, i) => (
+          <Skeleton key={i} className="h-10 w-full" />
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+// Isolates a failed `deployments.history` fetch (thrown by useSuspenseQuery) to the rail. Retry
+// clears the local error and resets the query cache (via onRetry) so the child refetches.
+class DeploymentRailErrorBoundary extends Component<
+  { children: ReactNode; onRetry: () => void },
+  { hasError: boolean }
+> {
+  override state: { hasError: boolean } = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  override render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <aside className={DEPLOYMENT_RAIL_CLASS}>
+        <div className="flex shrink-0 items-center gap-2 border-b border-border-dim px-4 py-3">
+          <span className="size-2 shrink-0 rounded-full bg-primary" />
+          <h2 className="text-sm font-semibold text-text-primary">Deployments</h2>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 py-3 text-center text-sm text-text-secondary">
+          <span>Couldn't load deployments.</span>
+          <Button
+            variant="outline"
+            size="xs"
+            className="gap-1.5"
+            onClick={() => {
+              this.setState({ hasError: false });
+              this.props.onRetry();
+            }}
+          >
+            <ArrowCounterClockwiseIcon size={12} />
+            Retry
+          </Button>
+        </div>
+      </aside>
+    );
+  }
+}
+
 function serviceKey(service: PreviewService): string {
   return `${service.kind}-${service.name}`;
 }
@@ -357,6 +500,7 @@ function PreviewEnvironmentPageSkeleton() {
           <Skeleton className="h-44 w-full shrink-0" />
           <Skeleton className="min-h-0 w-full flex-1" />
         </div>
+        <Skeleton className="hidden shrink-0 lg:block lg:w-80" />
       </div>
     </>
   );

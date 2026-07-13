@@ -7,6 +7,7 @@ import { Service } from "../service";
 import {
     buildPreviewAppSummaries,
     buildServiceSummaries,
+    deriveDeploymentStatus,
     deriveEnvironmentHealth,
     derivePreviewStatus,
     isBuildingOverPriorAttempt,
@@ -23,6 +24,10 @@ import {
 // a repo realistically stays well under this; the cap only guards a pathological
 // backlog of non-torn-down rows.
 const ACTIVE_ENVIRONMENTS_LIMIT = 100;
+
+// Cap on the per-environment deployment-history list. One row per pushed commit,
+// so a long-lived PR stays well under this; the cap bounds a pathological churn.
+const DEPLOYMENT_HISTORY_LIMIT = 50;
 
 // Everything the rich preview-environment summary is assembled from. Shared by
 // the PR-keyed and environment-id-keyed lookups so both produce an identical
@@ -483,6 +488,60 @@ export class DeploymentsService extends Service {
         const currentHeadSha = branch?.activeSnapshot?.headSha ?? environment.headSha;
 
         return this.buildPreviewkitSummary(environment, currentHeadSha, environment.headRef);
+    }
+
+    /**
+     * Lists the deployment history for a single preview environment: one row per
+     * pushed commit (a `PreviewkitBuild`), newest first. Scoped like
+     * `previewSummaryById` - the environment must belong to the org-scoped
+     * application's linked repository. Each row's display status is derived from
+     * `error`/`finishedAt` (a successful build is `status='building'` +
+     * `finishedAt` + no error), and `isCurrent` flags the commit the environment
+     * is presently deployed at.
+     */
+    async deploymentHistory(applicationId: string, environmentId: string, organizationId: string) {
+        this.logger.info("Listing preview deployment history", { applicationId, environmentId, organizationId });
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        if (application == null || application.githubRepositoryId == null) throw new NotFoundError();
+
+        const environment = await this.db.previewkitEnvironment.findFirst({
+            where: { id: environmentId, organizationId, githubRepositoryId: application.githubRepositoryId },
+            select: { headSha: true },
+        });
+        if (environment == null) throw new NotFoundError();
+
+        const builds = await this.db.previewkitBuild.findMany({
+            where: { environmentId },
+            orderBy: { startedAt: "desc" },
+            take: DEPLOYMENT_HISTORY_LIMIT,
+            select: {
+                id: true,
+                headSha: true,
+                status: true,
+                error: true,
+                startedAt: true,
+                finishedAt: true,
+                durationMs: true,
+            },
+        });
+
+        this.logger.info("Listed preview deployment history", { applicationId, environmentId, count: builds.length });
+
+        return builds.map((build) => ({
+            id: build.id,
+            headSha: build.headSha,
+            status: deriveDeploymentStatus(build),
+            startedAt: build.startedAt,
+            finishedAt: build.finishedAt,
+            durationMs: build.durationMs,
+            // `PreviewkitBuild` is `@@unique([environmentId, headSha])`, so at most one row can match
+            // the environment's deployed SHA - a same-commit redeploy upserts the existing row.
+            isCurrent: build.headSha === environment.headSha,
+        }));
     }
 
     /**

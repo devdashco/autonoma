@@ -74,6 +74,25 @@ export async function ensurePreviewSummaryByIdData(
     );
 }
 
+export function useDeploymentHistory(
+    applicationId: string,
+    environmentId: string,
+    options?: { pollWhileActive?: boolean },
+) {
+    return useSuspenseQuery({
+        ...trpc.deployments.history.queryOptions({ applicationId, environmentId }),
+        refetchInterval: (query) => {
+            // Poll while a returned row is still building, and also while the environment itself is
+            // in-flight (`pollWhileActive`): a freshly-triggered deploy's build row is written some
+            // time after the deploy is requested, so without the latter the list would stop polling
+            // in that gap and the new row would only appear on a manual refresh.
+            const deployments = query.state.data ?? [];
+            const anyBuilding = deployments.some((deployment) => deployment.status === "building");
+            return anyBuilding || options?.pollWhileActive === true ? PREVIEW_POLL_MS : false;
+        },
+    });
+}
+
 export async function ensureDeploymentsByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
     await ensureAPIQueryData(queryClient, trpc.deployments.listByPr.queryOptions({ applicationId, prNumber }));
 }
