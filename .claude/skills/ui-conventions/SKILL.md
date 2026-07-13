@@ -179,7 +179,9 @@ PostHog tracking is fully centralized:
 - **`MutationCache` / `QueryCache`** in `lib/trpc.ts` — auto-tracks all tRPC mutations and query errors
 - **PostHog autocapture** — clicks, pageviews, form submissions
 
-Only these files should import `posthog-js`: `main.tsx`, `lib/trpc.ts`, `__root.tsx`.
+Only these files should import `posthog-js` for event tracking (`capture()`): `main.tsx`, `lib/trpc.ts`, `__root.tsx`.
+
+Experiments (A/B tests) are the one exception: reading a feature-flag variant is a distinct concern from writing capture events, and it lives centralized in `lib/experiments.ts`. Consume experiments through the `useExperiment` hook from that module - never import `posthog-js` directly in a component to read flags.
 
 ## Design System Rules
 
