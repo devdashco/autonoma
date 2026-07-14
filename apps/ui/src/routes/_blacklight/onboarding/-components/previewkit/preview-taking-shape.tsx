@@ -11,7 +11,7 @@ import { type Build, isPreviewkitDatabaseEngine } from "@autonoma/types";
 import { CubeIcon } from "@phosphor-icons/react/Cube";
 import { DatabaseIcon } from "@phosphor-icons/react/Database";
 import { KeyIcon } from "@phosphor-icons/react/Key";
-import { type Icon } from "@phosphor-icons/react/lib";
+import type { Icon } from "@phosphor-icons/react/lib";
 import { LockSimpleIcon } from "@phosphor-icons/react/LockSimple";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { XIcon } from "@phosphor-icons/react/X";
