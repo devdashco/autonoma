@@ -5,7 +5,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Services } from "../routes/build-services";
+import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { McpAnalytics } from "./mcp-analytics";
+
+/**
+ * How many recent log lines get_session_status returns per source. Enough to carry
+ * the failing step (e.g. a `pnpm install` error) without flooding a polled tool.
+ */
+const RECENT_LOG_TAIL_LINES = 30;
+
+/** A short tail of one log stream, attached to get_session_status so a polling agent sees why a deploy failed. */
+interface RecentLogTail {
+    source: "build" | "app";
+    lines: string[];
+}
 
 /**
  * Server-level guidance the onboarding MCP client reads on connect. Portable and
@@ -110,6 +123,62 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     /**
+     * The recent log tail attached to get_session_status so a polling agent can see
+     * WHY a deploy failed and fix it, instead of looping blindly on a phase string.
+     * A failed build (a broken `pnpm install`, a bad Dockerfile) lives in build logs;
+     * a container that built then crashed lives in app logs. So while building we show
+     * build, when up we show app, and on failure we return both - the failure could be
+     * either, and the agent needs whichever line actually carries the error.
+     * Best-effort: a log-tail failure (Loki unset or down) never fails the poll.
+     */
+    async function tailPhaseLogs(
+        organizationId: string,
+        diagnostics: PreviewReadiness["diagnostics"],
+    ): Promise<RecentLogTail[]> {
+        const { logs, status } = diagnostics;
+        if (!logs.available) return [];
+
+        const sources: Array<"build" | "app"> =
+            status === "ready" ? ["app"] : status === "failed" ? ["build", "app"] : ["build"];
+        const tails = await Promise.all(
+            sources.map(async (source): Promise<RecentLogTail | undefined> => {
+                try {
+                    const tail = await services.previewkitLogs.tail({
+                        repoFullName: logs.repoFullName,
+                        prNumber: logs.prNumber,
+                        source,
+                        callerOrgId: organizationId,
+                        limit: RECENT_LOG_TAIL_LINES,
+                        from: "tail",
+                    });
+                    if (tail == null || !tail.available || tail.lines.length === 0) return undefined;
+                    return { source, lines: tail.lines.map((line) => line.message) };
+                } catch (err) {
+                    logger.warn("get_session_status recent-log tail failed", { extra: { source }, err });
+                    return undefined;
+                }
+            }),
+        );
+        return tails.filter((tail): tail is RecentLogTail => tail != null);
+    }
+
+    /**
+     * Best-effort: record which coding agent is driving from the MCP `clientInfo`
+     * handshake, so the UI can name it ("Cursor is configuring...") instead of
+     * assuming one. Undefined when the client did not report it (or the handshake
+     * isn't on this request) - the UI then shows a neutral label. Never throws.
+     */
+    async function captureAgentClient(applicationId: string): Promise<void> {
+        const name = server.server.getClientVersion()?.name;
+        if (name == null || name.length === 0) return;
+        try {
+            await session.recordAgentClient(applicationId, name);
+        } catch (err) {
+            logger.warn("recordAgentClient failed", { applicationId, err });
+        }
+    }
+
+    /**
      * Runs one agent write under the config mutex, streaming it as an activity
      * entry and recording an `mcp.tool_called` event. The steps are a deliberate
      * gated sequence, not parallelizable: authorize membership first (so a
@@ -157,6 +226,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 try {
                     logger.info("Pairing agent with code");
                     const view = await session.pairAgent(code, userId);
+                    await captureAgentClient(view.applicationId);
                     const organizationId = await resolveOrg(view.applicationId);
                     const config = await services.onboarding.getPreviewkitConfig(view.applicationId, organizationId);
                     return jsonResult({
@@ -277,14 +347,20 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             title: "Poll status",
             description:
                 "The single polling tool: returns your control state, any pending user request, the deploy status, " +
-                "the preview URL, and diagnostics. Poll this to wait for a build to finish AND to wait for the user " +
-                "to answer a request. If it reports standDown, the user took over - stop configuring.",
+                "the preview URL, diagnostics, and `recentLogs` - a tail of the build logs while building (or both " +
+                "build and app logs on failure) so you can see WHY a deploy failed and fix it, not just that it did. " +
+                "Poll this to wait for a build to finish AND to wait for the user to answer a request. When " +
+                "diagnostics.status is `failed`, read recentLogs for the failing step, fix the config or ask the user " +
+                "for a missing secret, then redeploy. If it reports standDown, the user took over - stop configuring.",
             inputSchema: { applicationId: z.string() },
         },
         async ({ applicationId }) =>
             analytics.track("get_session_status", async () => {
                 try {
                     const organizationId = await resolveOrg(applicationId);
+                    // Capture the client on a polled call too, in case the pair request
+                    // didn't carry the handshake. No-op once the client is already known.
+                    await captureAgentClient(applicationId);
                     // Beat the heartbeat first so the freshly-read view reflects it, then
                     // fetch the view and the deploy readiness together - independent reads.
                     await session.heartbeatIfAgentHeld(applicationId);
@@ -292,6 +368,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         session.getForUi(applicationId),
                         services.onboarding.getPreviewReadiness(applicationId, organizationId),
                     ]);
+                    // Needs readiness.diagnostics (status + the log-stream handle), so it
+                    // can't join the parallel read above.
+                    const recentLogs = await tailPhaseLogs(organizationId, readiness.diagnostics);
                     return jsonResult({
                         standDown: view?.holder === "human",
                         holder: view?.holder,
@@ -300,6 +379,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         step: view?.step,
                         previewUrl: readiness.previewUrl,
                         diagnostics: readiness.diagnostics,
+                        recentLogs,
                     });
                 } catch (err) {
                     logger.warn("get_session_status failed", { applicationId, err });

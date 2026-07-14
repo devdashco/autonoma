@@ -198,6 +198,12 @@ model OnboardingState {
   previewEnvironmentMode    OnboardingPreviewEnvironmentMode?   @map("preview_environment_mode")
   previewUrl                String?                             @map("preview_url")
   previewVerificationStatus OnboardingPreviewVerificationStatus @default(idle) @map("preview_verification_status")
+  // When a previewkit main-branch deploy was last requested. This is the freshness
+  // reference readiness uses to decide whether the environment reflects the current
+  // deploy: `updatedAt` is bumped by unrelated writes (notably the agent heartbeat),
+  // so comparing environment activity against it drifts past the ready moment and the
+  // deploy is never observed as ready. This only changes when a deploy is requested.
+  previewDeployRequestedAt  DateTime?                           @map("preview_deploy_requested_at")
   completedAt               DateTime?                           @map("completed_at")
   lastDiscoveryError        String?                             @map("last_discovery_error")
   lastDiscoveredAt          DateTime?                           @map("last_discovered_at")
@@ -230,6 +236,11 @@ model OnboardingState {
   // it to this app + org (already fixed here from the UI's authenticated context).
   agentPairingCode          String?                             @unique @map("agent_pairing_code")
   agentPairingExpiresAt     DateTime?                           @map("agent_pairing_expires_at")
+  // Which coding agent is driving, from the MCP `clientInfo` handshake (e.g.
+  // "claude-code", "cursor", "codex"). Best-effort - null when the client did not
+  // report it - so the UI can name the agent ("Cursor is configuring...") instead
+  // of hardcoding one, falling back to a neutral label when unknown.
+  agentClient               String?                             @map("agent_client")
 
   createdAt                 DateTime                            @default(now()) @map("created_at")
   updatedAt                 DateTime                            @updatedAt @map("updated_at")

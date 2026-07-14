@@ -1,13 +1,22 @@
-import { Badge, Button, Progress, ScrollArea, Separator, Textarea } from "@autonoma/blacklight";
+import { Badge, Button, Progress, ScrollArea, Separator, Skeleton, Textarea } from "@autonoma/blacklight";
 import type { AgentLogEntry } from "@autonoma/types";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
 import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { StopIcon } from "@phosphor-icons/react/Stop";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { useAgentSession, useStopAgent, useSubmitAgentEnv } from "lib/onboarding/onboarding-api";
-import { useState } from "react";
+import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import {
+  useAgentSession,
+  usePreviewkitConfig,
+  usePreviewReadiness,
+  useStopAgent,
+  useSubmitAgentEnv,
+} from "lib/onboarding/onboarding-api";
+import { Suspense, useState, type ReactNode } from "react";
 import { parseDotenv } from "./topology-draft";
 
 /**
@@ -56,7 +65,7 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         )}
         <div className="flex flex-col">
           <span className="font-sans text-lg text-text-primary">
-            {ready ? "Your preview is live" : "Claude is configuring your preview"}
+            {ready ? "Your preview is live" : `${agentDisplayName(session.agentClient)} is configuring your preview`}
           </span>
           <span className="font-mono text-2xs text-text-secondary">
             {ready ? "You can continue onboarding" : (running?.message ?? "Working…")}
@@ -90,11 +99,173 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         </div>
       </ScrollArea>
 
-      <p className="text-2xs text-text-secondary">
-        The configuration below fills itself in as the agent works - you don't need to touch it.
-      </p>
+      <Separator />
+
+      <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+        <ConfigSummary applicationId={applicationId} />
+      </Suspense>
+
+      <Separator />
+
+      <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+        <DeploySection applicationId={applicationId} />
+      </Suspense>
     </div>
   );
+}
+
+/** Section heading used inside the read-only configuring screen. */
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">{children}</p>;
+}
+
+/**
+ * A read-only summary of the config the agent has written so far, so the user can
+ * see what it set up (apps + framework + port + secret keys, services, addons)
+ * without an editable panel they are told not to touch.
+ */
+function ConfigSummary({ applicationId }: { applicationId: string }) {
+  const { data } = usePreviewkitConfig(applicationId);
+  const document = data.document;
+  const apps = document?.apps ?? [];
+
+  if (apps.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <SectionTitle>Configuration</SectionTitle>
+        <p className="font-mono text-2xs text-text-secondary">The agent hasn't written a configuration yet…</p>
+      </div>
+    );
+  }
+
+  const services = document?.services ?? [];
+  const addons = document?.addons ?? [];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionTitle>Configuration</SectionTitle>
+      <div className="flex flex-col gap-2">
+        {apps.map((app) => (
+          <div key={app.name} className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-2xs">
+            <span className="text-text-primary">{app.name}</span>
+            {app.build != null ? <Badge variant="outline">{app.build.framework}</Badge> : undefined}
+            <span className="text-text-secondary">port {app.port}</span>
+            {app.build_secrets.length > 0 ? (
+              <span className="text-text-secondary">· secrets: {app.build_secrets.join(", ")}</span>
+            ) : undefined}
+          </div>
+        ))}
+        {services.map((service) => (
+          <div key={service.name} className="flex items-center gap-2 font-mono text-2xs">
+            <Badge variant="secondary">service</Badge>
+            <span className="text-text-primary">{service.name}</span>
+            <span className="text-text-secondary">{service.recipe}</span>
+          </div>
+        ))}
+        {addons.map((addon) => (
+          <div key={addon.name} className="flex items-center gap-2 font-mono text-2xs">
+            <Badge variant="secondary">addon</Badge>
+            <span className="text-text-primary">{addon.name}</span>
+            <span className="text-text-secondary">{addon.provider}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The live deploy status and logs, shown read-only below the activity stream (no
+ * redeploy/edit actions - the agent drives). Surfaces the same build/app log tabs
+ * the deploy-verify screen uses, so the user can watch the deploy and see failures
+ * as they happen instead of a bare spinner.
+ */
+function DeploySection({ applicationId }: { applicationId: string }) {
+  const { data } = usePreviewReadiness(applicationId);
+  const { diagnostics, previewUrl, services } = data;
+  const appBuilding = diagnostics.status === "building" || diagnostics.status === "idle";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <SectionTitle>Deploy</SectionTitle>
+        <DeployStatusBadge status={diagnostics.status} />
+      </div>
+
+      {previewUrl != null ? (
+        <a
+          href={previewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex max-w-full items-center gap-1.5 truncate font-mono text-2xs text-primary hover:underline"
+        >
+          <GlobeIcon size={13} />
+          {previewUrl}
+        </a>
+      ) : undefined}
+
+      {diagnostics.error != null ? (
+        <div className="flex items-start gap-2 border-l-2 border-status-critical bg-status-critical/10 px-3 py-2">
+          <WarningCircleIcon size={14} className="mt-0.5 shrink-0 text-status-critical" />
+          <p className="font-mono text-2xs text-text-secondary">{diagnostics.error}</p>
+        </div>
+      ) : undefined}
+
+      {services.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {services.map((service) => (
+            <Badge key={service.name} variant="outline" className="gap-1.5 font-mono">
+              {service.name}
+              <span className="text-text-secondary">{service.status}</span>
+            </Badge>
+          ))}
+        </div>
+      ) : undefined}
+
+      {diagnostics.logs.available ? (
+        <PreviewLogsTabs
+          owner={repoOwner(diagnostics.logs.repoFullName)}
+          repo={repoName(diagnostics.logs.repoFullName)}
+          pr={diagnostics.logs.prNumber}
+          appBuilding={appBuilding}
+        />
+      ) : (
+        <p className="font-mono text-2xs text-text-secondary">Logs appear once a deploy starts.</p>
+      )}
+    </div>
+  );
+}
+
+function DeployStatusBadge({ status }: { status: "idle" | "building" | "ready" | "failed" }) {
+  if (status === "ready") return <Badge variant="success">ready</Badge>;
+  if (status === "failed") return <Badge variant="critical">failed</Badge>;
+  if (status === "building") return <Badge variant="status-running">building</Badge>;
+  return <Badge variant="secondary">idle</Badge>;
+}
+
+function repoOwner(repoFullName: string): string {
+  return repoFullName.split("/")[0] ?? repoFullName;
+}
+
+function repoName(repoFullName: string): string {
+  return repoFullName.split("/")[1] ?? repoFullName;
+}
+
+/**
+ * A friendly name for the driving coding agent from its MCP `clientInfo`. The
+ * client-reported name varies ("claude-code", "cursor", "Windsurf", ...), so we
+ * match the ones we know and fall back to a neutral label - never assume Claude.
+ */
+function agentDisplayName(client?: string): string {
+  if (client == null) return "Your coding agent";
+  const normalized = client.toLowerCase();
+  if (normalized.includes("claude")) return "Claude";
+  if (normalized.includes("cursor")) return "Cursor";
+  if (normalized.includes("codex") || normalized.includes("openai")) return "Codex";
+  if (normalized.includes("windsurf")) return "Windsurf";
+  if (normalized.includes("cline")) return "Cline";
+  if (normalized.includes("copilot")) return "Copilot";
+  return "Your coding agent";
 }
 
 function ToolCallRow({ entry }: { entry: AgentLogEntry }) {

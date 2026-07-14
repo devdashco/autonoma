@@ -21,8 +21,22 @@ import { env } from "env";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
 
-/** The onboarding MCP endpoint the user's coding agent connects to. */
-const MCP_URL = `${env.VITE_API_URL}/v1/mcp/onboarding`;
+/**
+ * The onboarding MCP endpoint the user's coding agent connects to. The API is
+ * same-origin with the UI in deployed envs (ingress routes `/v1` to it), so we
+ * derive it from the current origin - a literal host would be wrong on beta
+ * (beta.autonoma.app) vs prod (autonoma.app). Localhost and per-PR previews reach
+ * the API cross-origin, so there we fall back to the configured VITE_API_URL, the
+ * same rule the tRPC client uses.
+ */
+function onboardingMcpUrl(): string {
+  const isPreview = window.location.hostname.endsWith(`.preview.${env.VITE_INTERNAL_DOMAIN}`);
+  const isLocalhost = window.location.hostname === "localhost";
+  const base = isPreview || isLocalhost ? env.VITE_API_URL : window.location.origin;
+  return `${base}/v1/mcp/onboarding`;
+}
+
+const MCP_URL = onboardingMcpUrl();
 const MCP_SERVER_NAME = "autonoma-onboarding";
 /** Public docs page explaining the agentic onboarding flow (install, pairing, tools, secrets). */
 const DOCS_URL = "https://docs.autonoma.app/mcp/configure-preview";
@@ -80,7 +94,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
 
   return (
     <>
-      <Button variant="outline" onClick={openAndPair} disabled={createPairing.isPending}>
+      <Button variant="accent" size="lg" className="shrink-0" onClick={openAndPair} disabled={createPairing.isPending}>
         <RobotIcon weight="bold" />
         Configure with coding agent
       </Button>
@@ -182,10 +196,16 @@ function CopyableCode({ code }: { code: string }) {
 
   return (
     <div className="relative">
-      <pre className="overflow-x-auto border border-border-dim bg-surface-void p-3 font-mono text-2xs text-text-primary">
+      <pre className="overflow-x-auto border border-border-dim bg-surface-void p-3 pr-11 font-mono text-2xs text-text-primary">
         {code}
       </pre>
-      <Button variant="ghost" size="icon-xs" className="absolute right-2 top-2" onClick={copy} aria-label="Copy">
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="absolute right-2 top-2 bg-surface-void"
+        onClick={copy}
+        aria-label="Copy"
+      >
         {copied ? <CheckIcon className="text-status-success" /> : <CopyIcon />}
       </Button>
     </div>

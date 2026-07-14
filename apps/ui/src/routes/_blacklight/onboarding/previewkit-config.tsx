@@ -157,7 +157,14 @@ function AgentGate({ appId, ...rest }: { appId: string } & Omit<PreviewkitConfig
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-4 border border-primary/40 bg-primary/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <span className="font-sans text-base text-text-primary">Let a coding agent configure this for you</span>
+          <span className="max-w-xl text-2xs text-text-secondary">
+            Hand off to Claude Code, Cursor, or any MCP agent. It sets up the build, services, and environment and
+            deploys your preview - you watch it happen right here.
+          </span>
+        </div>
         <ConfigureWithAgentModal applicationId={appId} />
       </div>
       <PreviewkitConfigContent appId={appId} {...rest} />

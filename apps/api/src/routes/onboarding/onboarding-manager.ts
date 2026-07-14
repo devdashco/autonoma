@@ -403,6 +403,7 @@ export class OnboardingManager {
                 step: "previewkit_deploying",
                 previewEnvironmentMode: "previewkit",
                 previewVerificationStatus: "building",
+                previewDeployRequestedAt: new Date(),
             },
         });
 
@@ -437,7 +438,11 @@ export class OnboardingManager {
             organizationId,
             state.step,
             state.previewVerificationStatus,
-            state.updatedAt,
+            // The deploy-request time, NOT the row's `updatedAt`: the latter is bumped
+            // by unrelated writes (the agent heartbeat) and would drift past the moment
+            // the environment goes ready, so the deploy would never be observed as ready.
+            // Fall back to `updatedAt` only for rows predating this column.
+            state.previewDeployRequestedAt ?? state.updatedAt,
         );
     }
 

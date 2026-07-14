@@ -17,9 +17,15 @@ interface StepProgressProps {
   /** Active PreviewKit config sub-step, shown as nested sidebar navigation. */
   configStep?: ConfigStepId;
   appId?: string;
+  /**
+   * True while a coding agent holds the config. The config sub-nav lets the user
+   * jump between config sub-steps, but the agent owns the whole config then and the
+   * panel is read-only, so the sub-nav is hidden to avoid implying it's navigable.
+   */
+  agentConfiguring?: boolean;
 }
 
-export function StepProgress({ currentStepId, configStep, appId }: StepProgressProps) {
+export function StepProgress({ currentStepId, configStep, appId, agentConfiguring }: StepProgressProps) {
   const resolvedCurrentStep = resolveStepId(currentStepId);
   const currentIndex = ALL_STEP_IDS.indexOf(resolvedCurrentStep);
   const onConfigStep = resolvedCurrentStep === "previewkit-config";
@@ -31,7 +37,7 @@ export function StepProgress({ currentStepId, configStep, appId }: StepProgressP
         const isActive = step.activeSteps.includes(resolvedCurrentStep);
         const isCompleted = globalIndex < currentIndex;
         const isLast = stepIndex === ONBOARDING_PHASES.length - 1;
-        const showSubNav = step.id === "preview" && onConfigStep;
+        const showSubNav = step.id === "preview" && onConfigStep && agentConfiguring !== true;
 
         return (
           <div key={step.id} className="flex gap-5">

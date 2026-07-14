@@ -30,6 +30,9 @@ const PAIRING_CODE_MAX_ATTEMPTS = 5;
 /** Cap the agent activity stream retained on the row (onboarding is short; trims oldest). */
 const MAX_LOG_ENTRIES = 200;
 
+/** Cap on the stored MCP client name - it is client-reported, so bound it defensively. */
+const MAX_AGENT_CLIENT_LENGTH = 100;
+
 /**
  * Pairing rate limits. Pairing is already gated by OAuth + org membership (a
  * guessed code can't reach an app you don't already have access to), so these are
@@ -59,6 +62,8 @@ export interface AgentSessionView {
     agentLastActivityAt?: Date;
     pendingRequest?: OnboardingAgentPendingRequest;
     logs: AgentLogEntry[];
+    /** Which coding agent is driving (from MCP clientInfo); undefined when unknown. */
+    agentClient?: string;
 }
 
 /**
@@ -362,6 +367,7 @@ export class OnboardingAgentSessionService {
                 agentLastActivityAt: true,
                 agentPendingRequest: true,
                 agentLogs: true,
+                agentClient: true,
             },
         });
         if (state == null) return undefined;
@@ -378,7 +384,22 @@ export class OnboardingAgentSessionService {
             agentLastActivityAt: state.agentLastActivityAt ?? undefined,
             pendingRequest: this.parsePendingRequest(state.agentPendingRequest),
             logs: state.agentLogs,
+            agentClient: state.agentClient ?? undefined,
         };
+    }
+
+    /**
+     * Best-effort record of which coding agent is driving, from the MCP `clientInfo`
+     * handshake. Only fills the column while it is empty (first known client wins),
+     * so it is a cheap no-op on every subsequent call and never overwrites.
+     */
+    async recordAgentClient(applicationId: string, client: string): Promise<void> {
+        const trimmed = client.trim();
+        if (trimmed.length === 0) return;
+        await this.db.onboardingState.updateMany({
+            where: { applicationId, agentClient: null },
+            data: { agentClient: trimmed.slice(0, MAX_AGENT_CLIENT_LENGTH) },
+        });
     }
 
     private async requireView(applicationId: string): Promise<AgentSessionView> {

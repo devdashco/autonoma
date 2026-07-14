@@ -12,6 +12,7 @@ import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { isOnboardingStep, type OnboardingStep } from "lib/onboarding/onboarding-steps";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { ensureSessionData } from "lib/query/auth.queries";
+import { useAgentSession } from "lib/query/onboarding.queries";
 import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
 import { Component, useState, type ReactNode } from "react";
@@ -151,6 +152,8 @@ function OnboardingLayout() {
   const { backendStep } = Route.useLoaderData();
   const { step, appId, error, focusApp, focusField, focusSection, configStep } = Route.useSearch();
   const currentStepId = resolveViewStep(step, backendStep, appId != null);
+  const { data: agentSession } = useAgentSession(appId ?? "");
+  const agentConfiguring = agentSession?.effectiveHolder === "agent";
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const deleteApp = useDeleteApplication();
@@ -243,7 +246,12 @@ function OnboardingLayout() {
       <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
         <div className="flex-1 p-8 pt-10">
           <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-secondary">New Application</h3>
-          <StepProgress currentStepId={currentStepId} configStep={configStep} appId={appId} />
+          <StepProgress
+            currentStepId={currentStepId}
+            configStep={configStep}
+            appId={appId}
+            agentConfiguring={agentConfiguring}
+          />
         </div>
 
         <div className="border-t border-border-dim px-8 py-6">
