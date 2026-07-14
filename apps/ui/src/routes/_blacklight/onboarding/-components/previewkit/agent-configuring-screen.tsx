@@ -12,6 +12,8 @@ import {
 } from "@autonoma/blacklight";
 import { type AgentLogEntry } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
+import { CaretUpIcon } from "@phosphor-icons/react/CaretUp";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { CircleIcon } from "@phosphor-icons/react/Circle";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
@@ -55,6 +57,10 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   const complete = useCompletePreviewOnboarding();
   const navigate = useNavigate();
   const router = useRouter();
+  // Once the preview is live the verbose activity (tool calls, the config cards,
+  // the deploy logs) has served its purpose, so collapse it to a compact "you're
+  // live, continue" card - but keep it one click away for anyone who wants to look.
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   if (session == null) return undefined;
 
@@ -64,6 +70,10 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   const running = [...logs].reverse().find((entry) => entry.status === "running");
   const ready = session.previewVerificationStatus === "ready";
   const pendingEnv = session.pendingRequest?.kind === "env" ? session.pendingRequest : undefined;
+  // While the agent works, everything is on show; once ready, details collapse
+  // behind the toggle (the deploy status/url/services stay - only the noisy
+  // sections and logs fold away).
+  const showDetails = !ready || detailsExpanded;
 
   // A ready agent-driven preview is the end of preview onboarding, but nothing
   // advances the flow on its own - the agent holds the config and the user is
@@ -135,31 +145,49 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         />
       )}
 
-      <Separator />
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <SectionTitle>Tool calls</SectionTitle>
-          <ScrollArea className="max-h-96">
-            <div className="flex flex-col gap-1.5">
-              {logs.length === 0 ? (
-                <p className="font-mono text-2xs text-text-secondary">Waiting for the agent to start…</p>
-              ) : (
-                logs.map((entry) => <ToolCallRow key={entry.id} entry={entry} />)
-              )}
-            </div>
-          </ScrollArea>
+      {ready ? (
+        <div className="flex justify-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-text-secondary"
+            onClick={() => setDetailsExpanded((value) => !value)}
+          >
+            {detailsExpanded ? <CaretUpIcon weight="bold" /> : <CaretDownIcon weight="bold" />}
+            {detailsExpanded ? "Hide configuration & logs" : "Show configuration & logs"}
+          </Button>
         </div>
+      ) : undefined}
 
-        <Suspense fallback={<Skeleton className="h-48 w-full" />}>
-          <PreviewTakingShape applicationId={applicationId} />
-        </Suspense>
-      </div>
+      {showDetails ? (
+        <>
+          <Separator />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <SectionTitle>Tool calls</SectionTitle>
+              <ScrollArea className="max-h-96">
+                <div className="flex flex-col gap-1.5">
+                  {logs.length === 0 ? (
+                    <p className="font-mono text-2xs text-text-secondary">Waiting for the agent to start…</p>
+                  ) : (
+                    logs.map((entry) => <ToolCallRow key={entry.id} entry={entry} />)
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+              <PreviewTakingShape applicationId={applicationId} />
+            </Suspense>
+          </div>
+        </>
+      ) : undefined}
 
       <Separator />
 
       <Suspense fallback={<Skeleton className="h-48 w-full" />}>
-        <DeploySection applicationId={applicationId} />
+        <DeploySection applicationId={applicationId} showLogs={showDetails} />
       </Suspense>
 
       {ready ? (
@@ -191,7 +219,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
  * the deploy-verify screen uses, so the user can watch the deploy and see failures
  * as they happen instead of a bare spinner.
  */
-function DeploySection({ applicationId }: { applicationId: string }) {
+function DeploySection({ applicationId, showLogs }: { applicationId: string; showLogs: boolean }) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
   const isReady = diagnostics.status === "ready";
@@ -259,18 +287,20 @@ function DeploySection({ applicationId }: { applicationId: string }) {
         </div>
       ) : undefined}
 
-      {diagnostics.logs.available ? (
-        <PreviewLogsTabs
-          owner={repoOwner(diagnostics.logs.repoFullName)}
-          repo={repoName(diagnostics.logs.repoFullName)}
-          pr={diagnostics.logs.prNumber}
-          appBuilding={imageBuilding}
-          source={logSource}
-          onSourceChange={setLogSourceOverride}
-        />
-      ) : (
-        <p className="font-mono text-2xs text-text-secondary">Logs appear once a deploy starts.</p>
-      )}
+      {showLogs ? (
+        diagnostics.logs.available ? (
+          <PreviewLogsTabs
+            owner={repoOwner(diagnostics.logs.repoFullName)}
+            repo={repoName(diagnostics.logs.repoFullName)}
+            pr={diagnostics.logs.prNumber}
+            appBuilding={imageBuilding}
+            source={logSource}
+            onSourceChange={setLogSourceOverride}
+          />
+        ) : (
+          <p className="font-mono text-2xs text-text-secondary">Logs appear once a deploy starts.</p>
+        )
+      ) : undefined}
     </div>
   );
 }

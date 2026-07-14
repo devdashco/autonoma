@@ -93,7 +93,9 @@ function LogRow({ entry, active }: { entry: BuildLogEntry; active?: boolean }) {
   if (entry.kind === "phase") {
     return (
       <div className="mt-2 mb-1 flex items-center gap-1.5 text-primary">
-        {active === true ? <BrailleSpinner animation="scan" size="sm" /> : <span aria-hidden>▸</span>}
+        <span className="inline-flex w-3 shrink-0 justify-center">
+          {active === true ? <BrailleSpinner animation="braille" size="sm" /> : <span aria-hidden>▸</span>}
+        </span>
         {entry.message}
       </div>
     );
