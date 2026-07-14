@@ -223,7 +223,18 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
       ) : undefined}
 
       {isReady ? (
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          {/* A ready preview can still be functionally wrong - the app comes up but
+              a missing database leaves it erroring - so keep a way back to the config
+              instead of only offering "start generating tests". */}
+          {data.mode === "previewkit" ? (
+            <Button variant="outline" className="gap-2" onClick={() => editConfig()}>
+              <PencilSimpleIcon size={14} />
+              Edit configuration
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button
             variant="accent"
             className="gap-2 px-6 py-3"
