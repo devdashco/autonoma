@@ -26,6 +26,14 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 - Captures deployed image versions
 - Attaches deployment manifest to the release
 
+### 2a. **Production Hotfix** (`production-hotfix.yml`)
+
+- Manually triggered with a single commit SHA
+- Reads the Git tag currently deployed to production
+- Cherry-picks only the supplied commit onto that production revision
+- Creates an immutable `prod-hotfix-*` tag and runs the normal production build
+- Waits for the production deployment and reports its result
+
 ### 2b. **Publish CLI to npm** (`cli-publish.yml`)
 
 - Triggers when a GitHub release is published
@@ -140,6 +148,24 @@ If you need to deploy without merging a release PR:
 ```bash
 gh workflow run production-build.yml -f version=v1.2.3
 ```
+
+### Production Hotfix
+
+Use the **Deploy Production Hotfix** workflow to deploy one fix without including
+other unreleased commits from `main`. The workflow reads the version currently
+running in production, cherry-picks the supplied commit onto that Git tag, and
+then runs the normal production deployment.
+
+```bash
+gh workflow run production-hotfix.yml -f commit=<COMMIT_SHA>
+```
+
+The commit must be available in this repository and have exactly one parent.
+The workflow fails without deploying if the production Git tag is missing or
+the cherry-pick conflicts. It keeps the generated `prod-hotfix-*` tag because a
+subsequent hotfix may need to use it as its production base. To undo the
+hotfix, run the production rollback workflow with the base tag shown in the
+hotfix workflow summary.
 
 ### Rollback
 
