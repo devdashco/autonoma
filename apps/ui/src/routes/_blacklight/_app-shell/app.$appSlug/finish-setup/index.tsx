@@ -64,6 +64,10 @@ interface FinishStepDefinition {
   render: (props: { applicationId: string; artifactStatus: ArtifactStatus }) => ReactNode;
 }
 
+// The planner's package.json requires Node >= 22.13, so the sandbox image must be
+// on that major - node:20 fails the engine check before the CLI even runs.
+const PLANNER_NODE_IMAGE = "node:22";
+
 const CLI_FINISH_STEP: FinishStepDefinition = {
   id: "cli",
   stepperLabel: "CLI",
@@ -854,7 +858,7 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
     envPairs != null
       ? `docker run --rm -it -v "$PWD:/repo" -w /repo ${envPairs
           .map((pair) => `-e ${pair}`)
-          .join(" ")} node:20 npx @autonoma-ai/planner@latest`
+          .join(" ")} ${PLANNER_NODE_IMAGE} npx @autonoma-ai/planner@latest`
       : undefined;
 
   return (
@@ -911,6 +915,11 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
             </div>
           );
         })}
+        <p className="mt-1 text-2xs text-text-secondary">
+          <DocLink href="https://docs.autonoma.app/test-planner/">
+            Learn more about the planner and what it generates
+          </DocLink>
+        </p>
       </div>
 
       {isAdmin && <AdminManualUpload applicationId={applicationId} setupId={setup.setupId} />}
