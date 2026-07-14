@@ -5,7 +5,7 @@ description: Run non-database side containers - MinIO, a mock API server, a Mail
 
 <p class="lead">Extra services are extra Docker images that aren't databases: things like MinIO for object storage, a mock API server, a Mailpit inbox, or an OpenTelemetry collector that run alongside your app in every preview. They're optional - most projects never need one.</p>
 
-![A preview namespace containing your app alongside extra service containers - MinIO, a mock API, and Mailpit](/img/previewkit/extra-services.jpg)
+![A preview namespace containing your app alongside extra service containers - MinIO, a mock API, and Mailpit](/img/preview-environments/extra-services.jpg)
 
 This step is off the main onboarding flow. You don't have to add anything here to finish setup. Only add an extra service if your app genuinely depends on a non-database side container running next to it.
 
@@ -51,4 +51,4 @@ Most images need only an image, a port, and a few env vars. When one needs more,
 
 ## Not for databases
 
-Databases - Postgres, MySQL, MongoDB, Redis / Valkey - are not extra services. They live in their own required [Databases](/previewkit/databases/) step, where Previewkit provisions and wires them for you, with guided setup for schema, seed data, and migrations. Reach for extra services only when you need a side container that a database step can't provide.
+Databases - Postgres, MySQL, MongoDB, Redis / Valkey - are not extra services. They live in their own required [Databases](/preview-environments/databases/) step, where Autonoma provisions and wires them for you, with guided setup for schema, seed data, and migrations. Reach for extra services only when you need a side container that a database step can't provide.

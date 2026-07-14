@@ -317,7 +317,7 @@ function DeployRequestIdleIndicator() {
         </div>
         <div className="min-w-0">
           <p className="text-sm font-medium text-text-primary">Deploy request accepted</p>
-          <p className="mt-1 text-xs text-text-secondary">PreviewKit is waiting for a deploy worker to start.</p>
+          <p className="mt-1 text-xs text-text-secondary">Autonoma is waiting for a deploy worker to start.</p>
         </div>
       </div>
 

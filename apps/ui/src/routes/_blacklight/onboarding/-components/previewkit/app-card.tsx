@@ -23,7 +23,7 @@ import { BuildModeSection } from "./build-mode-section";
 import { FieldMessages } from "./field-messages";
 import { fieldIssueKey, type AppDraft, type AppDraftField, type DraftIssues, type RepoDraft } from "./topology-draft";
 
-const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
+const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/preview-environments/multirepo/";
 
 interface AppCardProps {
   app: AppDraft;

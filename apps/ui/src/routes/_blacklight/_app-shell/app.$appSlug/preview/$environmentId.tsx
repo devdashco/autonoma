@@ -140,6 +140,15 @@ function PreviewHeader({
           <StatusDot status={statusMeta.dot} className="rounded-full" />
           {statusMeta.label}
         </Badge>
+        {/* The detail view is read-only; the build/services/env for these previews
+            live in the app's Preview Environments settings, so link straight there. */}
+        <AppLink
+          to="/app/$appSlug/preview-config"
+          className="ml-auto inline-flex items-center gap-1.5 border border-border-mid px-3 py-1.5 font-mono text-2xs text-text-secondary transition-colors hover:border-border-highlight hover:text-text-primary"
+        >
+          <GearSixIcon size={13} />
+          Preview settings
+        </AppLink>
       </div>
 
       {summary.error != null && <p className="text-sm text-status-critical">{summary.error}</p>}

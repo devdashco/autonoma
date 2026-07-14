@@ -622,7 +622,7 @@ function PreviewkitConfigContent({
             <CodeIcon size={20} weight="bold" />
           </div>
         }
-        title="Build with PreviewKit"
+        title="Build with preview environments"
         description={
           <p className="max-w-3xl">
             Map every deployable app to its repo, then attach the databases it needs. Extra services and lifecycle hooks

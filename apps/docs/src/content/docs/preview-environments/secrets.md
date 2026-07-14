@@ -5,7 +5,7 @@ description: How to give your preview apps the credentials they need - API keys,
 
 <p class="lead">A secret is any value you wouldn't commit to your repo - a Stripe key, a database URL, a signed token. You set it once, the platform stores it encrypted, and every preview deploy mounts it into your app as an environment variable. Your code just reads <code>process.env.STRIPE_API_KEY</code> and gets the value.</p>
 
-![Set a secret in the config UI or via the API, it is stored encrypted in AWS Secrets Manager, then mounted as an environment variable into every preview of that app](/img/previewkit/secret-flow.jpg)
+![Set a secret in the config UI or via the API, it is stored encrypted in AWS Secrets Manager, then mounted as an environment variable into every preview of that app](/img/preview-environments/secret-flow.jpg)
 
 ## Two ways to set a secret
 
@@ -18,7 +18,7 @@ Both routes write to the same encrypted store, so a value set in the UI is visib
 
 Not everything your app reads from `process.env` is a secret. Picking the right home is the thing people get wrong most often, so start here:
 
-![Decision flow: a sensitive value becomes a Secret, the address of another app or service becomes a Connection, a non-sensitive per-environment value goes in config env, and a value needed during the build becomes a build secret](/img/previewkit/what-goes-where.jpg)
+![Decision flow: a sensitive value becomes a Secret, the address of another app or service becomes a Connection, a non-sensitive per-environment value goes in config env, and a value needed during the build becomes a build secret](/img/preview-environments/what-goes-where.jpg)
 
 | Value | Where it goes | Why |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ Calls without a valid Bearer token get a 401. Calls referencing an `applicationI
 
 ## Build-time secrets (`build_secrets`)
 
-`NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in an app's `build_secrets` and Previewkit will pass them to your builder:
+`NEXT_PUBLIC_*` values for Next.js, `VITE_*` values for Vite, anything else baked into a client bundle at compile time - these need to be present during `next build` / `vite build`, not just at runtime. List them in an app's `build_secrets` and Autonoma will pass them to your builder:
 
 ```yaml
 apps:
@@ -109,7 +109,7 @@ Template substitutions (`{{api.host}}`, `{{pr}}`, etc.) inside `env` resolve the
 
 ## Built-in environment variables
 
-Previewkit injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved, so the API rejects any secret you try to set with one of these keys.
+Autonoma injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved, so the API rejects any secret you try to set with one of these keys.
 
 | Variable | Value | Notes |
 | --- | --- | --- |

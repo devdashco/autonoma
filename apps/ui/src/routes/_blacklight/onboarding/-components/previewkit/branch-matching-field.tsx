@@ -3,7 +3,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import type { BranchConventionDraft } from "./topology-draft";
 
-const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
+const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/preview-environments/multirepo/";
 
 interface BranchMatchingFieldProps {
   convention: BranchConventionDraft;

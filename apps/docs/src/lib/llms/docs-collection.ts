@@ -7,12 +7,12 @@ import { type CollectionEntry, getCollection } from "astro:content";
  */
 const SIDEBAR_ORDER: string[] = [
     "index",
-    "previewkit/index",
-    "previewkit/apps",
-    "previewkit/databases",
-    "previewkit/services",
-    "previewkit/hooks",
-    "previewkit/multirepo",
+    "preview-environments/index",
+    "preview-environments/apps",
+    "preview-environments/databases",
+    "preview-environments/services",
+    "preview-environments/hooks",
+    "preview-environments/multirepo",
     "mcp/index",
     "mcp/configure-preview",
     "test-planner/index",
@@ -30,7 +30,7 @@ const SIDEBAR_ORDER: string[] = [
     "environment-factory/examples/rust",
     "environment-factory/examples/go",
     "environment-factory/examples/php",
-    "previewkit/secrets",
+    "preview-environments/secrets",
     "reference/scenario-recipe-schema",
     "development/setup",
     "development/architecture",
@@ -57,8 +57,8 @@ export interface DocPageWithNav extends DocPage {
 function slugFromId(id: string): string {
     // The glob loader's id form varies (extension present or not; index files
     // collapse to their directory), and SIDEBAR_ORDER lists ids in yet another
-    // form ("previewkit/index"). Normalizing both sides through this to the URL
-    // slug ("", "previewkit", "previewkit/apps") is what makes the lookup match -
+    // form ("preview-environments/index"). Normalizing both sides through this to
+    // the URL slug ("", "preview-environments", "preview-environments/apps") is what makes the lookup match -
     // matching on raw ids leaves every index page falling back to collection order.
     return id
         .replace(/\.mdx?$/, "")

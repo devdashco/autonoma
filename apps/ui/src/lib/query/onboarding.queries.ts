@@ -225,7 +225,7 @@ export function useTriggerPreviewkitMainDeploy() {
             },
             onError: (error) => onStepMismatch(error),
         }),
-        errorToast: { title: "Failed to start PreviewKit deploy" },
+        errorToast: { title: "Failed to start preview deploy" },
     });
 }
 
@@ -244,7 +244,7 @@ export function useSavePreviewkitConfig() {
             },
             onError: (error) => onStepMismatch(error),
         }),
-        errorToast: { title: "Failed to save PreviewKit config" },
+        errorToast: { title: "Failed to save preview config" },
     });
 }
 
@@ -269,7 +269,7 @@ export function useDeploymentSignalStatus(applicationId: string) {
 export function useValidatePreviewkitConfig() {
     return useAPIMutation({
         ...trpc.onboarding.validatePreviewkitConfig.mutationOptions({}),
-        errorToast: { title: "Failed to validate PreviewKit config" },
+        errorToast: { title: "Failed to validate preview config" },
     });
 }
 
@@ -314,7 +314,7 @@ export function useUpsertPreviewkitSecrets() {
             },
             onError: (error) => onStepMismatch(error),
         }),
-        errorToast: { title: "Failed to save PreviewKit secret" },
+        errorToast: { title: "Failed to save preview secret" },
     });
 }
 
@@ -329,7 +329,7 @@ export function useDeletePreviewkitSecret() {
             },
             onError: (error) => onStepMismatch(error),
         }),
-        errorToast: { title: "Failed to delete PreviewKit secret" },
+        errorToast: { title: "Failed to delete preview secret" },
     });
 }
 

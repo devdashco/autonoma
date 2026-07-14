@@ -3,19 +3,19 @@ title: Multiple repositories
 description: Deploy your frontend and the apps it depends on from more than one repository into a single preview, and control which branch of each connected repository gets built.
 ---
 
-<p class="lead">Autonoma tests a pull request by opening one app in a browser - the frontend. The apps and services behind it can live in a single repository or several; when they span repositories, Previewkit pulls them all into the same preview.</p>
+<p class="lead">Autonoma tests a pull request by opening one app in a browser - the frontend. The apps and services behind it can live in a single repository or several; when they span repositories, Autonoma pulls them all into the same preview.</p>
 
 ## The frontend
 
 Every project has exactly one **frontend**: the app Autonoma opens in the browser to run its tests, and whose address becomes the preview's URL. It lives in the repository you open pull requests against.
 
-The frontend rarely stands alone - it calls an API, background workers, a database. Those can sit in the same repository, or in their own. Either way they deploy together, into the single preview environment for that pull request, and Previewkit wires them to each other. Think of the frontend as the root of a tree: everything else is there to support the one thing the browser opens.
+The frontend rarely stands alone - it calls an API, background workers, a database. Those can sit in the same repository, or in their own. Either way they deploy together, into the single preview environment for that pull request, and Autonoma wires them to each other. Think of the frontend as the root of a tree: everything else is there to support the one thing the browser opens.
 
-![A tree with the frontend app at the root and the API, worker, and database it depends on branching below it, each tagged with the repository it comes from](/img/previewkit/multirepo-tree.jpg)
+![A tree with the frontend app at the root and the API, worker, and database it depends on branching below it, each tagged with the repository it comes from](/img/preview-environments/multirepo-tree.jpg)
 
 ## Connected repositories
 
-When an app your frontend needs lives in a different repository, you add that repository as a **connected repository**. You do it while adding an app: pick which repository the app comes from, or connect a new one through the Previewkit GitHub App. Each connected repository carries two settings:
+When an app your frontend needs lives in a different repository, you add that repository as a **connected repository**. You do it while adding an app: pick which repository the app comes from, or connect a new one through the Autonoma GitHub App. Each connected repository carries two settings:
 
 - **Alias** - a short, lowercase name (e.g. `api`) that identifies the repository in your config and in generated resource names. It has to be unique across your repositories.
 - **Fallback branch** - the branch to deploy when branch matching finds no match (see below). Defaults to `main`.
@@ -24,9 +24,9 @@ Every app from the same connected repository shares these two settings.
 
 ## Which branch gets deployed
 
-For the repository you open pull requests against, the answer is obvious: the pull request's own branch. For a connected repository it isn't - the pull request's branch usually doesn't exist there. **Branch matching** is the single rule that decides which branch of every connected repository Previewkit builds for a given pull request.
+For the repository you open pull requests against, the answer is obvious: the pull request's own branch. For a connected repository it isn't - the pull request's branch usually doesn't exist there. **Branch matching** is the single rule that decides which branch of every connected repository Autonoma builds for a given pull request.
 
-If the branch it picks doesn't exist in the connected repository, Previewkit always falls back to that repository's **fallback branch**, so a preview never fails just because a connected repository has no matching branch.
+If the branch it picks doesn't exist in the connected repository, Autonoma always falls back to that repository's **fallback branch**, so a preview never fails just because a connected repository has no matching branch.
 
 | Branch matching | For a PR on branch `feature/x`, a connected repository builds... |
 | --- | --- |

@@ -1,9 +1,9 @@
 ---
 title: Apps and builds
-description: How Previewkit turns each app in your repo into a running container - the build method, the runtime catalog, build context, and the per-app settings.
+description: How Autonoma turns each app in your repo into a running container - the build method, the runtime catalog, build context, and the per-app settings.
 ---
 
-<p class="lead">An app is the unit Previewkit builds and deploys: a piece of your repo that becomes a container with its own public HTTPS URL in every preview. This page covers how each app is built and the settings on its card.</p>
+<p class="lead">An app is the unit Autonoma builds and deploys: a piece of your repo that becomes a container with its own public HTTPS URL in every preview. This page covers how each app is built and the settings on its card.</p>
 
 Most projects have one app - your web server. A repo can declare several (a frontend, an API, a worker), and each is configured the same way: pick how it builds, then fill in a few fields about how it runs.
 
@@ -47,7 +47,7 @@ Every manual runtime also ships a common toolbelt so your scripts have what they
 
 ### Dockerfile builds
 
-If your repo already has a Dockerfile, pick **Dockerfile** and give its path. Previewkit builds it with [BuildKit](https://github.com/moby/buildkit), pushes the image to a private registry, and pulls it into the preview - you never handle registry credentials.
+If your repo already has a Dockerfile, pick **Dockerfile** and give its path. Autonoma builds it with [BuildKit](https://github.com/moby/buildkit), pushes the image to a private registry, and pulls it into the preview - you never handle registry credentials.
 
 The Dockerfile path is resolved **relative to the build context**, which is where the two location fields below come in.
 
@@ -69,7 +69,7 @@ A few fields apply to every app, whichever build method you pick:
 | --- | --- |
 | **Name** | Lowercase identifier used in resource names and the preview URL. |
 | **Port** | The port your app listens on inside the container. |
-| **Health check** | A path Previewkit requests to confirm the app is up (e.g. `/health`). |
+| **Health check** | A path Autonoma requests to confirm the app is up (e.g. `/health`). |
 
 ### The frontend app
 
@@ -77,9 +77,9 @@ When a project has more than one app, one is marked the **frontend** with a togg
 
 ### Depends on
 
-Once your project pulls in a [connected repository](/previewkit/multirepo/), each app gets a **Depends on** control for start ordering: the app waits for the apps and services it lists before it starts. Use it when, for example, your frontend shouldn't boot until an API from another repository is reachable.
+Once your project pulls in a [connected repository](/preview-environments/multirepo/), each app gets a **Depends on** control for start ordering: the app waits for the apps and services it lists before it starts. Use it when, for example, your frontend shouldn't boot until an API from another repository is reachable.
 
 ## Next steps
 
-- [Environment variables and secrets](/previewkit/secrets/) - wire config and credentials into each app
-- [Multiple repositories](/previewkit/multirepo/) - pull apps from more than one repository into the same preview
+- [Environment variables and secrets](/preview-environments/secrets/) - wire config and credentials into each app
+- [Multiple repositories](/preview-environments/multirepo/) - pull apps from more than one repository into the same preview

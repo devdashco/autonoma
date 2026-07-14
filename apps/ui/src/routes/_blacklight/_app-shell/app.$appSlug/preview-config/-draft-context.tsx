@@ -75,6 +75,8 @@ interface PreviewDraftValue {
   setPrimaryApp: (id: number) => void;
   /** Appends an empty app to the repo and returns its draft id, so callers can select it. */
   addApp: (repoKey: string) => number;
+  /** Registers a new dependency repo, seeds its first app, and returns the app's draft id. */
+  addAppFromNewRepo: (repo: RepoDraft) => number;
   removeApp: (id: number) => void;
   setRepos: (repos: RepoDraft[]) => void;
   setBranchConvention: (convention: BranchConventionDraft) => void;
@@ -248,6 +250,14 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     return app.id;
   }
 
+  // A dependency repo exists only to host apps, so registering it and seeding its
+  // first app is one action - mirrors the onboarding add-app flow.
+  function addAppFromNewRepo(repo: RepoDraft): number {
+    const app = emptyAppDraft(repo.name);
+    setDraft((current) => ({ ...current, repos: [...current.repos, repo], apps: [...current.apps, app] }));
+    return app.id;
+  }
+
   function removeApp(id: number) {
     setDraft((current) => {
       const apps = current.apps.filter((app) => app.id !== id);
@@ -354,7 +364,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
             baselineDraft.current = structuredClone(next);
             return next;
           });
-          toastManager.add({ type: "success", title: "PreviewKit config saved" });
+          toastManager.add({ type: "success", title: "Preview config saved" });
         },
       },
     );
@@ -382,6 +392,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     updateApp,
     setPrimaryApp,
     addApp,
+    addAppFromNewRepo,
     removeApp,
     setRepos,
     setBranchConvention,

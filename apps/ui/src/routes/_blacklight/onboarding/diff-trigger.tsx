@@ -88,8 +88,8 @@ function DiffTriggerContent({ appId }: { appId: string }) {
           ) : (
             <>
               <p>
-                PreviewKit deploys a preview for every pull request and triggers a review automatically - there's
-                nothing to wire up.
+                Autonoma deploys a preview for every pull request and triggers a review automatically - there's nothing
+                to wire up.
               </p>
               <p className="text-text-secondary">Open a PR after going live to see your first review.</p>
             </>

@@ -19,7 +19,7 @@ Every pull request runs through the same loop, from opening the PR to a reviewed
 ![The Autonoma review loop: pull request, preview environment, seed data, run tests, review on PR](/img/introduction/test-lifecycle.jpg)
 
 1. **Pull request** - you open a PR (or push a change to one).
-2. **Preview environment** - [Previewkit](/previewkit/) builds an isolated, full-stack preview of your app for that PR and gives it a live URL.
+2. **Preview environment** - a [preview environment](/preview-environments/) builds an isolated, full-stack preview of your app for that PR and gives it a live URL.
 3. **Seed data** - the [Environment Factory](/environment-factory/) creates fresh, isolated test data so every run starts from a known state.
 4. **Run tests** - the agent runs your test suite against the preview, exercising the app in a real browser.
 5. **Review on PR** - Autonoma reviews each run, confirms what passed and what broke, and comments the result back on the pull request.
@@ -34,7 +34,7 @@ Autonoma gets you value in two stages: **connect your repo** to go live with pre
     <Card title="1. Preview Environments">
         Install the GitHub app and configure your stack. Every PR then gets a live, isolated preview - and an automated review. This alone gets you live.
 
-        [Set up Preview Environments →](/previewkit/)
+        [Set up Preview Environments →](/preview-environments/)
     </Card>
     <Card title="2. The Planner CLI">
         Reads your codebase and generates a complete, natural-language E2E test suite - pages, flows, and scenarios. One command.

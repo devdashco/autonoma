@@ -31,7 +31,7 @@ import {
 
 const DATABASE_OPTIONS = SERVICE_OPTIONS.filter((option) => serviceRecipeIsDatabase(option.recipe));
 
-const DATABASES_DOCS_URL = "https://docs.autonoma.app/previewkit/databases/";
+const DATABASES_DOCS_URL = "https://docs.autonoma.app/preview-environments/databases/";
 
 // A `separate_job` task with a blank repo runs in the primary repo. The Select
 // needs a concrete value per item, so the primary-repo choice carries this

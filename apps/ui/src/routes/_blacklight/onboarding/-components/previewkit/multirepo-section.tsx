@@ -14,8 +14,7 @@ import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
+import { GITHUB_INSTALLED_RETURN_PATH, useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { useState } from "react";
 import { nextDraftId, type BranchConventionDraft, type RepoDraft } from "./topology-draft";
@@ -52,11 +51,11 @@ export function MultirepoSection({
   onReposChange,
   onBranchConventionChange,
 }: MultirepoSectionProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: installationRepos } = useGithubRepositories();
-  // Where GitHub returns to after granting the app access to more repos.
-  const { data: githubConfig } = useGithubConfig(router.state.location.href);
+  // Opened in a new tab, so GitHub returns to the "close this tab" page - not back
+  // to this page in a second tab.
+  const { data: githubConfig } = useGithubConfig(GITHUB_INSTALLED_RETURN_PATH);
   const [confirmRemoveId, setConfirmRemoveId] = useState<number | undefined>(undefined);
   // Bumped after each add to remount the picker so it resets to its placeholder.
   const [pickerKey, setPickerKey] = useState(0);

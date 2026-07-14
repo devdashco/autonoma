@@ -139,7 +139,7 @@ export function validateForm(
     if (!SecretKeySchema.safeParse(key).success) {
         return "Keys are letters, digits and underscores, and can't start with a digit.";
     }
-    if (isReservedPreviewkitEnvKey(key)) return `${key} is injected by PreviewKit and reserved.`;
+    if (isReservedPreviewkitEnvKey(key)) return `${key} is injected by Autonoma and reserved.`;
     const duplicate = app.env.some((row) => row.id !== view?.row.id && row.key.trim() === key);
     if (duplicate) return "A variable with this key already exists.";
 

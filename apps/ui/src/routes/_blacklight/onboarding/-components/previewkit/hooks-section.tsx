@@ -14,7 +14,7 @@ import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
 
-const HOOKS_DOCS_URL = "https://docs.autonoma.app/previewkit/hooks/";
+const HOOKS_DOCS_URL = "https://docs.autonoma.app/preview-environments/hooks/";
 
 interface HooksSectionProps {
   hooks: HooksDraft;

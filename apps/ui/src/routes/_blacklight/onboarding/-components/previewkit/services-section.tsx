@@ -4,7 +4,7 @@ import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { ServiceCard } from "./service-card";
 import { serviceDraftForRecipe, type ServiceDraft } from "./topology-draft";
 
-const SERVICES_DOCS_URL = "https://docs.autonoma.app/previewkit/services/";
+const SERVICES_DOCS_URL = "https://docs.autonoma.app/preview-environments/services/";
 
 interface ServicesSectionProps {
   services: ServiceDraft[];

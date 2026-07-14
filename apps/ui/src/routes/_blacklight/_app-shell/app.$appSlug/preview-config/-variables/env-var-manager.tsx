@@ -25,7 +25,7 @@ import {
   type VariableForm,
 } from "./variable-model";
 
-const SECRETS_DOCS_URL = "https://docs.autonoma.app/previewkit/secrets/";
+const SECRETS_DOCS_URL = "https://docs.autonoma.app/preview-environments/secrets/";
 
 interface EnvVarManagerProps {
   app: AppDraft;

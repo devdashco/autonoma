@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PreviewAuthRouteImport } from './routes/preview-auth'
+import { Route as GithubInstalledRouteImport } from './routes/github-installed'
 import { Route as BlacklightRouteImport } from './routes/_blacklight'
 import { Route as BlacklightOnboardingRouteRouteImport } from './routes/_blacklight/onboarding/route'
 import { Route as BlacklightAppShellRouteRouteImport } from './routes/_blacklight/_app-shell/route'
@@ -70,6 +71,11 @@ import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnaps
 const PreviewAuthRoute = PreviewAuthRouteImport.update({
   id: '/preview-auth',
   path: '/preview-auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GithubInstalledRoute = GithubInstalledRouteImport.update({
+  id: '/github-installed',
+  path: '/github-installed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlacklightRoute = BlacklightRouteImport.update({
@@ -430,6 +436,7 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdChanges
 
 export interface FileRoutesByFullPath {
   '/': typeof BlacklightAppShellIndexRoute
+  '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/login': typeof BlacklightauthLoginRouteRouteWithChildren
@@ -487,6 +494,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof BlacklightAppShellIndexRoute
+  '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/pending': typeof BlacklightauthPendingRoute
@@ -536,6 +544,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_blacklight': typeof BlacklightRouteWithChildren
+  '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
   '/_blacklight/_app-shell': typeof BlacklightAppShellRouteRouteWithChildren
   '/_blacklight/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
@@ -597,6 +606,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/github-installed'
     | '/preview-auth'
     | '/onboarding'
     | '/login'
@@ -654,6 +664,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/github-installed'
     | '/preview-auth'
     | '/onboarding'
     | '/pending'
@@ -702,6 +713,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_blacklight'
+    | '/github-installed'
     | '/preview-auth'
     | '/_blacklight/_app-shell'
     | '/_blacklight/onboarding'
@@ -762,6 +774,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   BlacklightRoute: typeof BlacklightRouteWithChildren
+  GithubInstalledRoute: typeof GithubInstalledRoute
   PreviewAuthRoute: typeof PreviewAuthRoute
 }
 
@@ -772,6 +785,13 @@ declare module '@tanstack/react-router' {
       path: '/preview-auth'
       fullPath: '/preview-auth'
       preLoaderRoute: typeof PreviewAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/github-installed': {
+      id: '/github-installed'
+      path: '/github-installed'
+      fullPath: '/github-installed'
+      preLoaderRoute: typeof GithubInstalledRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_blacklight': {
@@ -1467,6 +1487,7 @@ const BlacklightRouteWithChildren = BlacklightRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   BlacklightRoute: BlacklightRouteWithChildren,
+  GithubInstalledRoute: GithubInstalledRoute,
   PreviewAuthRoute: PreviewAuthRoute,
 }
 export const routeTree = rootRouteImport

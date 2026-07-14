@@ -83,7 +83,7 @@ const SDK_FINISH_STEP: FinishStepDefinition = {
   description: (
     <>
       Autonoma calls one POST endpoint - the environment factory - to create and tear down isolated test data for each
-      scenario. Mount it at the fixed convention <Code>/api/autonoma</Code>. For a PreviewKit-managed preview, Autonoma
+      scenario. Mount it at the fixed convention <Code>/api/autonoma</Code>. For a managed preview environment, Autonoma
       provisions both <Code>AUTONOMA_SHARED_SECRET</Code> and <Code>AUTONOMA_SIGNING_SECRET</Code> into the app for you
       - just read them from the environment in your handler (rotatable in the app's Secrets settings). Open a PR titled{" "}
       <Code>feat: autonoma-sdk</Code> and validate it against that PR's preview below, so you iterate on a branch

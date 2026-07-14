@@ -69,7 +69,7 @@ export function PreviewEnvironmentPage({ appId }: { appId?: string }) {
               <CubeIcon size={26} weight="duotone" />
             </div>
 
-            <h2 className="text-2xl font-medium text-text-primary">Build with Autonoma PreviewKit</h2>
+            <h2 className="text-2xl font-medium text-text-primary">Build with Autonoma preview environments</h2>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-text-secondary">
               We deploy your whole stack for every PR - apps, databases, and services included. No infra to run, and
               it's seamless with the Autonoma SDK.
@@ -91,7 +91,7 @@ export function PreviewEnvironmentPage({ appId }: { appId?: string }) {
               disabled={selectMode.isPending}
               aria-label="onboarding-build-with-previewkit"
             >
-              Build with PreviewKit
+              Build with preview environments
               <ArrowRightIcon size={16} weight="bold" />
             </Button>
           </div>
@@ -212,7 +212,7 @@ function PreviewTopology({ repoName }: { repoName: string }) {
         className="h-full max-h-[32rem] w-full"
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label="PreviewKit deploys this repository's apps and services for every pull request"
+        aria-label="Autonoma deploys this repository's apps and services for every pull request"
       >
         <defs>
           <filter id="topoGlowBlur" x="-50%" y="-50%" width="200%" height="200%">

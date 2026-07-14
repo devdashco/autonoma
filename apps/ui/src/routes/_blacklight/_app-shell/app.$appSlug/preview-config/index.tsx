@@ -1,13 +1,19 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
+import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { createFileRoute } from "@tanstack/react-router";
+import { ConnectAgentDialog } from "components/connect-agent-dialog";
 import { Suspense, useState } from "react";
+import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
 import { MultirepoSection } from "../../../onboarding/-components/previewkit/multirepo-section";
 import { PRIMARY_REPO_KEY, type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
 import { AppView } from "./-app-view";
 import { usePreviewDraft } from "./-draft-context";
 import { PreviewRail, type RailSelection } from "./-rail";
 import { ServiceView } from "./-service-view";
+
+/** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
+const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/preview-config/")({
   component: PreviewConfigPage,
@@ -21,20 +27,81 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/previ
  * draft entities, so they have no stable address to put in the URL.
  */
 function PreviewConfigPage() {
-  const { draft } = usePreviewDraft();
+  const { draft, addApp, addAppFromNewRepo, primaryRepoFullName } = usePreviewDraft();
   const [selection, setSelection] = useState<RailSelection | undefined>(undefined);
+  const [addAppOpen, setAddAppOpen] = useState(false);
   const resolved = resolveSelection(selection, draft);
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
-      <PreviewRail selection={resolved} onSelect={setSelection} />
-      <main className="min-w-0 flex-1 lg:border-l lg:border-border-dim">
-        {/* Pane-level boundary: a pane that suspends (Repos fetches the GitHub
-            repo list on first mount) must not blank the rail with it. */}
-        <Suspense fallback={<SelectionPaneSkeleton />}>
-          <SelectionPane selection={resolved} onSelect={setSelection} />
+    <div className="flex flex-col gap-6">
+      <ConfigureWithAgentPanel />
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch">
+        <PreviewRail selection={resolved} onSelect={setSelection} onAddFromAnotherRepo={() => setAddAppOpen(true)} />
+        <main className="min-w-0 flex-1 lg:border-l lg:border-border-dim">
+          {/* Pane-level boundary: a pane that suspends (Repos fetches the GitHub
+              repo list on first mount) must not blank the rail with it. */}
+          <Suspense fallback={<SelectionPaneSkeleton />}>
+            <SelectionPane selection={resolved} onSelect={setSelection} />
+          </Suspense>
+        </main>
+      </div>
+      {/* Mounted only while open: the dialog reads the GitHub repo list and install
+          config via useSuspenseQuery, so mounting it unconditionally would suspend
+          this whole route and blank the rail on every settings-page load. Its own
+          Suspense boundary keeps the open-time fetch from bubbling up to the route. */}
+      {addAppOpen ? (
+        <Suspense fallback={undefined}>
+          <AddAppDialog
+            open
+            onOpenChange={setAddAppOpen}
+            primaryRepoFullName={primaryRepoFullName}
+            repos={draft.repos}
+            onAddToExistingRepo={(alias) => setSelection({ kind: "app", id: addApp(alias) })}
+            onAddToNewRepo={(repo) => setSelection({ kind: "app", id: addAppFromNewRepo(repo) })}
+          />
         </Suspense>
-      </main>
+      ) : undefined}
+    </div>
+  );
+}
+
+/**
+ * Hand this app's preview config off to a coding agent: point it at the debug MCP
+ * (keyed by the repo the agent already sits in, so no pairing code) and it can
+ * read a PR's preview and edit the build/services/env from inside the repo.
+ */
+function ConfigureWithAgentPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col gap-4 border border-primary/40 bg-primary/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <span className="font-sans text-base text-text-primary">Configure this preview with a coding agent</span>
+        <span className="max-w-xl text-2xs text-text-secondary">
+          Point Claude Code, Cursor, or any MCP agent at Autonoma. From inside your repo it reads a pull request's
+          preview - deploy status, logs, missing secrets - and edits the build, services, and environment for you.
+        </span>
+      </div>
+      <Button variant="accent" size="lg" className="shrink-0" onClick={() => setOpen(true)}>
+        <RobotIcon weight="bold" />
+        Configure with coding agent
+      </Button>
+      <ConnectAgentDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Configure with a coding agent"
+        description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
+        serverName="autonoma"
+        endpoint="debug"
+        docsUrl={DEBUG_MCP_DOCS_URL}
+        tellAgent={
+          <>
+            Then, from your repo, ask your agent about the preview - e.g.{" "}
+            <span className="font-mono text-text-primary">why did my preview fail?</span> or{" "}
+            <span className="font-mono text-text-primary">fix my preview deploy</span>. It reads the repo and PR from
+            your local git.
+          </>
+        }
+      />
     </div>
   );
 }

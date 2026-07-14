@@ -3,11 +3,11 @@ title: Lifecycle hooks
 description: Commands that run around each deploy of the whole preview - pre-deploy before your apps start, post-deploy once they're ready.
 ---
 
-<p class="lead">Lifecycle hooks are commands Previewkit runs around each deploy of the whole preview: before your apps start, and after they're ready. Most projects never need them.</p>
+<p class="lead">Lifecycle hooks are commands Autonoma runs around each deploy of the whole preview: before your apps start, and after they're ready. Most projects never need them.</p>
 
-![A preview deploy runs the pre-deploy hooks as one-off jobs, then the apps start, then the post-deploy hooks run as one-off jobs](/img/previewkit/hooks-timeline.jpg)
+![A preview deploy runs the pre-deploy hooks as one-off jobs, then the apps start, then the post-deploy hooks run as one-off jobs](/img/preview-environments/hooks-timeline.jpg)
 
-Think of a hook as a step that belongs to the preview itself, not to any single app or database. When a preview deploys, Previewkit runs your pre-deploy hooks, brings the apps up, then runs your post-deploy hooks. Both groups are optional, and you add as many commands to each as you like.
+Think of a hook as a step that belongs to the preview itself, not to any single app or database. When a preview deploys, Autonoma runs your pre-deploy hooks, brings the apps up, then runs your post-deploy hooks. Both groups are optional, and you add as many commands to each as you like.
 
 ## Pre-deploy and post-deploy
 
@@ -33,7 +33,7 @@ The one thing lifecycle hooks are **not** for is database setup. It's tempting t
 Migrations and DB seeding live on each database's setup, not here. Use hooks for whole-preview steps that aren't tied to one database.
 :::
 
-Keeping database work on the database means each database owns its own schema and seed data, and Previewkit can run that setup at the right moment for that database rather than as one preview-wide step. See [databases](/previewkit/databases/) for where to put migration and seed commands. Reserve lifecycle hooks for steps that span the whole preview and aren't tied to any single database.
+Keeping database work on the database means each database owns its own schema and seed data, and Autonoma can run that setup at the right moment for that database rather than as one preview-wide step. See [databases](/preview-environments/databases/) for where to put migration and seed commands. Reserve lifecycle hooks for steps that span the whole preview and aren't tied to any single database.
 
 ## Optional by design
 

@@ -26,7 +26,7 @@ export function InjectedBlock({ vars }: { vars: InjectedVar[] }) {
           <CaretRightIcon size={11} className="shrink-0 text-text-secondary" />
         )}
         <span className="font-mono text-3xs font-semibold uppercase tracking-widest text-text-secondary">
-          Injected by PreviewKit · {vars.length}
+          Injected by Autonoma · {vars.length}
         </span>
         <span className="ml-auto border border-border-mid bg-surface-raised px-1.5 py-px font-mono text-4xs font-semibold uppercase tracking-wider text-text-secondary">
           Read-only

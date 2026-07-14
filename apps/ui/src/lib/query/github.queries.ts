@@ -9,6 +9,14 @@ const GITHUB_REPOSITORY_STALE_TIME_MS = 5 * 60_000;
 const GITHUB_REPOSITORY_REFRESH_STALE_TIME_MS = 5_000;
 const GITHUB_COMMIT_STALE_TIME_MS = 60 * 60_000;
 
+/**
+ * Return path for install flows opened in a NEW tab (add-another-repo): after
+ * GitHub grants access it redirects the new tab to this terminal "you can close
+ * this tab" page, instead of re-loading the origin page in a second tab. The
+ * original tab refreshes its repo list on focus / when the tab closes.
+ */
+export const GITHUB_INSTALLED_RETURN_PATH = "/github-installed";
+
 export function useGithubConfig(returnPath: string) {
     return useSuspenseQuery(trpc.github.getConfig.queryOptions({ returnPath }));
 }

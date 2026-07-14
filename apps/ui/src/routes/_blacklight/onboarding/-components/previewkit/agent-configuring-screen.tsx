@@ -310,7 +310,7 @@ function serviceStatusHint(status: "ready" | "building" | "failed" | "unknown"):
   if (status === "ready") return "This service is up and accepting connections.";
   if (status === "building") return "This service is still starting up.";
   if (status === "failed") return "This service failed to start.";
-  return "PreviewKit hasn't reported this service's status yet - it may still be starting.";
+  return "Autonoma hasn't reported this service's status yet - it may still be starting.";
 }
 
 function DeployStatusBadge({ status }: { status: "idle" | "building" | "ready" | "failed" }) {

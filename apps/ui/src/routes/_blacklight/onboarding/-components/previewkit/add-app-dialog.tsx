@@ -17,8 +17,7 @@ import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
+import { GITHUB_INSTALLED_RETURN_PATH, useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { type FormEvent, useState } from "react";
 import { nextDraftId, repoAliasFrom, type RepoDraft } from "./topology-draft";
@@ -26,7 +25,7 @@ import { nextDraftId, repoAliasFrom, type RepoDraft } from "./topology-draft";
 // Cap the install-tab close poll so it can never leak indefinitely (~5 min).
 const INSTALL_POLL_INTERVAL_MS = 800;
 const INSTALL_POLL_MAX_TICKS = 375;
-const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/previewkit/multirepo/";
+const MULTIREPO_DOCS_URL = "https://docs.autonoma.app/preview-environments/multirepo/";
 // Below this many total repos a search box is more clutter than help.
 const SEARCH_THRESHOLD = 6;
 
@@ -57,11 +56,11 @@ export function AddAppDialog({
   onAddToExistingRepo,
   onAddToNewRepo,
 }: AddAppDialogProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: installationRepos } = useGithubRepositories();
-  // Where GitHub returns to after granting the app access to more repos.
-  const { data: githubConfig } = useGithubConfig(router.state.location.href);
+  // Opened in a new tab, so GitHub returns to the "close this tab" page - not back
+  // to this dialog's page in a second tab.
+  const { data: githubConfig } = useGithubConfig(GITHUB_INSTALLED_RETURN_PATH);
   // `dep:<alias>` for an existing dependency repo, `new:<fullName>` for a repo to add.
   const [selection, setSelection] = useState<string | undefined>(undefined);
   const [alias, setAlias] = useState("");
@@ -153,8 +152,8 @@ export function AddAppDialog({
           <div className="space-y-4 px-6 pb-2">
             {repos.length === 0 && availableRepos.length === 0 ? (
               <p className="text-sm text-text-secondary">
-                No other repos are connected to the PreviewKit GitHub App yet. Grant it access to the repo you need -
-                this tab keeps your progress.
+                No other repos are connected to the Autonoma GitHub App yet. Grant it access to the repo you need - this
+                tab keeps your progress.
               </p>
             ) : (
               <div className="space-y-2">

@@ -14,6 +14,8 @@ export type RailSelection = { kind: "app"; id: number } | { kind: "service"; id:
 interface PreviewRailProps {
   selection?: RailSelection;
   onSelect: (selection: RailSelection) => void;
+  /** Opens the "add an app from another repo" dialog (the GitHub-connect path). */
+  onAddFromAnotherRepo: () => void;
 }
 
 /**
@@ -23,8 +25,9 @@ interface PreviewRailProps {
  * quiet group. There is no Secrets destination - a secret is just a masked
  * variable inside an app.
  */
-export function PreviewRail({ selection, onSelect }: PreviewRailProps) {
-  const { draft, addApp, addService } = usePreviewDraft();
+export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: PreviewRailProps) {
+  const { draft, addApp, addService, primaryRepoFullName } = usePreviewDraft();
+  const primaryRepoShortName = primaryRepoFullName?.split("/").pop();
 
   return (
     <nav aria-label="Preview environment sections" className="flex shrink-0 flex-col gap-6 lg:w-52">
@@ -39,9 +42,25 @@ export function PreviewRail({ selection, onSelect }: PreviewRailProps) {
             {app.name.trim() === "" ? <span className="italic">new app</span> : app.name}
           </RailItem>
         ))}
-        <RailItem icon={PlusIcon} onClick={() => onSelect({ kind: "app", id: addApp(PRIMARY_REPO_KEY) })}>
-          New app
-        </RailItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button type="button" className={railItemClassName(false)}>
+                <PlusIcon size={14} className="shrink-0" />
+                <span className="truncate">New app</span>
+              </button>
+            }
+          />
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => onSelect({ kind: "app", id: addApp(PRIMARY_REPO_KEY) })}>
+              This repo
+              {primaryRepoShortName != null ? (
+                <span className="ml-1 text-text-secondary">({primaryRepoShortName})</span>
+              ) : undefined}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onAddFromAnotherRepo}>Another repo</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </RailGroup>
 
       <RailGroup label="Services">

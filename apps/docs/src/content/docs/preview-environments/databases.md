@@ -3,9 +3,9 @@ title: Databases
 description: Add every database your preview needs - Postgres, MySQL, MongoDB, Redis / Valkey - each with its own engine, version, and repo-aware setup tasks for schema, seed data, and migrations.
 ---
 
-<p class="lead">A database is a first-class part of every preview: pick the engines your app needs, and Previewkit runs the schema, seed, and migration steps that bring each one to life - with your repo checked out, so the files those steps depend on are actually there.</p>
+<p class="lead">A database is a first-class part of every preview: pick the engines your app needs, and Autonoma runs the schema, seed, and migration steps that bring each one to life - with your repo checked out, so the files those steps depend on are actually there.</p>
 
-![On create, the database runs schema and seed steps; on every commit it runs migrations; the running preview then has the database ready](/img/previewkit/database-lifecycle.jpg)
+![On create, the database runs schema and seed steps; on every commit it runs migrations; the running preview then has the database ready](/img/preview-environments/database-lifecycle.jpg)
 
 Databases are their own step in onboarding. Most apps declare at least one; many declare several. Add as many as your app needs - each gets its own card and its own setup.
 
@@ -28,7 +28,7 @@ Caches usually need no setup tasks. Add a version and you're done - or add an on
 
 An empty database rarely matches what your app expects. It needs tables, seed rows, and the migrations that have accumulated since. Those steps almost always live **in your repo** - a `db/schema.sql`, a `seed` script, a `migrate` command - not in the database image, which is built for production and often ships none of them.
 
-So Previewkit runs your setup tasks **with the repo checked out**, the same way an app's bash build commands run. A command like `psql < db/schema.sql` finds the file because the repo is right there. Under the hood each task runs as a job with the repo available, but from your side it's just a command and a place for it to run.
+So Autonoma runs your setup tasks **with the repo checked out**, the same way an app's bash build commands run. A command like `psql < db/schema.sql` finds the file because the repo is right there. Under the hood each task runs as a job with the repo available, but from your side it's just a command and a place for it to run.
 
 Tasks are split by **when** they run, with sensible defaults you can override. Both sections are optional.
 
@@ -73,12 +73,12 @@ Every setup task runs as a one-off job with your repo checked out, after the dat
 
 ## Which repository it runs against
 
-The setup command always has a repo checked out. A preview can span more than one repository, because apps can be added [from another repository](/previewkit/multirepo/) - so when there's more than one, an in-build task's **App** picker chooses which app (and therefore which repo's checkout) the command borrows. With a single repository the picker stays hidden and that repository is used.
+The setup command always has a repo checked out. A preview can span more than one repository, because apps can be added [from another repository](/preview-environments/multirepo/) - so when there's more than one, an in-build task's **App** picker chooses which app (and therefore which repo's checkout) the command borrows. With a single repository the picker stays hidden and that repository is used.
 
 The **before / after** position on an in-build task, and the **Repo** you pick for a separate job, are recorded with the task but not yet honored: the runner currently executes every setup task as a standalone job against the primary repo's checkout, between the databases coming up and the apps starting. So build-step ordering and per-repo checkout for a separate job are captured for when that lands, but today an in-build task's chosen app image and the primary repo are what's used.
 
 ## Next steps
 
-- [Apps and builds](/previewkit/apps/) - how each app in your repo becomes a running container
-- [Lifecycle hooks](/previewkit/hooks/) - run commands at other points in a preview's life
-- [Multiple repositories](/previewkit/multirepo/) - pull apps, and their databases, from more than one repository into a single preview
+- [Apps and builds](/preview-environments/apps/) - how each app in your repo becomes a running container
+- [Lifecycle hooks](/preview-environments/hooks/) - run commands at other points in a preview's life
+- [Multiple repositories](/preview-environments/multirepo/) - pull apps, and their databases, from more than one repository into a single preview

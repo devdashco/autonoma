@@ -9,6 +9,17 @@ import { remarkCallouts } from "./src/lib/remark-callouts.mjs"
 
 export default defineConfig({
     site: "https://docs.autonoma.app",
+    // The preview-environments section was published under /previewkit/*. Keep the
+    // old URLs alive so external links and search results don't 404 after the rename.
+    redirects: {
+        "/previewkit": "/preview-environments",
+        "/previewkit/apps": "/preview-environments/apps",
+        "/previewkit/databases": "/preview-environments/databases",
+        "/previewkit/services": "/preview-environments/services",
+        "/previewkit/hooks": "/preview-environments/hooks",
+        "/previewkit/multirepo": "/preview-environments/multirepo",
+        "/previewkit/secrets": "/preview-environments/secrets",
+    },
     vite: {
         plugins: [tailwindcss()],
     },

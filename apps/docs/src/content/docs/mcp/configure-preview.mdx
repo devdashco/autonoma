@@ -1,26 +1,26 @@
 ---
 title: Configure your preview with a coding agent (MCP)
-description: Connect your coding agent to Autonoma's onboarding MCP server so it can configure and deploy your PreviewKit preview for you - reading the config, setting it up, asking you for secrets, deploying off main, and iterating until it comes up - while you watch read-only in Autonoma.
+description: Connect your coding agent to Autonoma's onboarding MCP server so it can configure and deploy your preview environment for you - reading the config, setting it up, asking you for secrets, deploying off main, and iterating until it comes up - while you watch read-only in Autonoma.
 ---
 
 import Tabs from "../../../components/Tabs.astro"
 import TabItem from "../../../components/TabItem.astro"
 
-<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it configures your PreviewKit preview for you - reads the config, sets up apps, databases and services, asks you for any secrets it needs, deploys off your main branch, and iterates until the preview is up - while you watch, read-only, in the Autonoma UI.</p>
+<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it configures your preview environment for you - reads the config, sets up apps, databases and services, asks you for any secrets it needs, deploys off your main branch, and iterates until the preview is up - while you watch, read-only, in the Autonoma UI.</p>
 
 ![A coding agent plugs into Autonoma and lights up a live preview environment](/img/mcp/configure-preview-hero.jpg)
 
-This is the agent-driven alternative to filling in the PreviewKit config form by hand. Your agent already knows your repo - its build, its services, its env - so it can do the setup faster than you can describe it. You stay in control: the UI shows every step live and hands control back the moment you take over.
+This is the agent-driven alternative to filling in the preview environment config form by hand. Your agent already knows your repo - its build, its services, its env - so it can do the setup faster than you can describe it. You stay in control: the UI shows every step live and hands control back the moment you take over.
 
 :::note
-This is a different server from the [debugging MCP](/mcp). That one helps your agent fix a broken preview on an existing pull request; this one helps your agent do the initial PreviewKit setup during onboarding.
+This is a different server from the [debugging MCP](/mcp). That one helps your agent fix a broken preview on an existing pull request; this one helps your agent do the initial preview environment setup during onboarding.
 :::
 
 ## Start from the Autonoma UI
 
 You connect this server from inside onboarding, because it pins itself to the app you are setting up:
 
-1. In Autonoma, start onboarding your app and open the PreviewKit config step.
+1. In Autonoma, start onboarding your app and open the preview environment config step.
 2. Click **Configure with coding agent**. A modal shows the install snippet for your client and a short **pairing code**.
 3. Install the server in your agent (below), then tell your agent to configure your preview and give it the pairing code.
 
@@ -116,7 +116,7 @@ Client config formats change over time. If a snippet above no longer matches, ke
 Once paired, the agent works a loop, and the Autonoma UI streams every step:
 
 1. **Pair** - `pair(code)` claims your app's config for the agent and returns the current config.
-2. **Read and edit** - `get_config` / `apply_config` read and save the full PreviewKit config document. A save is validated; an invalid document returns the errors to fix.
+2. **Read and edit** - `get_config` / `apply_config` read and save the full preview environment config document. A save is validated; an invalid document returns the errors to fix.
 3. **Deploy** - `trigger_deploy` deploys your main branch as the preview.
 4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
 
@@ -135,7 +135,7 @@ The agent should always ask you first whether to set env from your `.env` (you p
 | Tool | Input | Does |
 | --- | --- | --- |
 | `pair` | code | Claims the app's config using the pairing code from the UI; returns its `applicationId` and current config |
-| `get_config` | applicationId | Reads the current PreviewKit config document |
+| `get_config` | applicationId | Reads the current preview environment config document |
 | `apply_config` | applicationId, document | Saves the full config document (validated; errors returned to fix). Never carries secret values |
 | `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
 | `trigger_deploy` | applicationId | Deploys the main branch as the preview |
