@@ -385,7 +385,7 @@ Routes are matched most-specific-first (longest `path` wins). The gateway also s
 ### `postgres`
 
 By default the `postgres` recipe runs **Previewkit's own image**, built from
-[`postgres.Dockerfile`](postgres.Dockerfile), which bundles a broad set of extensions on top of the
+[`postgres.Dockerfile`](src/docker/postgres.Dockerfile), which bundles a broad set of extensions on top of the
 standard contrib modules. That image is the source of truth for which extensions are available -
 there is no code-side allowlist, so anything baked into it can be requested via `options.extensions`.
 
@@ -425,7 +425,7 @@ irrelevant since such clients connect with `rejectUnauthorized: false` and don't
 `databases` and `extensions` are applied once, at first init, via a mounted init script. Each
 extension is created (`CREATE EXTENSION IF NOT EXISTS ... CASCADE`) in the default `preview` database
 and in every extra database. To make a new extension available, install it in
-[`postgres.Dockerfile`](postgres.Dockerfile).
+[`postgres.Dockerfile`](src/docker/postgres.Dockerfile).
 
 A few extensions (`timescaledb`, `pg_cron`, `pgaudit`) only load via `shared_preload_libraries`. When
 you request one of them on the default image, the recipe sets `shared_preload_libraries` for you - no

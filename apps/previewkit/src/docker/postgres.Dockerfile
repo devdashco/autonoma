@@ -25,14 +25,14 @@
 # shared_preload_libraries - the recipe sets that automatically when they are
 # requested (see PRELOAD_REQUIRED_EXTENSIONS in postgres-recipe.ts).
 #
-# Build + push (must be multi-arch: preview nodes may be arm64 (Graviton) or
-# amd64, and a single-arch image will leave pods Unschedulable on the other).
-# The Rust/pgrx layer dominates build time, especially for the non-native arch
-# under QEMU emulation - expect tens of minutes:
+# Build + push. amd64 only: the preview Karpenter nodepool is restricted to
+# linux/amd64 (deployment/previewkit/cluster/karpenter/nodepool.yaml) and app pods
+# carry an amd64 nodeSelector, so an arm64 variant would never be scheduled. The
+# Rust/pgrx layer dominates build time - expect several minutes:
 #
-#   docker buildx build --platform linux/amd64,linux/arm64 \
+#   docker buildx build --platform linux/amd64 \
 #     -t public.ecr.aws/autonoma/postgres:16 \
-#     -f apps/previewkit/postgres.Dockerfile --push .
+#     -f apps/previewkit/src/docker/postgres.Dockerfile --push .
 #
 # Bump PG_MAJOR (and the tag) to track a new Postgres major. The pgrx toolchain
 # version (PGRX_VERSION) must match the pgrx crate version pinned in each Rust

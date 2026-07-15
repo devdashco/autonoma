@@ -14,7 +14,7 @@ const ALLOWED_IMAGE_PREFIXES = ["postgres:", "postgis/postgis:", "pgvector/pgvec
 // pg_graphql, ...) on top of the contrib modules, so any extension a preview
 // requests via options.extensions just works. There is no code-side allowlist -
 // to make a new extension available, bake it into the image. Built from
-// apps/previewkit/postgres.Dockerfile.
+// apps/previewkit/src/docker/postgres.Dockerfile.
 const DEFAULT_POSTGRES_IMAGE = "public.ecr.aws/autonoma/postgres:16";
 
 // A few baked extensions only load via shared_preload_libraries - CREATE
