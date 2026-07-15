@@ -111,6 +111,28 @@ export function useRedeployPreviewApp(applicationId: string, environmentId: stri
     });
 }
 
+// Resolves the scenarios a test user can be provisioned from, plus the preview's
+// primary URL. Its own Suspense boundary (the Test user card is a secondary
+// section) keeps it off the page's critical render path.
+export function usePreviewTestUserOptions(applicationId: string, environmentId: string) {
+    return useSuspenseQuery(trpc.deployments.testUserOptions.queryOptions({ applicationId, environmentId }));
+}
+
+export function usePreviewTestUserProvision() {
+    return useAPIMutation({
+        ...trpc.deployments.testUserProvision.mutationOptions(),
+        errorToast: { title: "Failed to provision test user" },
+    });
+}
+
+export function usePreviewTestUserTeardown() {
+    return useAPIMutation({
+        ...trpc.deployments.testUserTeardown.mutationOptions(),
+        successToast: { title: "Test user torn down" },
+        errorToast: { title: "Failed to tear down test user" },
+    });
+}
+
 export async function ensureDeploymentsByPrData(queryClient: QueryClient, applicationId: string, prNumber: number) {
     await ensureAPIQueryData(queryClient, trpc.deployments.listByPr.queryOptions({ applicationId, prNumber }));
 }

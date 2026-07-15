@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { APIError, BadRequestError, NotFoundError } from "@autonoma/errors";
 import {
     type EncryptionHelper,
     ScenarioRecipeStore,
@@ -13,20 +13,48 @@ import { Service } from "../service";
 import { derivePreviewSdkUrl } from "./preview-sdk-url";
 import { parseStringRecord, projectManifest, resolvePrimaryUrl } from "./preview-summary";
 
+// The tenant provision/teardown are synchronous requests through the ALB, whose
+// idle timeout defaults to 60s: hold the connection longer with no bytes flowing
+// and the ALB returns an HTML 504 that the tRPC client can't parse. So cap the
+// SDK call safely under 60s - a warm preview answers in seconds; a cold one
+// (scaled to zero behind Gatekeeper) fails with a clean "timed out" the caller
+// can retry, by which point the first attempt has already woken it.
+const PROVISION_SDK_TIMEOUT_MS = 50_000;
+
 export interface EnvFactoryOptions {
     applicationId: string | undefined;
     applicationName: string | undefined;
     scenarios: Array<{ id: string; name: string }>;
     appUrls: Array<{ appName: string; url: string }>;
     suggestedSdkUrl: string | undefined;
+    /** The preview's primary app URL - the target of the customer "Open preview" action. */
+    previewUrl: string | undefined;
     /** Set when the environment cannot run a manual up (and why). */
     disabledReason: string | undefined;
+}
+
+interface ProvisionForAppInput {
+    applicationId: string;
+    environmentId: string;
+    scenarioId: string;
+    organizationId: string;
+}
+
+interface TeardownForAppInput {
+    applicationId: string;
+    environmentId: string;
+    scenarioId: string;
+    instanceId: string;
+    organizationId: string;
+    refs?: Refs;
+    refsToken?: string;
 }
 
 interface UpInput {
     environmentId: string;
     scenarioId: string;
     sdkUrl: string;
+    timeoutMs?: number;
 }
 
 interface DownInput {
@@ -36,6 +64,7 @@ interface DownInput {
     instanceId: string;
     refs?: Refs;
     refsToken?: string;
+    timeoutMs?: number;
 }
 
 export interface UpResult {
@@ -107,6 +136,7 @@ export class PreviewkitEnvFactoryService extends Service {
             scenarios: [],
             appUrls,
             suggestedSdkUrl: undefined,
+            previewUrl: primaryUrl ?? undefined,
             disabledReason,
         });
 
@@ -156,8 +186,126 @@ export class PreviewkitEnvFactoryService extends Service {
             scenarios,
             appUrls,
             suggestedSdkUrl,
+            previewUrl: primaryUrl ?? undefined,
             disabledReason: undefined,
         };
+    }
+
+    /**
+     * Customer-facing counterpart to `getOptions`, scoped to an application the
+     * caller owns. Authorizes the environment against the app + organization,
+     * then returns the same options payload.
+     */
+    async getOptionsForApp(
+        applicationId: string,
+        environmentId: string,
+        organizationId: string,
+    ): Promise<EnvFactoryOptions> {
+        this.logger.info("Resolving test-user options", { applicationId, environmentId, organizationId });
+        await this.assertEnvironmentBelongsToApp(environmentId, applicationId, organizationId);
+        return this.getOptions(environmentId);
+    }
+
+    /**
+     * Customer-facing "up": provision a throwaway test user for a preview
+     * environment the caller owns. Authorizes first, derives the SDK URL
+     * server-side (never trusting a client-supplied host), then delegates to
+     * `up`. In-memory only - nothing is persisted.
+     */
+    async provisionForApp(input: ProvisionForAppInput): Promise<UpResult> {
+        this.logger.info("Provisioning test user", {
+            applicationId: input.applicationId,
+            environmentId: input.environmentId,
+            scenarioId: input.scenarioId,
+        });
+        await this.assertEnvironmentBelongsToApp(input.environmentId, input.applicationId, input.organizationId);
+        const sdkUrl = await this.resolveSdkUrl(input.environmentId);
+        try {
+            return await this.up({
+                environmentId: input.environmentId,
+                scenarioId: input.scenarioId,
+                sdkUrl,
+                timeoutMs: PROVISION_SDK_TIMEOUT_MS,
+            });
+        } catch (err) {
+            throw toClientFacingError(err);
+        }
+    }
+
+    /**
+     * Customer-facing "down": tear down a test user previously provisioned via
+     * `provisionForApp`. The caller passes back the `instanceId` / `refs` /
+     * `refsToken` from the provision response.
+     */
+    async teardownForApp(input: TeardownForAppInput): Promise<{ ok: true }> {
+        this.logger.info("Tearing down test user", {
+            applicationId: input.applicationId,
+            environmentId: input.environmentId,
+            instanceId: input.instanceId,
+        });
+        await this.assertEnvironmentBelongsToApp(input.environmentId, input.applicationId, input.organizationId);
+        const sdkUrl = await this.resolveSdkUrl(input.environmentId);
+        try {
+            return await this.down({
+                environmentId: input.environmentId,
+                scenarioId: input.scenarioId,
+                sdkUrl,
+                instanceId: input.instanceId,
+                refs: input.refs,
+                refsToken: input.refsToken,
+                timeoutMs: PROVISION_SDK_TIMEOUT_MS,
+            });
+        } catch (err) {
+            throw toClientFacingError(err);
+        }
+    }
+
+    /**
+     * Authorize a tenant-scoped call: the preview environment must belong to the
+     * caller's organization, and to the application whose page issued the request
+     * (same GitHub repository). Throws `NotFoundError` - never leaking another
+     * org's environment - when the triple doesn't line up.
+     */
+    private async assertEnvironmentBelongsToApp(
+        environmentId: string,
+        applicationId: string,
+        organizationId: string,
+    ): Promise<void> {
+        const [environment, application] = await Promise.all([
+            this.db.previewkitEnvironment.findUnique({
+                where: { id: environmentId },
+                select: { organizationId: true, githubRepositoryId: true },
+            }),
+            this.db.application.findFirst({
+                where: { id: applicationId, organizationId },
+                select: { githubRepositoryId: true },
+            }),
+        ]);
+
+        const orgOwnsEnvironment = environment != null && environment.organizationId === organizationId;
+        if (!orgOwnsEnvironment || application == null) {
+            throw new NotFoundError("Preview environment not found");
+        }
+
+        const repoMismatch =
+            environment.githubRepositoryId != null && environment.githubRepositoryId !== application.githubRepositoryId;
+        if (repoMismatch) {
+            throw new NotFoundError("Preview environment not found");
+        }
+    }
+
+    /**
+     * Derive the SDK URL for a preview environment from its resolved options,
+     * surfacing the same `disabledReason` when the environment can't run an up.
+     */
+    private async resolveSdkUrl(environmentId: string): Promise<string> {
+        const options = await this.getOptions(environmentId);
+        if (options.suggestedSdkUrl == null) {
+            throw new BadRequestError(
+                options.disabledReason ?? "This preview environment cannot provision a test user.",
+            );
+        }
+        return options.suggestedSdkUrl;
     }
 
     /**
@@ -184,6 +332,7 @@ export class PreviewkitEnvFactoryService extends Service {
             signingSecret: context.signingSecret,
             customHeaders: context.customHeaders,
             applicationId: context.applicationId,
+            sdkOptions: input.timeoutMs != null ? { timeoutMs: input.timeoutMs } : undefined,
         });
 
         this.logger.info("Manual env-factory up complete", {
@@ -222,6 +371,7 @@ export class PreviewkitEnvFactoryService extends Service {
             refs: input.refs,
             refsToken: input.refsToken,
             applicationId: context.applicationId,
+            sdkOptions: input.timeoutMs != null ? { timeoutMs: input.timeoutMs } : undefined,
         });
 
         this.logger.info("Manual env-factory down complete", {
@@ -278,4 +428,17 @@ export class PreviewkitEnvFactoryService extends Service {
 function buildBypassHeaders(bypassToken: string | null): Record<string, string> | undefined {
     if (bypassToken == null) return undefined;
     return { "x-previewkit-bypass": resolvePreviewkitBypassToken(bypassToken, env.PREVIEWKIT_BYPASS_TOKEN_KEY) };
+}
+
+/**
+ * Keep an SDK-call failure's message intact for the tenant. `APIError`s already
+ * map to a client code with their message preserved, so they pass through; a
+ * plain `Error` (e.g. the SDK timeout) or `SdkHttpError` would otherwise be
+ * masked as a 500, so it is re-wrapped as a `BadRequestError` - which is how the
+ * "timed out after 180s" text reaches the Test user card.
+ */
+function toClientFacingError(err: unknown): Error {
+    if (err instanceof APIError) return err;
+    const message = err instanceof Error ? err.message : String(err);
+    return new BadRequestError(message);
 }

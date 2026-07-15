@@ -297,3 +297,30 @@ export const PreviewkitEnvFactoryDownInputSchema = z.object({
     refs: RefsSchema.optional(),
     refsToken: z.string().optional(),
 });
+
+// ─── Preview test user (customer-facing, org-scoped) ──────────────
+//
+// The tenant-facing counterpart to the admin Environment Factory above. Scoped
+// to an application the caller owns; the SDK URL is never accepted from the
+// client (the server derives it from the environment) so a caller cannot point
+// the signed provisioning request at an arbitrary host.
+
+export const TestUserOptionsInputSchema = z.object({
+    applicationId: z.string().min(1),
+    environmentId: z.string().min(1),
+});
+
+export const TestUserProvisionInputSchema = z.object({
+    applicationId: z.string().min(1),
+    environmentId: z.string().min(1),
+    scenarioId: z.string().min(1),
+});
+
+export const TestUserTeardownInputSchema = z.object({
+    applicationId: z.string().min(1),
+    environmentId: z.string().min(1),
+    scenarioId: z.string().min(1),
+    instanceId: z.string().min(1),
+    refs: RefsSchema.optional(),
+    refsToken: z.string().optional(),
+});

@@ -48,6 +48,7 @@ import {
   SERVICE_STATUS_META,
 } from "../pull-requests/-components/preview-status-meta";
 import { DeploymentRow } from "./-components/deployment-row";
+import { TestUserCard, TestUserCardSkeleton, TestUserCardUnavailable } from "./-components/test-user-card";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 type PreviewService = PreviewSummary["services"][number];
@@ -98,6 +99,13 @@ function PreviewEnvironmentContent() {
   return (
     <>
       <PreviewHeader summary={summary} statusMeta={statusMeta} />
+      {summary.status === "ready" ? (
+        <Suspense fallback={<TestUserCardSkeleton />}>
+          <TestUserCard applicationId={app.id} environmentId={environmentId} />
+        </Suspense>
+      ) : (
+        <TestUserCardUnavailable status={summary.status} />
+      )}
       <PreviewServicesExplorer summary={summary} />
     </>
   );

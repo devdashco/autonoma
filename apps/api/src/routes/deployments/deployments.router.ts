@@ -1,4 +1,9 @@
-import { RedeployPreviewkitAppInputSchema } from "@autonoma/types";
+import {
+    RedeployPreviewkitAppInputSchema,
+    TestUserOptionsInputSchema,
+    TestUserProvisionInputSchema,
+    TestUserTeardownInputSchema,
+} from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, router } from "../../trpc";
 
@@ -38,5 +43,20 @@ export const deploymentsRouter = router({
                 input.mode,
                 organizationId,
             ),
+        ),
+    testUserOptions: protectedProcedure
+        .input(TestUserOptionsInputSchema)
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.previewkitEnvFactory.getOptionsForApp(input.applicationId, input.environmentId, organizationId),
+        ),
+    testUserProvision: protectedProcedure
+        .input(TestUserProvisionInputSchema)
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.previewkitEnvFactory.provisionForApp({ ...input, organizationId }),
+        ),
+    testUserTeardown: protectedProcedure
+        .input(TestUserTeardownInputSchema)
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.previewkitEnvFactory.teardownForApp({ ...input, organizationId }),
         ),
 });
