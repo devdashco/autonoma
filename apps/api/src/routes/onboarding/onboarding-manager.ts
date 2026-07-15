@@ -475,7 +475,20 @@ export class OnboardingManager {
         const state = await this.loadStateOrEarlier(applicationId, "diff_trigger");
         await state.goLive();
         await this.activatePendingSnapshot(applicationId, organizationId);
+        this.reinvestigateDroppedPrComments(applicationId, organizationId);
         return this.getState(applicationId);
+    }
+
+    /**
+     * Fire-and-forget recovery for the onboarding race: a PR investigation that finished while the app was
+     * still onboarding had its comment suppressed by the onboarding gate. Now that the app is live, re-run
+     * those investigations so the comments post. Contained and detached so it never adds latency to, or fails,
+     * the go-live transition. Idempotent (only comment-less open PRs are targeted), so a double call is safe.
+     */
+    reinvestigateDroppedPrComments(applicationId: string, organizationId: string): void {
+        void this.options.diffsTrigger?.reinvestigateOpenPrs(applicationId, organizationId).catch((err) => {
+            this.logger.error("Failed to reinvestigate open PRs after go-live", { applicationId, err });
+        });
     }
 
     async acceptDeploymentSignal(input: DeploymentSignalInput) {

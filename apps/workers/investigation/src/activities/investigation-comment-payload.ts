@@ -9,6 +9,17 @@ import type { InvestigationTestResult } from "@autonoma/workflow/activities";
 /** Verdict categories that warrant action (a "warning" state) when there are no outright client bugs. */
 const ACTIONABLE_CATEGORIES = new Set(["scenario_issue", "environment_failure", "outdated_test", "bad_test"]);
 
+/** A `passed` result is the absence of a finding to act on, so it is the one category never shown as a card. */
+const HIDDEN_CATEGORY = "passed";
+
+/** Severity tiers so findings sort client bugs first, then actionable issues, then informational ones (engine artifacts). */
+function findingRank(result: InvestigationTestResult): number {
+    const category = result.verdict?.category ?? "";
+    if (category === "client_bug") return 0;
+    if (ACTIONABLE_CATEGORIES.has(category)) return 1;
+    return 2;
+}
+
 export interface InvestigationCommentContext {
     prNumber: number;
     commitSha: string;
@@ -25,7 +36,10 @@ export interface InvestigationCommentContext {
 /**
  * Build the shared GitHub-comment payload from the investigation's classified results. Client bugs make the
  * comment UNHEALTHY; otherwise actionable findings (scenario/env/test issues) make it a WARNING; a clean run is
- * HEALTHY. Each shown finding becomes a rich bug collapsible. Screenshots are signed via the injected signer.
+ * HEALTHY. Every finding is listed - not just client bugs - so a reviewer sees the full picture: client bugs
+ * lead, then actionable issues, then informational ones (engine artifacts). Only a `passed` result is withheld,
+ * since it is not a finding. Each shown finding becomes a rich bug collapsible; screenshots are signed via the
+ * injected signer.
  */
 export async function buildInvestigationCommentPayload(
     results: InvestigationTestResult[],
@@ -37,7 +51,9 @@ export async function buildInvestigationCommentPayload(
 
     const state: AutonomaCommentState =
         clientBugs.length > 0 ? "critical" : actionables.length > 0 ? "warning" : "healthy";
-    const shown = clientBugs.length > 0 ? clientBugs : actionables;
+    const shown = results
+        .filter((result) => (result.verdict?.category ?? "") !== HIDDEN_CATEGORY)
+        .sort((a, b) => findingRank(a) - findingRank(b));
 
     const bugs = await Promise.all(shown.map((result) => toBug(result, context, signScreenshot)));
 

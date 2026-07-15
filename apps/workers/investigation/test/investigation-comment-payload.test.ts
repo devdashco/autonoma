@@ -62,6 +62,41 @@ describe("buildInvestigationCommentPayload", () => {
         expect(signed).toEqual(["s3://b/shot.png"]);
     });
 
+    it("lists every finding type - client bugs, actionable issues, and engine artifacts - ordered by severity", async () => {
+        const payload = await buildInvestigationCommentPayload(
+            [
+                result("engine", "engine_artifact"),
+                result("scenario", "scenario_issue"),
+                result("bug", "client_bug"),
+                result("ok", "passed"),
+            ],
+            context,
+            noSign,
+        );
+
+        // Critical (a client bug exists), but the actionable issue and engine artifact are still shown -
+        // only the passed result is withheld. Client bug leads, then actionable, then informational.
+        expect(payload.state).toBe("critical");
+        expect(payload.bugs.map((bug) => bug.title)).toEqual([
+            "client_bug headline",
+            "scenario_issue headline",
+            "engine_artifact headline",
+        ]);
+    });
+
+    it("surfaces an engine artifact even when the run is otherwise healthy", async () => {
+        const payload = await buildInvestigationCommentPayload(
+            [result("engine", "engine_artifact"), result("ok", "passed")],
+            context,
+            noSign,
+        );
+
+        // No client bug and no actionable finding, so the state stays healthy - but the engine artifact
+        // is still surfaced for transparency, while the passed result is not.
+        expect(payload.state).toBe("healthy");
+        expect(payload.bugs.map((bug) => bug.title)).toEqual(["engine_artifact headline"]);
+    });
+
     it("is a warning when only actionable findings exist (no client bug)", async () => {
         const payload = await buildInvestigationCommentPayload(
             [result("scenario", "scenario_issue"), result("env", "environment_failure")],

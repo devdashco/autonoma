@@ -170,6 +170,135 @@ export class DiffsTriggerService extends Service {
         }
     }
 
+    /**
+     * Create a detached investigation snapshot for a branch head, pair it onto the given parent snapshot via
+     * `investigationSnapshotId`, and fire the investigation workflow. Used by the onboarding-completion recovery
+     * path (`reinvestigateOpenPrs`). Returns `undefined` when there is no baseline suite to fork from (nothing to
+     * investigate). Callers own the containment (try/catch) so a failure never blocks them.
+     */
+    private async startInvestigationForHead(params: {
+        branchId: string;
+        organizationId: string;
+        headSha: string;
+        baseSha: string;
+        parentSnapshotId: string;
+    }): Promise<{ snapshotId: string } | undefined> {
+        const { branchId, organizationId, headSha, baseSha, parentSnapshotId } = params;
+
+        const created = await createDetachedSnapshot({
+            db: this.db,
+            branchId,
+            organizationId,
+            source: TriggerSource.WEBHOOK,
+            headSha,
+            baseSha,
+        });
+        if (created == null) {
+            this.logger.info("No baseline suite; skipping investigation", {
+                snapshot: { snapshotId: parentSnapshotId },
+            });
+            return undefined;
+        }
+
+        await this.db.branchSnapshot.update({
+            where: { id: parentSnapshotId },
+            data: { investigationSnapshotId: created.snapshotId },
+        });
+
+        await this.triggerInvestigationJob({ snapshotId: created.snapshotId });
+        this.logger.info("Investigation triggered on detached snapshot", {
+            snapshot: { snapshotId: created.snapshotId },
+            extra: { parentSnapshotId },
+        });
+        return created;
+    }
+
+    /**
+     * Recovery for the onboarding race: a PR investigation that finished while the app was still onboarding had
+     * its comment suppressed by the onboarding gate (`isOnboardingComplete`) and nothing re-posts it. When the
+     * app goes live we re-run a fresh investigation for every open PR that never got an investigation comment,
+     * so the comment posts normally now that the gate passes. Only comment-less open PRs are targeted, bounding
+     * this to a one-time compute per app. Best-effort per PR: one failure does not sink the rest.
+     */
+    async reinvestigateOpenPrs(applicationId: string, organizationId: string): Promise<void> {
+        if (!env.INVESTIGATION_SHADOW_ENABLED) {
+            this.logger.info("Investigation shadow disabled; skipping open-PR reinvestigation", { applicationId });
+            return;
+        }
+        this.logger.info("Reinvestigating open PRs after go-live", { applicationId, organizationId });
+
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
+        });
+        const repoId = application?.githubRepositoryId;
+        if (repoId == null) {
+            this.logger.info("Application has no linked repository; nothing to reinvestigate", { applicationId });
+            return;
+        }
+
+        const openBranches = await this.db.branch.findMany({
+            where: { applicationId, application: { organizationId }, prInfo: { prState: "open" } },
+            select: {
+                id: true,
+                activeSnapshotId: true,
+                prInfo: { select: { prNumber: true } },
+            },
+        });
+        if (openBranches.length === 0) {
+            this.logger.info("No open PRs to reinvestigate", { applicationId });
+            return;
+        }
+
+        const repository = await this.githubInstallationService.getRepository(organizationId, repoId);
+        const repoFullName = repository.fullName;
+
+        const openPrNumbers = openBranches
+            .map((branch) => branch.prInfo?.prNumber)
+            .filter((prNumber): prNumber is number => prNumber != null);
+        const existingComments = await this.db.gitHubPrComment.findMany({
+            where: { repoFullName, kind: "investigation", prNumber: { in: openPrNumbers } },
+            select: { prNumber: true },
+        });
+        const commentedPrNumbers = new Set(existingComments.map((comment) => comment.prNumber));
+
+        let retriggered = 0;
+        let skipped = 0;
+        for (const branch of openBranches) {
+            const prNumber = branch.prInfo?.prNumber;
+            const alreadyCommented = prNumber != null && commentedPrNumbers.has(prNumber);
+            if (prNumber == null || alreadyCommented || branch.activeSnapshotId == null) {
+                skipped++;
+                continue;
+            }
+            try {
+                const pullRequest = await this.githubInstallationService.getPullRequest(
+                    organizationId,
+                    repoId,
+                    prNumber,
+                );
+                await this.startInvestigationForHead({
+                    branchId: branch.id,
+                    organizationId,
+                    headSha: pullRequest.headSha,
+                    baseSha: pullRequest.baseSha,
+                    parentSnapshotId: branch.activeSnapshotId,
+                });
+                retriggered++;
+            } catch (error) {
+                this.logger.warn("Failed to reinvestigate open PR", {
+                    organizationId,
+                    extra: { applicationId, prNumber, branchId: branch.id, error: String(error) },
+                });
+            }
+        }
+
+        this.logger.info("Open-PR reinvestigation complete", {
+            applicationId,
+            extra: { retriggered, skipped, totalOpen: openBranches.length },
+        });
+    }
+
     async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
         const mainBranchInfo = await this.db.mainBranchInfo.findFirst({
             where: {

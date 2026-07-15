@@ -73,6 +73,11 @@ export interface OnboardingDiffsTrigger {
         url: string;
         webhookUrl?: string;
     }): Promise<{ snapshotId?: string; skipped?: boolean }>;
+    /**
+     * Recover investigation comments dropped by the onboarding gate: re-run a fresh investigation for every
+     * open PR that never received an investigation comment, so it posts now that onboarding is complete.
+     */
+    reinvestigateOpenPrs(applicationId: string, organizationId: string): Promise<void>;
 }
 
 export interface OnboardingManagerOptions {

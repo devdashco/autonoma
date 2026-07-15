@@ -153,6 +153,16 @@ export function buildServices({
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,
     );
+    const diffsTriggerService = new DiffsTriggerService(
+        conn,
+        githubService,
+        triggerDiffsJob,
+        cancelDiffsJob,
+        triggerInvestigationJob,
+        cancelInvestigationJob,
+        triggerAnalysisJob,
+        cancelAnalysisJob,
+    );
     const onboardingOptions = {
         previewkitClient: {
             isConfigured: () => env.PREVIEWKIT_ENABLED,
@@ -167,6 +177,7 @@ export function buildServices({
         repoIntrospection: repoIntrospectionService,
         github: githubService,
         applications: applicationsService,
+        diffsTrigger: diffsTriggerService,
         getVercelEncryptionHelper,
     };
     const onboardingManager = new OnboardingManager(conn, scenarioManager, encryptionHelper, onboardingOptions);
@@ -214,16 +225,7 @@ export function buildServices({
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),
-        diffsTrigger: new DiffsTriggerService(
-            conn,
-            githubService,
-            triggerDiffsJob,
-            cancelDiffsJob,
-            triggerInvestigationJob,
-            cancelInvestigationJob,
-            triggerAnalysisJob,
-            cancelAnalysisJob,
-        ),
+        diffsTrigger: diffsTriggerService,
         previewkitTrigger,
         previewkitWrite,
         previewkitEnvironments: previewkitEnvironmentsService,
