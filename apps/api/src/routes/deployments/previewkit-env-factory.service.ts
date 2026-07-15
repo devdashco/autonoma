@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { Prisma, PrismaClient } from "@autonoma/db";
 import { APIError, BadRequestError, NotFoundError } from "@autonoma/errors";
 import {
     type EncryptionHelper,
@@ -110,16 +110,28 @@ export class PreviewkitEnvFactoryService extends Service {
     /**
      * Resolve everything the admin popover needs for a preview environment: the
      * owning Application, its scenarios that have an active recipe, the preview's
-     * app URLs, and a suggested SDK URL (the preview's primary URL combined with
-     * the path from the Application's main-branch webhook). Returns a
-     * `disabledReason` instead of throwing when a manual up cannot be run.
+     * app URLs, and a suggested SDK URL (the preview branch's persisted SDK
+     * endpoint, falling back to the primary origin + the main-branch webhook path
+     * for envs without a branch deployment). Returns a `disabledReason` instead of
+     * throwing when a manual up cannot be run.
      */
     async getOptions(environmentId: string): Promise<EnvFactoryOptions> {
         this.logger.info("Resolving previewkit env-factory options", { environmentId });
 
         const environment = await this.db.previewkitEnvironment.findUnique({
             where: { id: environmentId },
-            select: { id: true, organizationId: true, githubRepositoryId: true, urls: true, resolvedConfig: true },
+            select: {
+                id: true,
+                organizationId: true,
+                githubRepositoryId: true,
+                urls: true,
+                resolvedConfig: true,
+                // The preview's own SDK endpoint, resolved to the app that actually
+                // hosts it and persisted by the diffs trigger. Preferred over the
+                // primary-origin derivation, which assumes the SDK lives on the
+                // primary (front) app - untrue when it's a separate service.
+                branch: { select: { deployment: { select: { webhookUrl: true } } } },
+            },
         });
         if (environment == null) {
             throw new NotFoundError("Preview environment not found");
@@ -169,7 +181,12 @@ export class PreviewkitEnvFactoryService extends Service {
             return disabled("The linked application has no scenarios with a recipe. Run discover first.");
         }
 
-        const suggestedSdkUrl = derivePreviewSdkUrl(primaryUrl, application.mainBranch?.deployment?.webhookUrl);
+        // Prefer the preview's persisted SDK endpoint (resolved to the app that
+        // hosts it); fall back to the primary-origin derivation for envs without a
+        // branch deployment yet (e.g. main-branch env 0).
+        const suggestedSdkUrl =
+            environment.branch?.deployment?.webhookUrl ??
+            derivePreviewSdkUrl(primaryUrl, application.mainBranch?.deployment?.webhookUrl);
         if (suggestedSdkUrl == null) {
             return disabled("This environment has no app URL to target yet.");
         }
@@ -385,7 +402,12 @@ export class PreviewkitEnvFactoryService extends Service {
     private async resolveContext(environmentId: string, scenarioId: string): Promise<ResolvedContext> {
         const environment = await this.db.previewkitEnvironment.findUnique({
             where: { id: environmentId },
-            select: { organizationId: true, githubRepositoryId: true, bypassToken: true },
+            select: {
+                organizationId: true,
+                githubRepositoryId: true,
+                bypassToken: true,
+                branch: { select: { deployment: { select: { webhookHeaders: true } } } },
+            },
         });
         if (environment == null) {
             throw new NotFoundError("Preview environment not found");
@@ -414,20 +436,31 @@ export class PreviewkitEnvFactoryService extends Service {
         }
 
         const signingSecret = this.encryption.decrypt(application.signingSecretEnc);
-        const customHeaders = buildBypassHeaders(environment.bypassToken);
+        const customHeaders = buildSdkRequestHeaders(
+            environment.bypassToken,
+            environment.branch?.deployment?.webhookHeaders,
+        );
 
         return { applicationId: application.id, signingSecret, customHeaders };
     }
 }
 
 /**
- * Build the Gatekeeper bypass header for a preview request. Gatekeeper gates
- * each preview behind the bypass token (`x-previewkit-bypass`), stored encrypted
- * with `PREVIEWKIT_BYPASS_TOKEN_KEY`. Returns undefined when no token exists.
+ * Headers for a preview SDK request: the deploy's configured webhook headers
+ * (the customer's SDK auth, persisted per branch) plus the Gatekeeper bypass
+ * header (`x-previewkit-bypass`, decrypted from the env's token with
+ * `PREVIEWKIT_BYPASS_TOKEN_KEY`). The bypass is applied last so it can never be
+ * shadowed by a configured header. Returns undefined when neither is present.
  */
-function buildBypassHeaders(bypassToken: string | null): Record<string, string> | undefined {
-    if (bypassToken == null) return undefined;
-    return { "x-previewkit-bypass": resolvePreviewkitBypassToken(bypassToken, env.PREVIEWKIT_BYPASS_TOKEN_KEY) };
+function buildSdkRequestHeaders(
+    bypassToken: string | null,
+    webhookHeaders: Prisma.JsonValue | null | undefined,
+): Record<string, string> | undefined {
+    const headers = parseStringRecord(webhookHeaders ?? null);
+    if (bypassToken != null) {
+        headers["x-previewkit-bypass"] = resolvePreviewkitBypassToken(bypassToken, env.PREVIEWKIT_BYPASS_TOKEN_KEY);
+    }
+    return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 /**
