@@ -8,10 +8,6 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   cn,
 } from "@autonoma/blacklight";
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
@@ -65,10 +61,6 @@ interface FinishStepDefinition {
   description: ReactNode;
   render: (props: { applicationId: string; artifactStatus: ArtifactStatus }) => ReactNode;
 }
-
-// The planner's package.json requires Node >= 22.13, so the sandbox image must be
-// on that major - node:20 fails the engine check before the CLI even runs.
-const PLANNER_NODE_IMAGE = "node:22";
 
 const CLI_FINISH_STEP: FinishStepDefinition = {
   id: "cli",
@@ -915,8 +907,7 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const sharedSecret = sharedSecretData?.sharedSecret;
   // AUTONOMA_API_TOKEN authenticates the CLI against our managed LLM proxy, so it
   // is now required for the planner to run (not just to upload artifacts). Only
-  // surface a runnable command once that token has been provisioned. The same env
-  // pairs render as `KEY=value` for npx and as `-e KEY=value` for the docker run.
+  // surface a runnable command once that token has been provisioned.
   const envPairs =
     setup.status === "ready"
       ? [
@@ -928,35 +919,22 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
       : undefined;
 
   const npxCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest` : undefined;
-  const dockerCommand =
-    envPairs != null
-      ? `docker run --rm -it -v "$PWD:/repo" -w /repo ${envPairs
-          .map((pair) => `-e ${pair}`)
-          .join(" ")} ${PLANNER_NODE_IMAGE} npx @autonoma-ai/planner@latest`
-      : undefined;
 
+  // A "Docker (sandbox)" tab used to sit alongside npx here, running the planner
+  // in a throwaway `node:22` container. It was removed because the containerized
+  // CLI can't fully work - no editor is available and it has no way to reach the
+  // host to make requests. Restore the tab (and the docker run command) once the
+  // CLI supports running inside a container. Removed in
+  // https://github.com/Autonoma-AI/agent/pull/1550
   return (
     <div className="flex flex-col gap-4">
-      <Tabs defaultValue="npx">
-        <TabsList>
-          <TabsTrigger value="npx">npx</TabsTrigger>
-          <TabsTrigger value="docker">Docker (sandbox)</TabsTrigger>
-        </TabsList>
-        <TabsContent value="npx" className="flex flex-col gap-2">
-          <CommandBlock command={npxCommand} />
-          <p className="text-2xs leading-relaxed text-text-secondary">
-            Runs the planner in your repo with Node. It analyzes the code and writes the generated files to{" "}
-            <Code>~/.autonoma/&lt;your-app&gt;/</Code> before uploading them - nothing is committed to your repo.
-          </p>
-        </TabsContent>
-        <TabsContent value="docker" className="flex flex-col gap-2">
-          <CommandBlock command={dockerCommand} />
-          <p className="text-2xs leading-relaxed text-text-secondary">
-            Runs the same planner in a throwaway container - your repo is mounted, and <Code>~/.autonoma</Code> stays
-            inside the container (gone when it exits). Needs Docker running.
-          </p>
-        </TabsContent>
-      </Tabs>
+      <div className="flex flex-col gap-2">
+        <CommandBlock command={npxCommand} />
+        <p className="text-2xs leading-relaxed text-text-secondary">
+          Runs the planner in your repo with Node. It analyzes the code and writes the generated files to{" "}
+          <Code>~/.autonoma/&lt;your-app&gt;/</Code> before uploading them - nothing is committed to your repo.
+        </p>
+      </div>
 
       {setup.status === "loading" && (
         <p className="font-mono text-3xs text-text-secondary">
