@@ -12,7 +12,6 @@ import { z } from "zod";
  */
 export const Route = createFileRoute("/github-installed")({
   validateSearch: z.object({
-    connected: z.union([z.literal("true"), z.boolean()]).optional(),
     error: z.string().optional(),
   }),
   component: GithubInstalledPage,
@@ -31,15 +30,15 @@ function GithubInstalledPage() {
           <CheckCircleIcon size={40} weight="fill" className="text-status-success" />
         )}
         <h1 className="text-xl font-medium text-text-primary">
-          {failed ? "Couldn't connect the repository" : "Repository connected"}
+          {failed ? "Couldn't grant access" : "GitHub access granted"}
         </h1>
         <p className="text-sm text-text-secondary">
           {failed ? (
             <>Something went wrong granting access. Close this tab and try again from Autonoma.</>
           ) : (
             <>
-              GitHub granted Autonoma access. You can close this tab and go back to the Autonoma tab - your new repo
-              will appear there.
+              GitHub granted Autonoma access to your repositories. You can close this tab and go back to the Autonoma
+              tab - your new repo will appear there.
             </>
           )}
         </p>

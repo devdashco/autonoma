@@ -41,19 +41,22 @@ githubHttpRouter.get("/callback", async (ctx) => {
     const setupAction = ctx.req.query("setup_action");
     const state = ctx.req.query("state");
 
-    if (Number.isNaN(installationId) || setupAction !== "install") {
-        // A genuine GitHub install redirect always carries installation_id and setup_action. The most
-        // common cause of landing here with those present is setup_action=update/request (reconfiguring
-        // or approval-gated installs on an org that already has the app) - which we currently reject.
-        // Bare hits with no install params are almost always bots/scanners/health probes, so only the
-        // former is escalated to fatal (routes to Sentry -> Slack); the latter is logged quietly.
+    // `install` is a fresh install; `update` is the same account changing the app's repo access
+    // (the "connect another repo" flow when the app is already installed). Both carry the
+    // installation_id and our signed state, so both resolve the org + returnPath and land the user
+    // on the return page. `request` (approval-gated, no installation yet) and bare hits fall through.
+    const isInstallOrUpdate = setupAction === "install" || setupAction === "update";
+    if (Number.isNaN(installationId) || !isInstallOrUpdate) {
+        // Bare hits with no install params are almost always bots/scanners/health probes; a redirect
+        // that carries install params but an unhandled setup_action (e.g. `request`) is escalated to
+        // fatal (routes to Sentry -> Slack), the bare case is logged quietly.
         const looksLikeGitHubRedirect = installationIdRaw != null || setupAction != null || state != null;
         const logContext = {
             extra: { installationIdRaw, setupAction, hasState: state != null },
         };
         if (looksLikeGitHubRedirect) {
             logger.fatal(
-                "GitHub install callback rejected: expected setup_action=install with a numeric installation_id",
+                "GitHub install callback rejected: expected setup_action=install or update with a numeric installation_id",
                 logContext,
             );
         } else {
@@ -95,9 +98,11 @@ githubHttpRouter.get("/callback", async (ctx) => {
         return ctx.redirect(`${errorBase}${errorSeparator}error=install_failed`);
     }
 
-    const successBase = returnPath != null ? `${appUrl}${returnPath}` : appUrl;
-    const successSeparator = successBase.includes("?") ? "&" : "?";
-    return ctx.redirect(`${successBase}${successSeparator}connected=true`);
+    // Success carries no marker of its own: the destination distinguishes success
+    // from failure purely by the absence of an `error` param. This holds for a fresh
+    // `install` and for `update` (added repo access) alike - neither needs a distinct
+    // signal, and the observing tab picks up the change by refetching its repo list.
+    return ctx.redirect(returnPath != null ? `${appUrl}${returnPath}` : appUrl);
 });
 
 const WEBHOOK_EVENT_TYPES = {
