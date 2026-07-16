@@ -1,12 +1,12 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import { type AgentLogEntry, previewConfigSchema } from "@autonoma/types";
+import { type AgentLogEntry, isProtectedPreviewkitEnvKey, previewConfigSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { McpAnalytics } from "./mcp-analytics";
-import { describeError, jsonResult, toToolResult } from "./tool-result";
+import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
 
 /**
  * How many recent log lines get_session_status returns per source. Enough to carry
@@ -47,9 +47,9 @@ Start every session by pairing:
 Then loop until the preview is up:
 3. get_config(applicationId) - read the current preview config.
 4. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
-5. If the app needs secret env values (API keys, DB URLs, tokens) you do NOT have: call request_env(applicationId, keys). NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection.
+5. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys). NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
 6. trigger_deploy(applicationId) - deploy the main branch (environment 0).
-7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state.
+7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, do NOT tell the user to come back and confirm here - they answer in the Autonoma UI and may never return to this chat. Keep polling until pendingRequest clears, then continue on your own.
 8. When status shows the preview is up, verify it yourself: curl the preview URL, or write a small Playwright script if the user has Playwright, and check you get what you expect. If it is broken, read the diagnostics, fix the config, and loop.
 
 Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
@@ -288,8 +288,10 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "Ask the user to enter secret env VALUES in the Autonoma UI (you never see them). Pass only the KEYS " +
                 "you need and the appName they belong to (secret stores are per-app; read it from get_config). ALWAYS " +
                 "ask the user first whether to fill from their .env (default) or set them manually. Then poll " +
-                "get_session_status; when the pending request clears, the values are set. Pass a short " +
-                "`description` of what you're requesting and why - the user watches it on the activity feed.",
+                "get_session_status until the pending request clears - the user answers in the Autonoma UI, so never " +
+                "ask them to come back here and confirm. AUTONOMA_* variables are injected automatically and are " +
+                "rejected. Pass a short `description` of what you're requesting and why - the user watches it on " +
+                "the activity feed.",
             inputSchema: {
                 applicationId: z.string(),
                 keys: z.array(z.string().min(1)).min(1),
@@ -298,8 +300,21 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 description: activityDescription,
             },
         },
-        async ({ applicationId, keys, appName, note, description }) =>
-            guardedWrite(
+        async ({ applicationId, keys, appName, note, description }) => {
+            // Reject Autonoma-provided keys BEFORE raising the request: the UI's value
+            // submission hard-rejects them, so a request containing one is unanswerable -
+            // the user would be stuck staring at a form they can never satisfy. Failing
+            // here instead lets the agent drop the keys and re-request only what's real.
+            const protectedKeys = keys.filter(isProtectedPreviewkitEnvKey);
+            if (protectedKeys.length > 0) {
+                return errorResult(
+                    `Refusing to request ${protectedKeys.join(", ")}: Autonoma injects these automatically into ` +
+                        "every preview app and the user cannot set them. Remove them and request only the app's " +
+                        "own secrets (third-party API keys, tokens). A preview-internal service URL is not a user " +
+                        "secret either - wire it as a connection in apply_config.",
+                );
+            }
+            return guardedWrite(
                 {
                     applicationId,
                     tool: "request_env",
@@ -312,10 +327,13 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         status: "input_requested",
                         message:
                             "Asked the user to provide these values in the Autonoma UI. Poll get_session_status; " +
-                            "when pendingRequest is cleared they are set. Do NOT ask for or send the values yourself.",
+                            "when pendingRequest is cleared they are set. Do NOT ask for or send the values " +
+                            "yourself, and do NOT tell the user to come back here and confirm - they answer in " +
+                            "the UI. Continue on your own once the request clears.",
                     };
                 },
-            ),
+            );
+        },
     );
 
     server.registerTool(
