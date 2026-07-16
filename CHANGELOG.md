@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.8.37](https://github.com/Autonoma-AI/agent/compare/v1.8.36...v1.8.37) (2026-07-16)
+
+
+### Features
+
+* **onboarding:** queued-deploy stepper on the agent configuring screen ([#1575](https://github.com/Autonoma-AI/agent/issues/1575)) ([05c25f5](https://github.com/Autonoma-AI/agent/commit/05c25f5731b00bdeb4bdc44dfd2ff66ad970f6ce))
+* **previewkit:** warn when a database service has no app connection referencing it ([#1577](https://github.com/Autonoma-AI/agent/issues/1577)) ([0af5e32](https://github.com/Autonoma-AI/agent/commit/0af5e3272510f92eabe3d0868e3c98c39017e6a9))
+* reconciler holistic dedup + shadow findings comparison store ([#1560](https://github.com/Autonoma-AI/agent/issues/1560)) ([55cfa64](https://github.com/Autonoma-AI/agent/commit/55cfa646c0077a2b033652c121c14a42ec3360ad))
+* SDK-integration eval harness for the planner CLI ([#1500](https://github.com/Autonoma-AI/agent/issues/1500)) ([4d3a834](https://github.com/Autonoma-AI/agent/commit/4d3a8349d595bb501be43dbb59bb636aef1d259e))
+* shadow analysis tracer bullet (select, run+classify, persist verdict) ([#1549](https://github.com/Autonoma-AI/agent/issues/1549)) ([78d7db3](https://github.com/Autonoma-AI/agent/commit/78d7db3ab4f1a041977298d42d633b3524d421d0))
+* **ui:** custom feedback modal that dodges ad-blockers ([#1536](https://github.com/Autonoma-AI/agent/issues/1536)) ([ef70cfd](https://github.com/Autonoma-AI/agent/commit/ef70cfdb8bdf2a1ca7572d8fb5c689492cdd254a))
+
+
+### Bug Fixes
+
+* **api:** human-readable Zod validation errors over tRPC (no more raw JSON in toasts) ([#1574](https://github.com/Autonoma-AI/agent/issues/1574)) ([b9486a9](https://github.com/Autonoma-AI/agent/commit/b9486a9ee2d5c2c3808d4babba423490d1d4a915))
+* **onboarding-mcp:** reject Autonoma-provided keys in request_env + stop agents parking on terminal input ([#1573](https://github.com/Autonoma-AI/agent/issues/1573)) ([63c6c4d](https://github.com/Autonoma-AI/agent/commit/63c6c4d61f66857140aa667b087faa66079d98ad))
+* pass max retries to ai sdk ([#1580](https://github.com/Autonoma-AI/agent/issues/1580)) ([147eccd](https://github.com/Autonoma-AI/agent/commit/147eccd506ad4ad6c2c489644feb2d3c423de30d))
+
 ## [1.8.36](https://github.com/Autonoma-AI/agent/compare/v1.8.35...v1.8.36) (2026-07-16)
 
 
