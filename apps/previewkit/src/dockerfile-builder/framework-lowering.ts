@@ -8,7 +8,7 @@ import type { GenerateDockerfileContext, RawSpec } from "./raw-spec";
 type FrameworkBuild = Exclude<Build, { framework: "dockerfile" | "runtime" }>;
 
 /** Bun ships its own image; the node frameworks resolve their base image through the shared runtime catalog. */
-const BUN_IMAGE = "oven/bun:1";
+const BUN_IMAGE = "public.ecr.aws/autonoma/bun:latest";
 
 /**
  * Lowers a framework preset into the raw primitive: the node base image (from the

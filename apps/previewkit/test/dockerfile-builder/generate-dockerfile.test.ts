@@ -26,9 +26,9 @@ describe("generateDockerfile", () => {
         expect(df).toContain("FROM node:20.11.0-bookworm-slim");
     });
 
-    it("generates a bun Dockerfile with the bun base image and no corepack", () => {
+    it("generates a bun Dockerfile with the Autonoma bun base image and no corepack", () => {
         const df = generateDockerfile({ framework: "bun", build_context: "app" }, ctx);
-        expect(df).toContain("FROM oven/bun:1");
+        expect(df).toContain("FROM public.ecr.aws/autonoma/bun:latest");
         expect(df).not.toContain("corepack");
         expect(df).toContain("RUN bun install");
         expect(df).toContain("RUN bun run build");
