@@ -101,18 +101,39 @@ merge activity runs under the `investigationMergeWorkflow`, triggered by the API
 The parallel launch is in `apps/api` (`DiffsTriggerService`), fire-and-forget behind the
 `INVESTIGATION_SHADOW_ENABLED` flag - it never blocks or fails the diffs trigger.
 
-## Merged analysis pipeline (shadow skeleton)
+## Merged analysis pipeline (shadow)
 
-This worker also hosts the skeleton of the **merged analysis pipeline** (`analysisWorkflow` in
-`@autonoma/workflow`) - the eventual replacement for BOTH `diffs` and `investigation`. It is launched by the same
-`DiffsTriggerService` slot, on the SAME detached twin, behind its own `ANALYSIS_SHADOW_ENABLED` flag, and takes a
-`mode` param (`shadow` | `authoritative`). In `shadow` mode it is inert to production: it never promotes the twin
-and files no user-facing rows - it only logs and produces a `DeployedComparison` placeholder against the diffs
-output. `authoritative` mode is dormant until the cutover.
+This worker also hosts the **merged analysis pipeline** (`analysisWorkflow` in `@autonoma/workflow`) - the eventual
+replacement for BOTH `diffs` and `investigation`. It is launched by the same `DiffsTriggerService` slot, on the
+SAME detached twin, behind its own `ANALYSIS_SHADOW_ENABLED` flag, and takes a `mode` param (`shadow` |
+`authoritative`). In `shadow` mode it is inert to production: it never promotes the twin and files no user-facing
+Bug/Issue rows - it only writes the shadow store and a `DeployedComparison` against the diffs output.
+`authoritative` mode (promotion + real filing) is dormant until the cutover.
 
-Its four stages - Impact Analysis -> Investigator fan-out (one child workflow per test) -> Reconciler -> finalize -
-are STUBS in this slice (`src/activities/analysis/`, satisfying `AnalysisActivities`): a shadow run completes
-end-to-end without doing real work. The stages are fleshed out in the follow-up `[analysis-merge]` issues.
+Its four stages (`src/activities/analysis/`, satisfying `AnalysisActivities`, plus the `investigatorWorkflow`
+child in `@autonoma/workflow`):
+
+1. **runImpactAnalysis** - asserts the twin is a pending detached snapshot, then reuses `selectInvestigationTests`
+   to select the diff-affected tests (materializing one shadow generation each) and returns them as targets.
+2. **Investigator fan-out** - one `investigatorWorkflow` child per target (bounded concurrency): `scenario up` ->
+   run the shadow generation on the web worker -> `classifyInvestigationRun` -> `scenario down`. It collapses the
+   verdict to `passed` | `client_bug` and emits a candidate finding; it runs the test ONCE (no self-heal loop, no
+   plan edits) and files nothing. A test that cannot be evaluated yields no finding.
+3. **reconcileAnalysis** - derives the shadow verdict (`client_bug` if any finding is a client bug, else `passed`),
+   builds the shadow-vs-diffs `DeployedComparison`, and upserts the `AnalysisShadowRun` store row (verdict, counts,
+   findings blob, comparison blob). Files no user-facing rows.
+4. **finalizeAnalysis** - workflow plumbing; never promotes in shadow mode.
+
+The remaining `[analysis-merge]` issues flesh these out (the self-heal loop + full verdict taxonomy, up-front
+new-test materialization, holistic dedup + rich evidence, and the shadow-vs-diffs comparison).
+
+### The shadow store (`AnalysisShadowRun`)
+
+An isolated, droppable island (mirrors `investigation_report`), keyed by the twin `snapshotId`: it records one
+shadow run's `verdict`, `testCount` / `clientBugCount`, the per-test `findings` (JSON blob), and the `deployed`
+diffs comparison (JSON blob). It FKs only OUTWARD (snapshot / org, cascade) and nothing in the core app FKs into
+it, so retiring the shadow machinery at cutover is a clean `DROP TABLE`. It is NOT the user-facing Bug/Issue model
+and is distinct from `investigation_report` so the two shadows never collide on the shared twin.
 
 ## Scaling
 

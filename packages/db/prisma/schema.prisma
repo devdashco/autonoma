@@ -144,6 +144,7 @@ model Organization {
   previewkitOrgSecrets   PreviewkitOrgSecret[]
   diffsJobs              DiffsJob[]
   investigationReports   InvestigationReport[]
+  analysisShadowRuns     AnalysisShadowRun[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
   vercelInstallations    VercelInstallation[]
@@ -752,6 +753,7 @@ model BranchSnapshot {
 
   diffsJob             DiffsJob?
   investigationReport  InvestigationReport?
+  analysisShadowRun    AnalysisShadowRun?
   investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
   issues               Issue[]
   refinementLoop       RefinementLoop?
@@ -2374,6 +2376,41 @@ model AffectedTest {
 
   @@id([snapshotId, testCaseId])
   @@map("affected_test")
+}
+
+/// The merged analysis pipeline's SHADOW run record - the queryable home for one shadow run's verdict, its
+/// per-test findings, and the side-by-side comparison against the authoritative diffs job. Written only in
+/// `shadow` mode (authoritative mode files real Bug/Issue instead), so it is never user-facing. Like
+/// InvestigationReport it is an isolated island: it only FKs OUTWARD (snapshot / org, cascade) and nothing in
+/// the core app FKs into it, so retiring the shadow machinery at cutover is a clean DROP TABLE.
+model AnalysisShadowRun {
+  snapshotId String         @id @map("snapshot_id")
+  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  /// The pipeline mode that produced this row (always `shadow` today; recorded so an accidental write is visible).
+  mode String
+
+  /// The shadow app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`.
+  verdict String
+
+  testCount      Int @default(0) @map("test_count")
+  clientBugCount Int @default(0) @map("client_bug_count")
+
+  /// The per-test candidate findings the Investigators emitted. A display-only blob, not queried yet, so JSON
+  /// not a child table; the Reconciler issue normalizes it when holistic dedup + evidence land.
+  /// ![{ slug: string; category: string; headline: string }[]]
+  findings Json?
+
+  /// The authoritative diffs job's outcome for this PR, for the shadow-vs-diffs comparison. Display-only blob.
+  /// ![{ found: boolean; jobStatus?: string; deployedTestCount: number }]
+  deployed Json?
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("analysis_shadow_run")
 }
 
 // Generic durable fixed-window rate-limit counter. One row per limiter key (e.g.

@@ -74,8 +74,9 @@ export const persistInvestigationEdits = withHeartbeat(persistEditsImpl);
 // DB reads + one structured reconcile call; heartbeat it so a slow model call does not trip the 2m timeout.
 export const mergeInvestigationEdits = withHeartbeat(mergeEditsImpl);
 
-// --- Merged analysis pipeline (shadow-slot skeleton). Fast stub stages: a status read, a comparison lookup,
-// and workflow plumbing. Heartbeat them for consistency with the other investigation-queue activities.
+// --- Merged analysis pipeline (shadow). runImpactAnalysis clones the repo + runs the selector (MINUTES), so it
+// MUST heartbeat like the other reasoning activities; reconcile (comparison lookup + shadow-store write) and
+// finalize (plumbing) are fast but heartbeat for consistency with the rest of the investigation-queue activities.
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const reconcileAnalysis = withHeartbeat(reconcileAnalysisImpl);
 export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);

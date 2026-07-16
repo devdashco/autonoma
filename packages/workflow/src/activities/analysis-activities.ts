@@ -1,17 +1,22 @@
 import type { AnalysisMode } from "@autonoma/types";
 
 /**
- * The merged analysis pipeline's activities, run on the INVESTIGATION task queue (reusing the shadow
- * investigation worker). Every stage is currently a skeleton stub: it logs, guards production writes behind
- * `mode === "authoritative"`, and returns placeholder data so a shadow run completes end-to-end without
- * touching production.
+ * The merged analysis pipeline's activities (run on the INVESTIGATION task queue for now - the queue collapse
+ * is a cleanup-phase concern). In `shadow` mode Impact Analysis really selects affected tests, the Investigators
+ * really run + classify them, and the Reconciler persists the verdict + findings to the shadow store; nothing
+ * user-facing is written and the twin is never promoted. Authoritative promotion + Bug/Issue filing stay guarded
+ * behind `mode === "authoritative"` and remain dormant until the cutover ships.
  */
 
 /** One test the Impact Analysis stage selects for an Investigator to run + classify. */
 export interface AnalysisInvestigationTarget {
     slug: string;
-    /** The shadow generation the Investigator runs. Absent while Impact Analysis is a stub (no targets). */
-    testGenerationId?: string;
+    /** The shadow generation the Investigator runs (created up front by the selection). */
+    testGenerationId: string;
+    /** The scenario to provision before the run, when the test pins one. */
+    scenarioId?: string;
+    /** Why this test was selected - fed to the classifier as context. */
+    reason: string;
 }
 
 export interface RunImpactAnalysisInput {
@@ -21,14 +26,15 @@ export interface RunImpactAnalysisInput {
 }
 
 export interface RunImpactAnalysisOutput {
-    /** The tests to fan out Investigators over. Empty while Impact Analysis is a stub. */
+    /** The diff-affected tests to fan out one Investigator over each. */
     targets: AnalysisInvestigationTarget[];
 }
 
 /** A candidate finding an Investigator emits. The Investigator never files - the Reconciler owns that write. */
 export interface AnalysisCandidateFinding {
     slug: string;
-    /** The Investigator's terminal verdict category (placeholder while the Investigator is a stub). */
+    /** The Investigator's terminal verdict category. Collapsed to `passed` | `client_bug` in this slice - the
+     * full taxonomy (engine_artifact / environment_failure / scenario_issue / delete) lands with the verdict issue. */
     category: string;
     headline: string;
 }
@@ -49,7 +55,13 @@ export interface ReconcileAnalysisInput {
 }
 
 export interface ReconcileAnalysisOutput {
-    /** The DeployedComparison placeholder produced against the authoritative diffs output. */
+    /** The shadow app-health verdict for the PR: `client_bug` if any finding is a client bug, else `passed`. */
+    verdict: string;
+    /** How many tests were investigated (candidate findings). */
+    testCount: number;
+    /** How many of those findings were client bugs. */
+    clientBugCount: number;
+    /** The DeployedComparison produced against the authoritative diffs output. */
     comparison: AnalysisDeployedComparison;
     /** How many candidate findings were filed as bugs - always 0 in shadow mode (nothing is filed). */
     filedCount: number;
