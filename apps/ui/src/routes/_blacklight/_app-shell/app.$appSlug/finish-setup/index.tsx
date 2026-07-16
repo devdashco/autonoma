@@ -108,6 +108,12 @@ const DRY_RUN_FINISH_STEP: FinishStepDefinition = {
 const FINISH_STEPS = [CLI_FINISH_STEP, SDK_FINISH_STEP, DRY_RUN_FINISH_STEP];
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/finish-setup/")({
+  // Persist the CLI setup id (the planner's AUTONOMA_GENERATION_ID) in the URL so a
+  // refresh reuses the same setup instead of minting a new one - which used to churn
+  // the generation id and reset the CLI step's progress.
+  validateSearch: (search: Record<string, unknown>): { setup?: string } => ({
+    setup: typeof search.setup === "string" ? search.setup : undefined,
+  }),
   loader: async ({ context, params: { appSlug } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) return;
@@ -160,7 +166,12 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
   const navigate = Route.useNavigate();
 
   const sdkImplemented = state.sdkConfigured;
-  const artifactsUploaded = state.artifactsUploaded;
+  // Gate the CLI step on the live artifact status (`stepComplete`), not on
+  // `state.artifactsUploaded` - the latter isn't polled here, so it would lag a
+  // re-upload until a manual refresh. `stepComplete` (server-computed) requires the
+  // run to be complete AND every artifact received, so the user can't advance to the
+  // SDK/dry-run steps with a missing recipe or tests.
+  const artifactsUploaded = artifactStatus.stepComplete;
   const dryRunPassed = state.dryRunPassed;
 
   const stepDone = [artifactsUploaded, sdkImplemented, dryRunPassed];
@@ -896,6 +907,7 @@ const ARTIFACT_DETAILS: Record<string, { label: string; description: string }> =
 
 interface ArtifactStatus {
   complete: boolean;
+  stepComplete: boolean;
   artifacts: Array<{ key: string; received: boolean }>;
 }
 
@@ -919,6 +931,14 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
       : undefined;
 
   const npxCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest` : undefined;
+  const uploadCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest upload` : undefined;
+
+  const missingArtifacts = artifacts.artifacts
+    .filter((a) => !a.received)
+    .map((a) => ARTIFACT_DETAILS[a.key]?.label ?? a.key);
+  // The CLI run finished but not everything landed (typically the recipe) - surface
+  // it and how to recover, rather than leaving the step silently un-completeable.
+  const showIncompleteUploadHint = artifacts.complete && !artifacts.stepComplete;
 
   // A "Docker (sandbox)" tab used to sit alongside npx here, running the planner
   // in a throwaway `node:22` container. It was removed because the containerized
@@ -973,6 +993,26 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
           </DocLink>
         </p>
       </div>
+
+      {showIncompleteUploadHint && (
+        <div className="flex flex-col gap-2 border border-status-warn/30 bg-status-warn/5 px-4 py-3">
+          <div className="flex items-start gap-2">
+            <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-text-primary">
+                The CLI finished, but some artifacts didn't upload
+              </p>
+              <p className="text-2xs text-text-secondary">
+                Missing: {missingArtifacts.join(", ")}. The recipe usually fails when the planner can't validate an
+                environment-factory (e.g. a model with no registered factory) or the upload was rejected - and without
+                it dry-run has no scenarios to provision. Re-run the planner, or re-upload the already-generated
+                artifacts (idempotent - safe to run again):
+              </p>
+            </div>
+          </div>
+          <CommandBlock command={uploadCommand} />
+        </div>
+      )}
 
       {isAdmin && <AdminManualUpload applicationId={applicationId} setupId={setup.setupId} />}
     </div>
@@ -1232,11 +1272,22 @@ interface CliSetupState {
 function useCliSetup(applicationId: string): CliSetupState {
   const prepare = usePrepareCliSetup();
   const { mutate, isIdle, isError, data } = prepare;
+  const { setup: pinnedSetupId } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   useEffect(() => {
     // Kick off once when idle; the mutation's own lifecycle is the dedupe guard.
-    if (isIdle) mutate({ applicationId });
-  }, [applicationId, isIdle, mutate]);
+    // Pass the URL's setup id so the server reuses that setup instead of minting a
+    // new one (stable AUTONOMA_GENERATION_ID across refreshes).
+    if (isIdle) mutate({ applicationId, pinnedSetupId });
+  }, [applicationId, isIdle, mutate, pinnedSetupId]);
+
+  // Reflect the resolved setup id back into the URL so a refresh reuses it.
+  const resolvedSetupId = data?.setupId;
+  useEffect(() => {
+    if (resolvedSetupId == null || resolvedSetupId === pinnedSetupId) return;
+    void navigate({ search: (prev) => ({ ...prev, setup: resolvedSetupId }), replace: true });
+  }, [resolvedSetupId, pinnedSetupId, navigate]);
 
   if (isError) return { status: "error" };
   if (data != null) return { status: "ready", apiKey: data.apiKey, setupId: data.setupId };

@@ -106,10 +106,142 @@ apiTestSuite({
             // Not complete until the CLI marks the setup completed.
             expect(afterArtifacts.complete).toBe(false);
 
+            // stepComplete stays false while the run is unfinished, even with every
+            // artifact present, and only flips once the setup is marked completed.
+            expect(afterArtifacts.stepComplete).toBe(false);
+
             await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
 
             const completed = await harness.services.applicationSetups.artifactStatus(harness.organizationId, app.id);
             expect(completed.complete).toBe(true);
+            expect(completed.stepComplete).toBe(true);
+        });
+
+        test("stepComplete stays false when the recipe is missing", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Missing Recipe Gate");
+
+            // Everything but the recipe: tests + kb + scenarios, and the setup completed.
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [{ name: "login.md", folder: "auth", content: "---\n---\n\nSign in" }],
+                artifacts: [
+                    { name: "AUTONOMA.md", content: "# Knowledge base" },
+                    { name: "scenarios.md", content: "# Scenarios" },
+                ],
+            });
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            const status = await harness.services.applicationSetups.artifactStatus(harness.organizationId, app.id);
+            expect(status.complete).toBe(true);
+            expect(received(status.artifacts, "recipe")).toBe(false);
+            expect(status.stepComplete).toBe(false);
+        });
+
+        test("re-uploading recipe and artifacts is idempotent", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Idempotent Reupload");
+
+            const recipeBody = {
+                version: 1,
+                source: { discoverPath: "autonoma/discover.json", scenariosPath: "autonoma/scenarios.md" },
+                validationMode: "sdk-check",
+                recipes: [
+                    {
+                        name: "standard",
+                        description: "standard",
+                        create: { Organization: [{ _alias: "org1", name: "Acme Corp" }] },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                ],
+            };
+            const artifactsBody = {
+                testCases: [{ name: "login.md", folder: "auth", content: "---\nscenario: standard\n---\n\nSign in" }],
+                artifacts: [
+                    { name: "AUTONOMA.md", content: "# Knowledge base" },
+                    { name: "scenarios.md", content: "# Scenarios" },
+                ],
+            };
+
+            // Upload once, then a full retry of both endpoints.
+            await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, recipeBody);
+            await service.uploadArtifacts(setupId, harness.organizationId, artifactsBody);
+            await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, recipeBody);
+            await service.uploadArtifacts(setupId, harness.organizationId, artifactsBody);
+
+            const testCaseCount = await harness.db.testCase.count({ where: { applicationId: app.id } });
+            expect(testCaseCount).toBe(1);
+            const scenarioCount = await harness.db.scenario.count({
+                where: { applicationId: app.id, activeRecipeVersionId: { not: null } },
+            });
+            expect(scenarioCount).toBe(1);
+            const fileEventCount = await harness.db.applicationSetupEvent.count({
+                where: { setupId, type: "file.created" },
+            });
+            expect(fileEventCount).toBe(3);
+        });
+
+        test("a newer empty setup does not shadow a completed one", async ({ harness }) => {
+            const { app, setupId, service } = await createSetupFixture(harness, "Artifact Status Shadowing");
+
+            await service.uploadScenarioRecipeVersions(setupId, harness.organizationId, {
+                version: 1,
+                source: { discoverPath: "autonoma/discover.json", scenariosPath: "autonoma/scenarios.md" },
+                validationMode: "sdk-check",
+                recipes: [
+                    {
+                        name: "standard",
+                        description: "standard",
+                        create: { Organization: [{ _alias: "org1", name: "Acme Corp" }] },
+                        validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                    },
+                ],
+            });
+            await service.uploadArtifacts(setupId, harness.organizationId, {
+                testCases: [{ name: "login.md", folder: "auth", content: "---\nscenario: standard\n---\n\nSign in" }],
+                artifacts: [
+                    { name: "AUTONOMA.md", content: "# Knowledge base" },
+                    { name: "scenarios.md", content: "# Scenarios" },
+                ],
+            });
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            // A fresh Finish-setup page load mints a new, empty setup that is newer
+            // than the completed one. Status must still reflect the completed run.
+            await service.createSetup(harness.userId, harness.organizationId, app.id);
+
+            const status = await harness.services.applicationSetups.artifactStatus(harness.organizationId, app.id);
+            expect(status.complete).toBe(true);
+            expect(received(status.artifacts, "recipe")).toBe(true);
+            expect(received(status.artifacts, "tests")).toBe(true);
+            expect(received(status.artifacts, "kb")).toBe(true);
+            expect(received(status.artifacts, "scenarios")).toBe(true);
+        });
+
+        test("prepareCliSetup reuses the existing setup instead of minting a new one", async ({ harness }) => {
+            const { app } = await createSetupFixture(harness, "Prepare CLI Reuse");
+            const before = await harness.db.applicationSetup.count({ where: { applicationId: app.id } });
+
+            const first = await harness.services.applicationSetups.prepareCliSetup(
+                harness.userId,
+                harness.organizationId,
+                app.id,
+            );
+            const second = await harness.services.applicationSetups.prepareCliSetup(
+                harness.userId,
+                harness.organizationId,
+                app.id,
+            );
+
+            expect(second.setupId).toBe(first.setupId);
+            const after = await harness.db.applicationSetup.count({ where: { applicationId: app.id } });
+            expect(after).toBe(before);
+
+            // An explicit setup id pins to that setup.
+            const pinned = await harness.services.applicationSetups.prepareCliSetup(
+                harness.userId,
+                harness.organizationId,
+                app.id,
+                first.setupId,
+            );
+            expect(pinned.setupId).toBe(first.setupId);
         });
     },
 });

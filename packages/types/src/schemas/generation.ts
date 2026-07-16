@@ -148,8 +148,14 @@ export type ArtifactStatusItem = z.infer<typeof ArtifactStatusItemSchema>;
 
 /** Response shape for `applicationSetups.artifactStatus`. */
 export const ArtifactStatusSchema = z.object({
-    /** True once the CLI has finished uploading everything (setup marked completed). */
+    /** True once a CLI run was marked completed (setup status `completed`). */
     complete: z.boolean(),
+    /**
+     * The single source of truth for "the CLI step is done": the run completed AND
+     * every artifact (recipe, tests, kb, scenarios) landed. The gate and the UI both
+     * read this instead of re-deriving it, so backend and frontend never disagree.
+     */
+    stepComplete: z.boolean(),
     artifacts: z.array(ArtifactStatusItemSchema),
 });
 export type ArtifactStatus = z.infer<typeof ArtifactStatusSchema>;

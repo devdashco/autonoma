@@ -55,16 +55,65 @@ export class ApplicationSetupsService extends Service {
     }
 
     /**
-     * Mint an upload token + setup so the Finish setup tab can render a working
-     * planner CLI command (`AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID`). The
-     * key is the only piece that genuinely needs an API key; the in-app admin
-     * upload path uses session-authed tRPC and does not.
+     * Mint an upload token + resolve the setup so the Finish setup tab can render
+     * a working planner CLI command (`AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID`).
+     *
+     * The setup is REUSED, not recreated: creating a fresh setup per mount would
+     * churn the `AUTONOMA_GENERATION_ID`, and since status reads the newest setup an
+     * empty new setup would shadow a completed CLI run and reset the step on refresh.
+     * So we pin to `setupId` when the caller supplies one (the id persisted in the
+     * URL), otherwise reuse the app's latest non-`failed` setup, and only create a
+     * new one when there is nothing usable to reuse.
+     *
+     * A fresh API key is still minted each call - keys are cheap and rotatable, and
+     * the key (unlike the setup id) is not what the status/completion logic keys on.
      */
-    async prepareCliSetup(userId: string, organizationId: string, applicationId: string): Promise<PreparedCliSetup> {
-        this.logger.info("Preparing CLI setup", { extra: { applicationId, organizationId } });
-        const apiKey = await this.apiKeys.create(userId, organizationId, `finish-setup-${applicationId}`);
+    async prepareCliSetup(
+        userId: string,
+        organizationId: string,
+        applicationId: string,
+        pinnedSetupId?: string,
+    ): Promise<PreparedCliSetup> {
+        this.logger.info("Preparing CLI setup", { extra: { applicationId, organizationId, pinnedSetupId } });
+        const [apiKey, resolvedSetupId] = await Promise.all([
+            this.apiKeys.create(userId, organizationId, `finish-setup-${applicationId}`),
+            this.resolveReusableSetup(userId, organizationId, applicationId, pinnedSetupId),
+        ]);
+        return { apiKey: apiKey.key, setupId: resolvedSetupId };
+    }
+
+    /**
+     * Pick the setup a CLI command should target: `pinnedSetupId` (the id the UI
+     * persists in the URL) if it belongs to this app, else the app's latest
+     * non-`failed` setup, else a freshly created one. Keeping the id stable across
+     * refreshes is what stops the reset bug.
+     */
+    private async resolveReusableSetup(
+        userId: string,
+        organizationId: string,
+        applicationId: string,
+        pinnedSetupId?: string,
+    ): Promise<string> {
+        if (pinnedSetupId != null) {
+            const pinned = await this.db.applicationSetup.findFirst({
+                where: { id: pinnedSetupId, applicationId, organizationId },
+                select: { id: true },
+            });
+            if (pinned != null) return pinned.id;
+            this.logger.warn("Pinned setup not found for app; falling back to latest", {
+                extra: { applicationId, pinnedSetupId },
+            });
+        }
+
+        const latest = await this.db.applicationSetup.findFirst({
+            where: { applicationId, organizationId, status: { not: "failed" } },
+            orderBy: { createdAt: "desc" },
+            select: { id: true },
+        });
+        if (latest != null) return latest.id;
+
         const setup = await this.applicationSetup.createSetup(userId, organizationId, applicationId);
-        return { apiKey: apiKey.key, setupId: setup.id };
+        return setup.id;
     }
 
     async uploadScenarioRecipeVersions(

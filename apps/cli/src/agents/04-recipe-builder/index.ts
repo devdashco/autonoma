@@ -118,13 +118,26 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
     // Phase 4: Submit
     if (state.phase === "submit") {
         const env = readEnv();
-        const recipePath = await runSubmit(
+        const { recipePath, uploaded } = await runSubmit(
             state,
             input.outputDir,
             env.AUTONOMA_API_URL,
             env.AUTONOMA_API_TOKEN,
             env.AUTONOMA_GENERATION_ID,
         );
+
+        // Only advance past submit once the recipe is actually accepted; a rejected
+        // upload must fail the step (not mark it done with no recipe on the server)
+        // so `--resume` retries it.
+        const uploadCredentialsPresent =
+            env.AUTONOMA_API_URL != null && env.AUTONOMA_API_TOKEN != null && env.AUTONOMA_GENERATION_ID != null;
+        if (uploadCredentialsPresent && !uploaded) {
+            return {
+                success: false,
+                artifacts: [recipePath],
+                summary: `Recipe was generated but not accepted by Autonoma. The recipe JSON was printed above - re-upload with \`npx @autonoma-ai/planner@latest upload\` (or run again with --resume).`,
+            };
+        }
 
         state.phase = "done";
         await saveRecipeState(input.outputDir, state);

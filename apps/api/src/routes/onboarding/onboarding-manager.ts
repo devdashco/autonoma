@@ -164,7 +164,12 @@ export class OnboardingManager {
         const dryRunPassed = row.dryRunPassedAt != null;
         const discoveryInProgress = row.discoveringStartedAt != null;
 
-        const { complete: artifactsUploaded } = await computeArtifactStatus(this.db, applicationId);
+        // `stepComplete` (computed once, server-side) is the gate: the run completed
+        // AND every artifact - recipe included - landed. A run can finish uploading
+        // tests/kb/scenarios while the recipe submit silently fails (missing factory,
+        // rejected upload); without this the user advances to the SDK step and lands
+        // on a dry-run with no scenarios to run.
+        const { stepComplete: artifactsUploaded } = await computeArtifactStatus(this.db, applicationId);
 
         // `hasContent` only needs existence, so probe with `findFirst` (take: 1)
         // rather than two full `count`s on every poll.

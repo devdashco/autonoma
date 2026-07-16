@@ -3,6 +3,7 @@ import "./core/ensure-node";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
+import { uploadRecipeFromDisk } from "./agents/04-recipe-builder/phases/submit";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
 import { track, trackError, flushAnalytics } from "./core/analytics";
@@ -531,12 +532,33 @@ async function main() {
         return;
     }
 
+    if (command === "upload") {
+        const config = loadConfig({
+            project: strArg(args, "project"),
+            slug: strArg(args, "slug"),
+        });
+        const outputDir = await ensureOutputDir(config.projectSlug);
+        // Re-upload everything already generated in `~/.autonoma/<app>/`: the recipe
+        // first (so scenarios exist before tests reference them), then the artifacts
+        // (tests/kb/scenarios), which also marks the setup completed. Both endpoints
+        // are idempotent, so this is safe to run repeatedly to recover a failed run.
+        const recipeUploaded = await uploadRecipeFromDisk(outputDir, {
+            apiUrl: config.autonomaApiUrl,
+            apiToken: config.autonomaApiToken,
+            generationId: config.autonomaGenerationId,
+        });
+        await uploadArtifacts(config, outputDir);
+        await flushAnalytics();
+        process.exit(recipeUploaded ? 0 : 1);
+    }
+
     if (command === "help" || args.help) {
         console.log("Usage:");
         console.log(
             "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive]",
         );
         console.log("  test-planner status [--project <path>]");
+        console.log("  test-planner upload [--project <path>]   # re-upload already-generated recipe + artifacts");
         console.log("");
         console.log("`run` is the default command; it may be omitted.");
         return;

@@ -6,37 +6,55 @@ import { type ArtifactStatus, type ArtifactStatusItem, FileDataSchema } from "@a
  * onboarding Setup status endpoint and the onboarding state's `artifactsUploaded`
  * so the step-2 header, the per-item checks, and the bottom banner stay in sync.
  *
- * `complete` is true once the setup is marked `completed`. The CLI marks it on its
- * final step; a manual/admin upload marks it when its upload finishes (see the
- * Finish-setup folder upload). Receiving files alone does not complete a setup -
- * a CLI run can have every artifact uploaded while still running.
+ * Status is aggregated across ALL of the app's setups, not just the newest one, so
+ * an empty or stale setup can never shadow a completed CLI run and blank the checks
+ * on refresh. `complete` is true once ANY setup was marked `completed`, and an
+ * artifact counts as received once ANY setup produced it. The recipe is app-scoped
+ * already (derived from active scenario recipe versions, not from a specific setup).
  */
 export async function computeArtifactStatus(
     db: PrismaClient,
     applicationId: string,
     organizationId?: string,
 ): Promise<ArtifactStatus> {
-    const setup = await db.applicationSetup.findFirst({
-        where: { applicationId, organizationId },
-        orderBy: { createdAt: "desc" },
-        select: {
-            status: true,
-            events: { where: { type: "file.created" }, select: { data: true } },
-        },
-    });
+    // Push every filter into the DB (scoped to the app's setups via the relation, and
+    // to specific file paths via a JSON filter) instead of pulling all setups + their
+    // events into memory. Each probe is an existence check or a targeted fetch; the
+    // recipe is a plain count of active scenario recipe versions.
+    const fileEventWhere = { setup: { applicationId, organizationId }, type: "file.created" as const };
+    const [completedSetup, kbEvent, scenariosEvent, testEvents, scenarioCount] = await Promise.all([
+        db.applicationSetup.findFirst({
+            where: { applicationId, organizationId, status: "completed" },
+            select: { id: true },
+        }),
+        db.applicationSetupEvent.findFirst({
+            where: { ...fileEventWhere, data: { path: ["filePath"], equals: "AUTONOMA.md" } },
+            select: { id: true },
+        }),
+        db.applicationSetupEvent.findFirst({
+            where: { ...fileEventWhere, data: { path: ["filePath"], equals: "scenarios.md" } },
+            select: { id: true },
+        }),
+        db.applicationSetupEvent.findMany({
+            where: { ...fileEventWhere, data: { path: ["filePath"], string_starts_with: "autonoma/qa-tests/" } },
+            select: { data: true },
+        }),
+        db.scenario.count({
+            where: { applicationId, organizationId, activeRecipeVersionId: { not: null } },
+        }),
+    ]);
 
-    const filePaths = (setup?.events ?? []).flatMap((event) => {
-        const parsed = FileDataSchema.safeParse(event.data);
-        return parsed.success ? [parsed.data.filePath] : [];
-    });
-
-    const testCount = filePaths.filter((path) => path.startsWith("autonoma/qa-tests/")).length;
-    const hasKb = filePaths.includes("AUTONOMA.md");
-    const hasScenarios = filePaths.includes("scenarios.md");
-
-    const scenarioCount = await db.scenario.count({
-        where: { applicationId, organizationId, activeRecipeVersionId: { not: null } },
-    });
+    const complete = completedSetup != null;
+    const hasKb = kbEvent != null;
+    const hasScenarios = scenariosEvent != null;
+    // Dedupe across setups: the same file can be recorded under more than one setup
+    // (e.g. a re-upload targeting a fresh generation id), so count distinct paths.
+    const testCount = new Set(
+        testEvents.flatMap((event) => {
+            const parsed = FileDataSchema.safeParse(event.data);
+            return parsed.success ? [parsed.data.filePath] : [];
+        }),
+    ).size;
 
     const artifacts: ArtifactStatusItem[] = [
         {
@@ -53,5 +71,9 @@ export async function computeArtifactStatus(
         { key: "scenarios", received: hasScenarios },
     ];
 
-    return { complete: setup?.status === "completed", artifacts };
+    // The step is only done when the run completed AND every artifact landed - a run
+    // can finish (setup completed) with the recipe (or any artifact) still missing.
+    const stepComplete = complete && artifacts.every((artifact) => artifact.received);
+
+    return { complete, stepComplete, artifacts };
 }

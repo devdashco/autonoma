@@ -1,46 +1,131 @@
 import * as p from "@clack/prompts";
-import { buildFullRecipe, buildSubmittableRecipe, saveRecipe } from "../recipe";
+import { type FullRecipeJson, buildFullRecipe, buildSubmittableRecipe, loadRecipe, saveRecipe } from "../recipe";
 import type { RecipeBuilderState } from "../state";
 
+const RECIPE_FILE = "recipe.json";
+const UPLOAD_COMMAND = "npx @autonoma-ai/planner@latest upload";
+
+export interface SubmitCredentials {
+    apiUrl?: string;
+    apiToken?: string;
+    generationId?: string;
+}
+
+export interface SubmitResult {
+    /** Local path (relative to the output dir) the recipe was written to. */
+    recipePath: string;
+    /** True only when the recipe was accepted by Autonoma. */
+    uploaded: boolean;
+}
+
+/**
+ * Build the recipe from the recipe-builder state, save it to disk, and submit it.
+ * Returns whether the upload actually succeeded so the caller can fail the step
+ * instead of masking a rejected upload as success.
+ */
 export async function runSubmit(
     state: RecipeBuilderState,
     outputDir: string,
     autonomaApiUrl?: string,
     autonomaApiToken?: string,
     autonomaGenerationId?: string,
-): Promise<string> {
+): Promise<SubmitResult> {
     const fullCreate = buildFullRecipe(state.entityOrder, state.entities);
     const recipe = buildSubmittableRecipe(fullCreate, "Standard test scenario with realistic data");
 
     await saveRecipe(outputDir, recipe);
-    p.log.success("Recipe saved to recipe.json");
+    p.log.success(`Recipe saved to ${RECIPE_FILE}`);
 
-    if (!autonomaApiUrl || !autonomaApiToken || !autonomaGenerationId) {
-        p.log.info(
-            "Autonoma API credentials not configured - recipe saved locally. Submit manually or configure AUTONOMA_API_URL, AUTONOMA_API_TOKEN, AUTONOMA_GENERATION_ID.",
+    const uploaded = await submitRecipe(recipe, {
+        apiUrl: autonomaApiUrl,
+        apiToken: autonomaApiToken,
+        generationId: autonomaGenerationId,
+    });
+
+    return { recipePath: RECIPE_FILE, uploaded };
+}
+
+/**
+ * Load a previously generated `recipe.json` from the output dir and submit it,
+ * without re-running the whole planner. Backs the `upload` command so a
+ * failed/lost upload can be retried on its own.
+ */
+export async function uploadRecipeFromDisk(outputDir: string, creds: SubmitCredentials): Promise<boolean> {
+    const recipe = await loadRecipe(outputDir);
+    if (recipe == null) {
+        p.log.error(
+            `No ${RECIPE_FILE} found in ${outputDir}. Run the planner's recipe step first to generate it, then retry.`,
         );
-        return "recipe.json";
+        return false;
+    }
+    return submitRecipe(recipe, creds);
+}
+
+/**
+ * POST a recipe to Autonoma's versioned scenario-recipe endpoint. On any failure
+ * (including missing credentials) the recipe is printed to stdout in full with a
+ * re-upload instruction, so it is never lost - even when the CLI runs in an
+ * ephemeral container whose `~/.autonoma` filesystem is discarded on exit.
+ */
+export async function submitRecipe(recipe: FullRecipeJson, creds: SubmitCredentials): Promise<boolean> {
+    const { apiUrl, apiToken, generationId } = creds;
+
+    if (!apiUrl || !apiToken || !generationId) {
+        p.log.info(
+            "Autonoma API credentials not configured - recipe saved locally, not uploaded. Set AUTONOMA_API_URL, AUTONOMA_API_TOKEN and AUTONOMA_GENERATION_ID, then run `" +
+                UPLOAD_COMMAND +
+                "`.",
+        );
+        return false;
     }
 
-    const url = `${autonomaApiUrl}/v1/setup/setups/${autonomaGenerationId}/scenario-recipe-versions`;
+    const url = `${apiUrl.replace(/\/+$/, "")}/v1/setup/setups/${generationId}/scenario-recipe-versions`;
 
     p.log.step("Submitting recipe to Autonoma...");
 
-    const res = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${autonomaApiToken}`,
-        },
-        body: JSON.stringify(recipe),
-    });
+    let res: Response;
+    try {
+        res = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiToken}`,
+            },
+            body: JSON.stringify(recipe),
+        });
+    } catch (err) {
+        p.log.error(`Recipe submission failed (network error): ${err instanceof Error ? err.message : String(err)}`);
+        printRecipeForRecovery(recipe);
+        return false;
+    }
 
     if (res.ok) {
         p.log.success(`Recipe submitted successfully (HTTP ${res.status})`);
-    } else {
-        const text = await res.text();
-        p.log.error(`Recipe submission failed (HTTP ${res.status}): ${text}`);
+        return true;
     }
 
-    return "recipe.json";
+    const text = await res.text();
+    p.log.error(`Recipe submission failed (HTTP ${res.status}): ${text}`);
+    printRecipeForRecovery(recipe);
+    return false;
+}
+
+/**
+ * Print the full recipe JSON plus a copy-paste recovery command. Uses console.log
+ * (not the prompt logger) so the block is clean and easy to pipe/save.
+ */
+function printRecipeForRecovery(recipe: FullRecipeJson): void {
+    console.log(
+        [
+            "",
+            "─".repeat(72),
+            "RECIPE NOT UPLOADED - copy the JSON below into a recipe.json and re-upload with:",
+            `  ${UPLOAD_COMMAND}`,
+            "(with the same AUTONOMA_API_URL / AUTONOMA_API_TOKEN / AUTONOMA_GENERATION_ID env vars set)",
+            "─".repeat(72),
+            JSON.stringify(recipe, null, 2),
+            "─".repeat(72),
+            "",
+        ].join("\n"),
+    );
 }

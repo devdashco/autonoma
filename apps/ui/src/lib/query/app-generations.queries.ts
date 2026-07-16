@@ -9,15 +9,17 @@ export function usePollApplicationSetup(applicationId: string) {
 }
 
 /**
- * Polls the per-artifact upload status while the planner CLI runs. Stops polling
- * once the CLI marks the setup complete. Used by the onboarding Setup step to
- * check artifacts off as they arrive and auto-advance when everything has landed.
+ * Polls the per-artifact upload status while the planner CLI runs. Keeps polling
+ * until the step is genuinely done (`stepComplete` - run completed AND every
+ * artifact received) rather than just `complete`, so a later re-upload is picked
+ * up without a manual refresh. `stepComplete` is computed server-side so the gate
+ * is never re-derived here.
  */
 export function useArtifactStatus(applicationId: string) {
     return useSuspenseQuery(
         trpc.applicationSetups.artifactStatus.queryOptions(
             { applicationId },
-            { refetchInterval: (query) => (query.state.data?.complete === true ? false : 5000) },
+            { refetchInterval: (query) => (query.state.data?.stepComplete === true ? false : 5000) },
         ),
     );
 }

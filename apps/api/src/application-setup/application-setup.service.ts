@@ -16,6 +16,7 @@ import {
     type UpdateSetupBody,
     type UploadArtifactsBody,
     type UploadScenarioRecipeVersionsBody,
+    FileDataSchema,
     TestCaseFrontmatterSchema,
     TOTAL_SETUP_STEPS,
 } from "@autonoma/types";
@@ -435,9 +436,32 @@ export class ApplicationSetupService {
         });
         const scenarioByName = new Map(scenarios.map((s) => [s.name, s]));
 
+        // Idempotency: a re-upload (the `upload` CLI command / a retried run) must not
+        // duplicate test cases. Skip any whose (folder, name) already exists for the
+        // app - the CLI's file names are unique per folder, so this is the natural key.
+        // Push the filter into the DB (only the incoming names can collide) rather than
+        // pulling the app's whole test-case list into memory.
+        const incomingNames = testCases.map((tc) => tc.name);
+        const existingTestCases = await this.db.testCase.findMany({
+            where: { applicationId, name: { in: incomingNames } },
+            select: { name: true, folder: { select: { name: true } } },
+        });
+        const existingKeys = new Set(existingTestCases.map((t) => `${t.folder.name}::${t.name}`));
+
         const folderCache = new Map<string, string>();
 
         for (const testCase of testCases) {
+            const folderName = testCase.folder ?? "default";
+            const dedupeKey = `${folderName}::${testCase.name}`;
+            if (existingKeys.has(dedupeKey)) {
+                log.info("Skipping already-uploaded test case (idempotent re-upload)", {
+                    name: testCase.name,
+                    folder: folderName,
+                    applicationId,
+                });
+                continue;
+            }
+
             const { data, content: plan } = matter(testCase.content);
             const frontmatter = TestCaseFrontmatterSchema.parse(data);
             const scenarioName = frontmatter.scenario;
@@ -463,7 +487,6 @@ export class ApplicationSetupService {
                 }
             }
 
-            const folderName = testCase.folder ?? "default";
             const folderId = await this.findOrCreateFolder(applicationId, organizationId, folderName, folderCache);
 
             await updater.apply(
@@ -476,6 +499,9 @@ export class ApplicationSetupService {
                     scenarioName,
                 }),
             );
+
+            // Guard against duplicates within this same batch too.
+            existingKeys.add(dedupeKey);
         }
     }
 
@@ -529,11 +555,29 @@ export class ApplicationSetupService {
             return;
         }
 
+        // Idempotency: skip file events already recorded for this setup so a re-upload
+        // (the `upload` CLI command / a retried run) does not append duplicates.
+        const existing = await this.db.applicationSetupEvent.findMany({
+            where: { setupId, type: "file.created" },
+            select: { data: true },
+        });
+        const existingPaths = new Set(
+            existing.flatMap((event) => {
+                const parsed = FileDataSchema.safeParse(event.data);
+                return parsed.success ? [parsed.data.filePath] : [];
+            }),
+        );
+
+        const newEvents = fileEvents.filter((event) => !existingPaths.has(event.data.filePath));
+        if (newEvents.length === 0) {
+            return;
+        }
+
         await this.db.applicationSetupEvent.createMany({
-            data: fileEvents.map((event) => ({
+            data: newEvents.map((event) => ({
                 setupId,
                 type: event.type,
-                data: event.data as Record<string, unknown>,
+                data: { filePath: event.data.filePath },
             })),
         });
     }

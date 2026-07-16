@@ -26,9 +26,14 @@ export const applicationSetupsRouter = router({
         ),
 
     prepareCliSetup: protectedProcedure
-        .input(z.object({ applicationId: z.string() }))
+        .input(z.object({ applicationId: z.string(), pinnedSetupId: z.string().optional() }))
         .mutation(({ ctx: { services, organizationId, user }, input }) =>
-            services.applicationSetups.prepareCliSetup(user.id, organizationId, input.applicationId),
+            services.applicationSetups.prepareCliSetup(
+                user.id,
+                organizationId,
+                input.applicationId,
+                input.pinnedSetupId,
+            ),
         ),
 
     uploadScenarioRecipeVersions: protectedProcedure
