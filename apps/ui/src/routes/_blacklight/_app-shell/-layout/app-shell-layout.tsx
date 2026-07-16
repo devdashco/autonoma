@@ -13,8 +13,8 @@ import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
-import type { ReactNode } from "react";
-import { openFeedbackSurvey } from "./feedback-survey";
+import { type ReactNode, useState } from "react";
+import { FeedbackModal } from "./feedback-modal";
 import { Sidebar, useAppNav, useSidebarCollapsed } from "./sidebar";
 
 function GridBackground() {
@@ -86,6 +86,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
   const { items: appNavItems } = useAppNav();
   const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
   const [collapsed, setCollapsed] = useSidebarCollapsed();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const hasAppNav = appNavItems.length > 0;
   const hasNav = hasAppNav || (isAdminPage && isAdmin);
@@ -109,7 +110,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
           <Sidebar
             collapsed={collapsed}
             onToggleCollapsed={() => setCollapsed(!collapsed)}
-            onFeedback={openFeedbackSurvey}
+            onFeedback={() => setFeedbackOpen(true)}
           />
 
           <main className="relative flex flex-col overflow-hidden bg-surface-void">
@@ -120,7 +121,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
                 <span>You're using an early version of Autonoma.</span>
                 <button
                   type="button"
-                  onClick={openFeedbackSurvey}
+                  onClick={() => setFeedbackOpen(true)}
                   className="cursor-pointer underline underline-offset-2 hover:opacity-80"
                 >
                   Share your feedback
@@ -131,6 +132,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
             <div className="relative z-10 flex-1 overflow-y-auto p-6">{children}</div>
           </main>
         </div>
+        <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <AppShellToasts />
       </TooltipProvider>
     </ToastProvider>
