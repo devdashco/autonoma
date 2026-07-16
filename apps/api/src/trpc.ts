@@ -12,10 +12,33 @@ import { logger } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import { TRPCError, initTRPC } from "@trpc/server";
 import superjson from "superjson";
+import { z } from "zod";
 import { isInternalEmail } from "./auth";
 import type { Context } from "./context";
 
-export const t = initTRPC.context<Context>().create({ transformer: superjson });
+/**
+ * A Zod validation failure's default message is the JSON-serialized issues array,
+ * and the UI renders `error.message` verbatim (inline errors and toasts) - so
+ * without formatting, users see raw `[{"code":"custom","message":...}]` blobs.
+ * Flatten to one human-readable line per issue, keeping the path only when it
+ * adds signal (a bare "Required" is useless without it).
+ */
+function formatZodMessage(error: z.ZodError): string {
+    const lines = error.issues.map((issue) =>
+        issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message,
+    );
+    return [...new Set(lines)].join("\n");
+}
+
+export const t = initTRPC.context<Context>().create({
+    transformer: superjson,
+    errorFormatter({ shape, error }) {
+        if (error.cause instanceof z.ZodError) {
+            return { ...shape, message: formatZodMessage(error.cause) };
+        }
+        return shape;
+    },
+});
 
 type TRPCErrorCode = ConstructorParameters<typeof TRPCError>[0]["code"];
 type APIErrorCtor = new (...args: never[]) => APIError;
