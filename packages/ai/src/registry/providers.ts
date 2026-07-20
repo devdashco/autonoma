@@ -33,8 +33,19 @@ export class LLMProvider<TProvider extends LanguageModelProvider> {
     }
 }
 
-export const groqProvider = new LLMProvider(() => createGroq({ apiKey: env.GROQ_KEY }));
+// Optional per-provider base URL overrides so self-hosted deploys can route all
+// model traffic through one OpenAI/Gemini-compatible gateway (e.g. llm.hostbun.cc)
+// instead of hitting each vendor directly. Unset -> the SDK's default vendor URL.
+const GROQ_BASE_URL = process.env.GROQ_BASE_URL || undefined;
+const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || undefined;
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || undefined;
 
-export const googleProvider = new LLMProvider(() => createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY }));
+export const groqProvider = new LLMProvider(() => createGroq({ apiKey: env.GROQ_KEY, baseURL: GROQ_BASE_URL }));
 
-export const openRouterProvider = new LLMProvider(() => createOpenRouter({ apiKey: env.OPENROUTER_API_KEY }));
+export const googleProvider = new LLMProvider(() =>
+    createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY, baseURL: GEMINI_BASE_URL }),
+);
+
+export const openRouterProvider = new LLMProvider(() =>
+    createOpenRouter({ apiKey: env.OPENROUTER_API_KEY, baseURL: OPENROUTER_BASE_URL }),
+);

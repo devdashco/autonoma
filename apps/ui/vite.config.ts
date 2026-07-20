@@ -15,6 +15,13 @@ function readApiPort(): string {
     }
 }
 
+// Dev server sits behind a reverse proxy in container deploys (Coolify/traefik).
+// API_PROXY_TARGET points the /v1 proxy at the api *service* (http://api:4000)
+// instead of localhost; ALLOWED_HOSTS lets the public hostname through Vite's
+// host check (Vite blocks unknown Host headers by default).
+const apiProxyTarget = process.env.API_PROXY_TARGET ?? `http://localhost:${readApiPort()}`;
+const allowedHosts = process.env.ALLOWED_HOSTS === "*" ? true : process.env.ALLOWED_HOSTS?.split(",").map((h) => h.trim());
+
 // Framework core that loads on every route. Isolating it into stable, long-cached
 // vendor chunks means an app-code deploy doesn't force browsers to re-download it.
 // Route-specific libs (recharts, react-markdown, ...) are intentionally left out so
@@ -92,19 +99,20 @@ export default defineConfig({
     },
     server: {
         port: 3000,
+        allowedHosts,
         proxy: {
             "/v1": {
-                target: `http://localhost:${readApiPort()}`,
+                target: apiProxyTarget,
                 changeOrigin: true,
             },
             "/ingest": {
-                target: `http://localhost:${readApiPort()}`,
+                target: apiProxyTarget,
                 changeOrigin: true,
             },
             // MCP OAuth discovery: Better Auth advertises these at the app origin,
             // but the API serves them (mirrors the nginx.conf.template rule).
             "/.well-known/oauth-": {
-                target: `http://localhost:${readApiPort()}`,
+                target: apiProxyTarget,
                 changeOrigin: true,
             },
         },
