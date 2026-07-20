@@ -13,4 +13,6 @@ RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile && pnpm db:generate
 
-EXPOSE 3000 4000
+# NOTE: deliberately no EXPOSE. The ui container must expose exactly ONE port
+# (3000, via compose `expose`) so traefik auto-selects it for the domain router.
+# A second exposed port (4000) makes traefik's port choice ambiguous -> 502.

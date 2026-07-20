@@ -120,10 +120,9 @@ services:
       dockerfile: Dockerfile.coolify
     working_dir: /app
     environment:
-      # Coolify compose-domain magic: this makes Coolify generate the traefik
-      # router+service on port 3000 AND attach ui to the coolify proxy network
-      # (a hand-rolled labels/networks block cannot — Coolify owns networks).
-      SERVICE_FQDN_UI_3000: "https://autonoma.hostbun.cc"
+      # Domain routing comes from Coolify's docker_compose_domains (set via API):
+      # it generates the traefik router; traefik auto-picks ui's single exposed
+      # port (3000). traefik already shares this app's network via coolify-proxy.
       API_PORT: "4000"
       API_PROXY_TARGET: http://api:4000
       ALLOWED_HOSTS: "*"
