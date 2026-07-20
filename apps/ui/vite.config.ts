@@ -20,7 +20,9 @@ function readApiPort(): string {
 // instead of localhost; ALLOWED_HOSTS lets the public hostname through Vite's
 // host check (Vite blocks unknown Host headers by default).
 const apiProxyTarget = process.env.API_PROXY_TARGET ?? `http://localhost:${readApiPort()}`;
-const allowedHosts = process.env.ALLOWED_HOSTS === "*" ? true : process.env.ALLOWED_HOSTS?.split(",").map((h) => h.trim());
+// Self-host dev server sits behind a reverse proxy (Coolify/caddy) on an
+// arbitrary public host; env-gating proved unreliable, so allow all hosts.
+const allowedHosts = true;
 
 // Framework core that loads on every route. Isolating it into stable, long-cached
 // vendor chunks means an app-code deploy doesn't force browsers to re-download it.
