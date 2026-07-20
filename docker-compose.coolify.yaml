@@ -21,12 +21,15 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: autonoma
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ rejects a mount at .../data ("unused mount/volume"); the
+      # mount must be at /var/lib/postgresql (data lands in a version subdir).
+      - pgdata18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 15
+      start_period: 30s
 
   redis:
     image: redis:alpine
@@ -127,5 +130,5 @@ services:
       - "3000"
 
 volumes:
-  pgdata:
+  pgdata18:
   redisdata:
