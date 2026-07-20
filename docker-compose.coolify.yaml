@@ -71,7 +71,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coolify
-    image: autonoma-app:local
     working_dir: /app
     environment:
       # dev NODE_ENV keeps better-auth's crossSubDomainCookies OFF, so the
@@ -113,7 +112,9 @@ services:
         condition: service_healthy
 
   ui:
-    image: autonoma-app:local
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
     working_dir: /app
     environment:
       API_PORT: "4000"
