@@ -104,7 +104,7 @@ services:
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - >
-        cd packages/db && pnpm exec prisma migrate deploy && cd /app && pnpm api
+        cd packages/db && pnpm exec prisma migrate deploy && cd /app && touch .env && pnpm api
     depends_on:
       postgres:
         condition: service_healthy
