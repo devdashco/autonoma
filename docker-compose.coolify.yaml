@@ -3,16 +3,15 @@
 # Mirrors what Autonoma runs for its own preview envs (.preview.yaml): db +
 # redis + temporal + api + ui, PREVIEWKIT_ENV=true for email/password login,
 # prisma migrate on boot. Test-execution WORKERS + engine are NOT here yet
-# (phase 2) — the API still dispatches Temporal workflows; workers consume them.
+# (phase 2) — the API still dispatches Temporal workflows, workers consume them.
 #
-# Runs in dev-server mode (tsx watch / vite) rather than the CI Dockerfiles,
-# which expect a prebuilt dist/. The `installer` one-shot does the single
-# `pnpm install` + prisma generate + migrate; api/ui reuse the node_modules
-# volume so there is no racy double-install.
+# Coolify's docker-compose build pack does NOT bind-mount the repo, so the
+# source is baked into an image (Dockerfile.coolify). api builds it; ui reuses
+# the same image. Runs dev servers (tsx watch / vite), not the CI Dockerfiles
+# (which expect a prebuilt dist/). Migrations run in the api command on boot.
 #
-# Only the `ui` service is exposed publicly; it proxies /v1 to the api
-# container (same-origin -> no CORS / cookie-domain pain). Set the domain on
-# the `ui` service (port 3000) in Coolify.
+# Only the `ui` service is exposed publicly (SERVICE_FQDN_UI_3000); it proxies
+# /v1 to the api container (same-origin -> no CORS / cookie-domain pain).
 
 services:
   postgres:
@@ -65,31 +64,11 @@ services:
     depends_on:
       - temporal
 
-  # One-shot: install deps, generate the Prisma client, run migrations. Exits 0.
-  installer:
-    image: node:24
-    working_dir: /app
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/autonoma
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      PUPPETEER_SKIP_DOWNLOAD: "1"
-    entrypoint: ["/bin/sh", "-lc"]
-    command:
-      - >
-        corepack enable &&
-        pnpm install --frozen-lockfile &&
-        pnpm db:generate &&
-        cd packages/db && pnpm exec prisma migrate deploy
-    volumes:
-      - .:/app
-      - node_modules:/app/node_modules
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   api:
-    image: node:24
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    image: autonoma-app:local
     working_dir: /app
     environment:
       # dev NODE_ENV keeps better-auth's crossSubDomainCookies OFF, so the
@@ -109,36 +88,29 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in Coolify}
       SCENARIO_ENCRYPTION_KEY: ${SCENARIO_ENCRYPTION_KEY:?set in Coolify}
-      # Google login stays dark; schema just needs these non-empty.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-disabled}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-disabled}
-      # AI: all three required non-empty by packages/ai. Real routing via
-      # llm.hostbun.cc (OpenAI-compatible) is finished in phase 2 (model remap).
       GEMINI_API_KEY: ${GEMINI_API_KEY:-placeholder}
       GROQ_KEY: ${GROQ_KEY:-placeholder}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}
-      # storage schema requires these non-empty; real S3/MinIO is phase 2.
       S3_BUCKET: ${S3_BUCKET:-autonoma}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-unused}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-unused}
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["corepack enable && pnpm api"]
-    volumes:
-      - .:/app
-      - node_modules:/app/node_modules
+    command:
+      - >
+        cd packages/db && pnpm exec prisma migrate deploy && cd /app && pnpm api
     depends_on:
-      installer:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
   ui:
-    image: node:24
+    image: autonoma-app:local
     working_dir: /app
     environment:
       API_PORT: "4000"
@@ -147,13 +119,8 @@ services:
       VITE_API_URL: ""
       VITE_INTERNAL_DOMAIN: ${INTERNAL_DOMAIN:-autonoma.app}
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["corepack enable && pnpm ui -- --host 0.0.0.0"]
-    volumes:
-      - .:/app
-      - node_modules:/app/node_modules
+    command: ["pnpm ui -- --host 0.0.0.0"]
     depends_on:
-      installer:
-        condition: service_completed_successfully
       api:
         condition: service_started
     expose:
@@ -162,4 +129,3 @@ services:
 volumes:
   pgdata:
   redisdata:
-  node_modules:

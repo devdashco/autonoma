@@ -1,0 +1,16 @@
+# Self-host image for the Coolify core stack. Bakes the monorepo source +
+# installed deps + generated Prisma client into one image; api and ui both run
+# from it in dev-server mode (tsx watch / vite). Coolify's compose build pack
+# does not bind-mount the repo, so the source must live in the image.
+FROM node:24
+WORKDIR /app
+
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PUPPETEER_SKIP_DOWNLOAD=1 \
+    HUSKY=0
+
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm db:generate
+
+EXPOSE 3000 4000
