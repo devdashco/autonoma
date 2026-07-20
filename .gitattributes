@@ -1,4 +1,2 @@
-*.png filter=lfs diff=lfs merge=lfs -text
-*.jpeg filter=lfs diff=lfs merge=lfs -text
-*.jpg filter=lfs diff=lfs merge=lfs -text
-*.tar.gz filter=lfs diff=lfs merge=lfs -text
+# LFS filters removed for self-host deploy: forks do not carry LFS objects,
+# so the smudge on clone failed. Assets (docs/ui images) are cosmetic here.
