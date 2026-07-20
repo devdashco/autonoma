@@ -135,6 +135,15 @@ services:
         condition: service_started
     expose:
       - "3000"
+    # Coolify's proxy here is caddy-docker-proxy, not traefik. Its auto-domain
+    # emitted `{{upstreams}}` with NO port -> caddy dialed the wrong port -> 502.
+    # Provide explicit caddy labels with port 3000 (docker_compose_domains is
+    # cleared so Coolify does not emit a conflicting portless reverse_proxy).
+    labels:
+      caddy_0: https://autonoma.hostbun.cc
+      caddy_0.encode: zstd gzip
+      caddy_0.reverse_proxy: "{{upstreams 3000}}"
+      caddy_ingress_network: yarefhiw496ifb1a9jvgty4u
 
 volumes:
   pgdata18:
