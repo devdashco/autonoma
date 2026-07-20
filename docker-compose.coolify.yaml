@@ -145,6 +145,8 @@ services:
       caddy_0: https://autonoma.hostbun.cc
       caddy_0.encode: zstd gzip
       caddy_0.reverse_proxy: "{{upstreams 3000}}"
+      # caddy resolves ui on this network (the app network coolify-proxy shares).
+      caddy_ingress_network: l36uekt9kbxkpib4ojajw7ty
 
 volumes:
   pgdata18:
