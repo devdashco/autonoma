@@ -179,7 +179,8 @@ function PreviewLoginForm() {
 function LoginPage() {
   const { signIn, isPending } = useGoogleSignIn();
   const dotSpotlight = useDotSpotlight();
-  const isPreview = useIsPreviewEnvironment();
+  // Self-host: always offer email/password (Google OAuth is not configured).
+  const isPreview = true;
   useErrorFromSearch();
 
   return (
