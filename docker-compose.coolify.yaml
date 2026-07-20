@@ -129,6 +129,30 @@ services:
         condition: service_started
     expose:
       - "3000"
+    # Coolify's auto-domain emitted routers but no service/port and did not put
+    # ui on the proxy network -> 502. Wire traefik explicitly and join the
+    # `coolify` network (Coolify still injects the per-app network alongside, so
+    # ui keeps reaching api/postgres). docker_compose_domains is cleared so
+    # Coolify does not generate a conflicting half-configured router.
+    networks:
+      coolify: null
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.autonomaui.rule=Host(`autonoma.hostbun.cc`)"
+      - "traefik.http.routers.autonomaui.entrypoints=https"
+      - "traefik.http.routers.autonomaui.tls=true"
+      - "traefik.http.routers.autonomaui.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.autonomaui.service=autonomaui"
+      - "traefik.http.services.autonomaui.loadbalancer.server.port=3000"
+      - "traefik.http.routers.autonomaui-http.rule=Host(`autonoma.hostbun.cc`)"
+      - "traefik.http.routers.autonomaui-http.entrypoints=http"
+      - "traefik.http.routers.autonomaui-http.service=autonomaui"
+      - "traefik.http.routers.autonomaui-http.middlewares=autonomaui-redir"
+      - "traefik.http.middlewares.autonomaui-redir.redirectscheme.scheme=https"
+
+networks:
+  coolify:
+    external: true
 
 volumes:
   pgdata18:
