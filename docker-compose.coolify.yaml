@@ -6,12 +6,13 @@
 # (phase 2) — the API still dispatches Temporal workflows, workers consume them.
 #
 # Coolify's docker-compose build pack does NOT bind-mount the repo, so the
-# source is baked into an image (Dockerfile.coolify). api builds it; ui reuses
-# the same image. Runs dev servers (tsx watch / vite), not the CI Dockerfiles
-# (which expect a prebuilt dist/). Migrations run in the api command on boot.
+# source is baked into an image (Dockerfile.coolify). api + ui each build it.
+# Runs dev servers (tsx watch / vite), not the CI Dockerfiles (which expect a
+# prebuilt dist/). Migrations run in the api command on boot.
 #
-# Only the `ui` service is exposed publicly (SERVICE_FQDN_UI_3000); it proxies
-# /v1 to the api container (same-origin -> no CORS / cookie-domain pain).
+# ui is exposed publicly via Coolify's SERVICE_FQDN_UI_3000 magic — the only
+# mechanism that both wires the right-port traefik router AND joins the coolify
+# proxy network. It proxies /v1 to the api container (same-origin, no CORS).
 
 services:
   postgres:
@@ -103,6 +104,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-unused}
     entrypoint: ["/bin/sh", "-lc"]
     command:
+      # api dev uses tsx --env-file=../../.env; Node exits 9 if the file is
+      # missing (env comes from the container), so create an empty one.
       - >
         cd packages/db && pnpm exec prisma migrate deploy && cd /app && touch .env && pnpm api
     depends_on:
@@ -117,6 +120,10 @@ services:
       dockerfile: Dockerfile.coolify
     working_dir: /app
     environment:
+      # Coolify compose-domain magic: this makes Coolify generate the traefik
+      # router+service on port 3000 AND attach ui to the coolify proxy network
+      # (a hand-rolled labels/networks block cannot — Coolify owns networks).
+      SERVICE_FQDN_UI_3000: "https://autonoma.hostbun.cc"
       API_PORT: "4000"
       API_PROXY_TARGET: http://api:4000
       ALLOWED_HOSTS: "*"
@@ -129,30 +136,6 @@ services:
         condition: service_started
     expose:
       - "3000"
-    # Coolify's auto-domain emitted routers but no service/port and did not put
-    # ui on the proxy network -> 502. Wire traefik explicitly and join the
-    # `coolify` network (Coolify still injects the per-app network alongside, so
-    # ui keeps reaching api/postgres). docker_compose_domains is cleared so
-    # Coolify does not generate a conflicting half-configured router.
-    networks:
-      coolify: null
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.autonomaui.rule=Host(`autonoma.hostbun.cc`)"
-      - "traefik.http.routers.autonomaui.entrypoints=https"
-      - "traefik.http.routers.autonomaui.tls=true"
-      - "traefik.http.routers.autonomaui.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.autonomaui.service=autonomaui"
-      - "traefik.http.services.autonomaui.loadbalancer.server.port=3000"
-      - "traefik.http.routers.autonomaui-http.rule=Host(`autonoma.hostbun.cc`)"
-      - "traefik.http.routers.autonomaui-http.entrypoints=http"
-      - "traefik.http.routers.autonomaui-http.service=autonomaui"
-      - "traefik.http.routers.autonomaui-http.middlewares=autonomaui-redir"
-      - "traefik.http.middlewares.autonomaui-redir.redirectscheme.scheme=https"
-
-networks:
-  coolify:
-    external: true
 
 volumes:
   pgdata18:
