@@ -113,6 +113,8 @@ services:
       dockerfile: Dockerfile.coolify
     working_dir: /app
     environment:
+      # Real GitHub App (devdash-sentry-gh) creds — needed once LOCAL_DEV is off.
+      <<: *github-env
       # dev NODE_ENV keeps better-auth's crossSubDomainCookies OFF, so the
       # session cookie is host-only on the ui origin (same-origin via proxy).
       NODE_ENV: development
@@ -122,7 +124,8 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       PREVIEWKIT_ENV: "true"       # enables email/password auth (no Google needed)
-      LOCAL_DEV: "true"            # fake GitHub app so boot needs no GH creds
+      # LOCAL_DEV off = use the REAL GitHub App (creds above); default false.
+      LOCAL_DEV: ${LOCAL_DEV:-false}
       STRIPE_ENABLED: "false"
       INTERNAL_DOMAIN: ${INTERNAL_DOMAIN:-autonoma.app}
       APP_URL: ${APP_URL:-http://localhost:3000}
