@@ -2,8 +2,8 @@
 #
 # Mirrors what Autonoma runs for its own preview envs (.preview.yaml): db +
 # redis + temporal + api + ui, PREVIEWKIT_ENV=true for email/password login,
-# prisma migrate on boot. Test-execution WORKERS + engine are NOT here yet
-# (phase 2) — the API still dispatches Temporal workflows, workers consume them.
+# prisma migrate on boot. Phase-2 test-execution workers are now included below
+# (worker-general/web/diffs) — the API dispatches Temporal workflows, they consume.
 #
 # Coolify's docker-compose build pack does NOT bind-mount the repo, so the
 # source is baked into an image (Dockerfile.coolify). api + ui each build it.
@@ -90,7 +90,10 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      # auto-setup binds the frontend to the container IP, not 127.0.0.1, so the
+      # default (localhost) probe always refuses -> container never reports
+      # healthy. Target the container's own IP.
+      test: ["CMD-SHELL", "temporal operator cluster health --address $(hostname -i):7233"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -193,8 +196,7 @@ services:
       SCENARIO_ENCRYPTION_KEY: ${SCENARIO_ENCRYPTION_KEY:?set in Coolify}
     restart: unless-stopped
     depends_on:
-      temporal:
-        condition: service_healthy
+      - temporal
 
   worker-diffs:
     build:
@@ -204,8 +206,7 @@ services:
       <<: [*worker-env, *github-env]
     restart: unless-stopped
     depends_on:
-      temporal:
-        condition: service_healthy
+      - temporal
 
   worker-web:
     build:
@@ -218,8 +219,7 @@ services:
     # Run-once job pod: exits after one activity / 120s idle -> Coolify respawns.
     restart: always
     depends_on:
-      temporal:
-        condition: service_healthy
+      - temporal
 
 volumes:
   pgdata18:
