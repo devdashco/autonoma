@@ -14,6 +14,42 @@
 # mechanism that both wires the right-port traefik router AND joins the coolify
 # proxy network. It proxies /v1 to the api container (same-origin, no CORS).
 
+# ---------------------------------------------------------------------------
+# Phase-2 test-execution workers (2026-07-21). The API dispatches Temporal
+# workflows onto 5 task queues; these consumers run them. MVP set = general
+# (hosts workflow code + generation) + web (browser step execution, Playwright
+# image) + diffs (visual-diff refinement). investigation + mobile deferred.
+#
+# worker-web is a run-once "job pod": it exits after one activity (or 120s
+# idle), so restart:always makes Coolify re-spawn it per job — the poor-man's
+# K8s pod-per-test. general/diffs are long-lived workflow workers.
+# ---------------------------------------------------------------------------
+x-worker-env: &worker-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://postgres:postgres@postgres:5432/autonoma
+  REDIS_URL: redis://redis:6379
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-placeholder}
+  GROQ_KEY: ${GROQ_KEY:-placeholder}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-placeholder}
+  OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+  GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}
+  S3_BUCKET: ${S3_BUCKET:-autonoma}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-unused}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-unused}
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+
+# general + diffs require valid GITHUB_APP_* at boot (no LOCAL_DEV bypass in the
+# worker env schema). GitHub is only actually called for repo-backed scenarios;
+# a throwaway base64 PEM satisfies boot validation for URL-based web tests.
+x-github-env: &github-env
+  GITHUB_APP_ID: ${GITHUB_APP_ID:-1}
+  GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:?set in Coolify}
+  GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-autonoma}
+  GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-ddash}
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -147,6 +183,43 @@ services:
       caddy_0.reverse_proxy: "{{upstreams 3000}}"
       # caddy resolves ui on this network (the app network coolify-proxy shares).
       caddy_ingress_network: l36uekt9kbxkpib4ojajw7ty
+
+  worker-general:
+    build:
+      context: .
+      dockerfile: apps/workers/general/Dockerfile
+    environment:
+      <<: [*worker-env, *github-env]
+      SCENARIO_ENCRYPTION_KEY: ${SCENARIO_ENCRYPTION_KEY:?set in Coolify}
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  worker-diffs:
+    build:
+      context: .
+      dockerfile: apps/workers/diffs/Dockerfile
+    environment:
+      <<: [*worker-env, *github-env]
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  worker-web:
+    build:
+      context: .
+      dockerfile: apps/workers/web/Dockerfile
+    environment:
+      <<: *worker-env
+      # Launch the image's own Chromium headless (no REMOTE_BROWSER_URL).
+      HEADLESS: "true"
+    # Run-once job pod: exits after one activity / 120s idle -> Coolify respawns.
+    restart: always
+    depends_on:
+      temporal:
+        condition: service_healthy
 
 volumes:
   pgdata18:
