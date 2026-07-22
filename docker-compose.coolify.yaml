@@ -168,7 +168,10 @@ services:
       API_PORT: "4000"
       API_PROXY_TARGET: http://api:4000
       ALLOWED_HOSTS: "*"
-      VITE_API_URL: ""
+      # Baked into the production build. Empty -> better-auth falls back to the
+      # VITE_API_URL zod default (http://localhost:4000), so the browser POSTs auth
+      # to localhost:4000 → "Failed to fetch". Point it at the public origin.
+      VITE_API_URL: ${APP_URL:-https://autonoma.hostbun.cc}
       VITE_INTERNAL_DOMAIN: ${INTERNAL_DOMAIN:-autonoma.app}
     entrypoint: ["/bin/sh", "-lc"]
     # Build the production bundle, then serve it with `vite preview` — NOT the dev
