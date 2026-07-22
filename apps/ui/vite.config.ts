@@ -102,6 +102,10 @@ export default defineConfig({
     server: {
         port: 3000,
         allowedHosts,
+        // Hosted behind caddy (Coolify): the HMR websocket can't reach the client
+        // through the proxy, so vite's client sees "server connection lost" and
+        // reload-loops the page. Disable HMR — this is a hosted deploy, not local dev.
+        hmr: false,
         proxy: {
             "/v1": {
                 target: apiProxyTarget,
