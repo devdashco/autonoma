@@ -24,6 +24,15 @@ const apiProxyTarget = process.env.API_PROXY_TARGET ?? `http://localhost:${readA
 // arbitrary public host; env-gating proved unreliable, so allow all hosts.
 const allowedHosts = true;
 
+// Shared reverse-proxy rules for both the dev server and `vite preview`.
+const proxyConfig = {
+    "/v1": { target: apiProxyTarget, changeOrigin: true },
+    "/ingest": { target: apiProxyTarget, changeOrigin: true },
+    // MCP OAuth discovery: Better Auth advertises these at the app origin,
+    // but the API serves them (mirrors the nginx.conf.template rule).
+    "/.well-known/oauth-": { target: apiProxyTarget, changeOrigin: true },
+};
+
 // Framework core that loads on every route. Isolating it into stable, long-cached
 // vendor chunks means an app-code deploy doesn't force browsers to re-download it.
 // Route-specific libs (recharts, react-markdown, ...) are intentionally left out so
@@ -99,28 +108,21 @@ export default defineConfig({
             },
         },
     },
+    // Same /v1, /ingest, oauth-discovery proxy for both dev server and `vite preview`.
     server: {
         port: 3000,
         allowedHosts,
-        // Hosted behind caddy (Coolify): the HMR websocket can't reach the client
-        // through the proxy, so vite's client sees "server connection lost" and
-        // reload-loops the page. Disable HMR — this is a hosted deploy, not local dev.
         hmr: false,
-        proxy: {
-            "/v1": {
-                target: apiProxyTarget,
-                changeOrigin: true,
-            },
-            "/ingest": {
-                target: apiProxyTarget,
-                changeOrigin: true,
-            },
-            // MCP OAuth discovery: Better Auth advertises these at the app origin,
-            // but the API serves them (mirrors the nginx.conf.template rule).
-            "/.well-known/oauth-": {
-                target: apiProxyTarget,
-                changeOrigin: true,
-            },
-        },
+        proxy: proxyConfig,
+    },
+    // The hosted deploy runs `vite preview` (serves the production build), NOT the
+    // dev server. The dev server injects @vite/client, whose websocket can't reach
+    // the client through caddy → "server connection lost. Polling for restart..." →
+    // endless page-reload loop. A production build has no client script, so preview
+    // sits still. Keep the same reverse-proxy for /v1 → api.
+    preview: {
+        port: 3000,
+        allowedHosts,
+        proxy: proxyConfig,
     },
 });

@@ -171,7 +171,16 @@ services:
       VITE_API_URL: ""
       VITE_INTERNAL_DOMAIN: ${INTERNAL_DOMAIN:-autonoma.app}
     entrypoint: ["/bin/sh", "-lc"]
-    command: ["pnpm ui -- --host 0.0.0.0"]
+    # Build the production bundle, then serve it with `vite preview` — NOT the dev
+    # server. The dev server injects @vite/client, whose HMR/ping websocket can't
+    # reach the client through caddy, so vite reload-loops the page ("server
+    # connection lost. Polling for restart..."). A production build has no client
+    # script → no reload loop. vite build skips typecheck deliberately (tsc is a
+    # separate CI gate; a type error must not block the deploy).
+    command:
+      - >
+        cd apps/ui && pnpm exec vite build &&
+        pnpm exec vite preview --host 0.0.0.0 --port 3000
     depends_on:
       api:
         condition: service_started
