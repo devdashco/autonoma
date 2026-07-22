@@ -53,6 +53,7 @@ x-github-env: &github-env
 services:
   postgres:
     image: postgres:18-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -70,6 +71,7 @@ services:
 
   redis:
     image: redis:alpine
+    restart: unless-stopped
     volumes:
       - redisdata:/data
     healthcheck:
@@ -80,6 +82,7 @@ services:
 
   temporal:
     image: temporalio/auto-setup:1.25.2
+    restart: unless-stopped
     environment:
       DB: postgres12
       DB_PORT: "5432"
@@ -101,6 +104,7 @@ services:
 
   temporal-ui:
     image: temporalio/ui:2.34.0
+    restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: ${APP_URL:-http://localhost:3000}
@@ -111,6 +115,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coolify
+    restart: unless-stopped
     working_dir: /app
     environment:
       # Real GitHub App (devdash-sentry-gh) creds — needed once LOCAL_DEV is off.
@@ -160,6 +165,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coolify
+    restart: unless-stopped
     working_dir: /app
     environment:
       # Domain routing comes from Coolify's docker_compose_domains (set via API):
