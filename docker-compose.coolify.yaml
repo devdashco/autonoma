@@ -20,9 +20,12 @@
 # (hosts workflow code + generation) + web (browser step execution, Playwright
 # image) + diffs (visual-diff refinement). investigation + mobile deferred.
 #
-# worker-web is a run-once "job pod": it exits after one activity (or 120s
-# idle), so restart:always makes Coolify re-spawn it per job — the poor-man's
-# K8s pod-per-test. general/diffs are long-lived workflow workers.
+# All three (general/web/diffs) are long-lived Temporal workers that poll their
+# task queue continuously. worker-web hosts the Playwright/Chromium browser-step
+# activities; general hosts workflow code + generation; diffs hosts visual-diff
+# refinement. A per-job container churn model fights Coolify's restart-count
+# health accounting (repeated exits mark the whole compose project unhealthy),
+# so these stay up under restart:unless-stopped like the core services.
 # ---------------------------------------------------------------------------
 x-worker-env: &worker-env
   NODE_ENV: production
@@ -237,8 +240,7 @@ services:
       <<: *worker-env
       # Launch the image's own Chromium headless (no REMOTE_BROWSER_URL).
       HEADLESS: "true"
-    # Run-once job pod: exits after one activity / 120s idle -> Coolify respawns.
-    restart: always
+    restart: unless-stopped
     depends_on:
       - temporal
 
