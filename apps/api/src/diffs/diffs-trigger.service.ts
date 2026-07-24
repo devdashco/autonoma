@@ -2,10 +2,11 @@ import type { PrismaClient } from "@autonoma/db";
 import { TriggerSource } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import { BranchAlreadyHasPendingSnapshotError, createDetachedSnapshot, TestSuiteUpdater } from "@autonoma/test-updates";
-import type {
-    TriggerAnalysisJobParams,
-    TriggerDiffsJobParams,
-    TriggerInvestigationJobParams,
+import {
+    type TriggerAnalysisJobParams,
+    type TriggerDiffsJobParams,
+    type TriggerInvestigationJobParams,
+    triggerRefinementLoop,
 } from "@autonoma/workflow";
 import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
@@ -38,6 +39,22 @@ export interface TriggerDiffsResult {
     deploymentId?: string;
     /** True when the request was a no-op: the head sha was already analyzed, so no snapshot/diffs job was created. */
     skipped?: boolean;
+}
+
+type RunAllParams = BaseTriggerDiffsParams;
+
+export interface RunAllResult {
+    branchId: string;
+    snapshotId: string;
+    deploymentId: string;
+    /** Number of test cases queued for execution (one pending generation each). */
+    tests: number;
+}
+
+export class NoActiveSuiteError extends BadRequestError {
+    constructor(public readonly appId: string) {
+        super(`Application ${appId} has no committed test plans to run`);
+    }
 }
 
 export class NoApplicationLinkedError extends NotFoundError {
@@ -479,6 +496,125 @@ export class DiffsTriggerService extends Service {
         });
 
         return { branchId, snapshotId, deploymentId };
+    }
+
+    /**
+     * Run the FULL active test suite for an application against a target URL,
+     * independent of any git diff.
+     *
+     * The diffs pipeline only executes tests the code diff touches, so a deploy
+     * with an empty diff (docs/CI commits) runs nothing ("No runs"). This path is
+     * the on-demand "run everything" trigger CI needs for a Static-Web-URL app:
+     *
+     *   1. Point the branch at the target deployment (URL + optional factory
+     *      webhook) so the engine runs against it.
+     *   2. Open a fresh PROCESSING snapshot that carries the whole active suite
+     *      forward (via TestSuiteUpdater) - but create NO diffs job.
+     *   3. Seed one pending generation per carried-forward test plan. The
+     *      refinement loop's iter-1 scope IS the snapshot's pending generations
+     *      (the `onboarding` trigger contract), so this runs the entire suite.
+     *   4. Start the refinement loop; on completion it finalizes the snapshot to
+     *      active, surfacing pass/fail on the branch.
+     */
+    async runAll({ organizationId, repoId, url, webhookUrl, webhookHeaders }: RunAllParams): Promise<RunAllResult> {
+        this.logger.info("Triggering run-all suite execution", { organizationId, extra: { repoId, url } });
+
+        const app = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repoId } },
+            select: {
+                id: true,
+                mainBranch: { select: { id: true, activeSnapshot: { select: { headSha: true, baseSha: true } } } },
+            },
+        });
+
+        if (app == null) throw new NoApplicationLinkedError(repoId);
+        if (app.mainBranch == null) throw new NoMainBranchError(app.id);
+
+        const branchId = app.mainBranch.id;
+        // Carry the current baseline's shas forward so a later diffs trigger keeps
+        // a consistent base; both may be null on a never-diffed app, which is fine.
+        const headSha = app.mainBranch.activeSnapshot?.headSha ?? undefined;
+        const baseSha = app.mainBranch.activeSnapshot?.baseSha ?? headSha;
+
+        // Order mirrors the diffs trigger: deployment first (sets branch.deploymentId,
+        // which the engine resolves via snapshot.branch.deployment.webDeployment.url),
+        // then the snapshot.
+        const deploymentId = await this.createDeployment({ branchId, organizationId, url, webhookUrl, webhookHeaders });
+
+        const updater = await this.startRunAllSnapshot(branchId, organizationId, headSha, baseSha);
+        const snapshotId = updater.snapshotId;
+
+        const assignments = await this.db.testCaseAssignment.findMany({
+            where: { snapshotId, planId: { not: null } },
+            select: { planId: true },
+        });
+        const planIds = [
+            ...new Set(assignments.map((a) => a.planId).filter((planId): planId is string => planId != null)),
+        ];
+
+        if (planIds.length === 0) {
+            await updater.cancel();
+            throw new NoActiveSuiteError(app.id);
+        }
+
+        // One pending generation per plan (shadow:false). The loop asserts a
+        // per-plan dedup invariant, so the Set above is load-bearing.
+        await this.db.testGeneration.createMany({
+            data: planIds.map((planId) => ({ snapshotId, testPlanId: planId, organizationId, shadow: false })),
+        });
+
+        await triggerRefinementLoop({ snapshotId, triggeredBy: "onboarding" });
+
+        this.logger.info("Run-all suite execution triggered", {
+            branchId,
+            snapshot: { snapshotId },
+            extra: { deploymentId, tests: planIds.length },
+        });
+
+        return { branchId, snapshotId, deploymentId, tests: planIds.length };
+    }
+
+    /**
+     * Open a processing snapshot for a run-all, carrying the active suite forward.
+     * Unlike `createSnapshot` this creates NO diffs job (we run every test, not a
+     * diff). If a pending snapshot is already in flight it is superseded first,
+     * mirroring `createSnapshot`'s recovery so a stranded pending snapshot can't
+     * permanently block run-all.
+     */
+    private async startRunAllSnapshot(
+        branchId: string,
+        organizationId: string,
+        headSha: string | undefined,
+        baseSha: string | undefined,
+    ): Promise<TestSuiteUpdater> {
+        try {
+            return await TestSuiteUpdater.startUpdate({
+                db: this.db,
+                branchId,
+                organizationId,
+                source: TriggerSource.WEBHOOK,
+                headSha,
+                baseSha,
+            });
+        } catch (error) {
+            if (!(error instanceof BranchAlreadyHasPendingSnapshotError)) throw error;
+
+            this.logger.info("Superseding existing pending snapshot for run-all", { branchId });
+            const staleUpdater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
+            await this.cancelDiffsJob(staleUpdater.snapshotId).catch(() => undefined);
+            await this.supersedeShadows(staleUpdater.snapshotId);
+            await staleUpdater.cancel();
+            await this.markDiffsJobSuperseded(staleUpdater.snapshotId).catch(() => undefined);
+
+            return await TestSuiteUpdater.startUpdate({
+                db: this.db,
+                branchId,
+                organizationId,
+                source: TriggerSource.WEBHOOK,
+                headSha,
+                baseSha,
+            });
+        }
     }
 
     private async createDeployment({

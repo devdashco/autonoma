@@ -18,6 +18,14 @@ const triggerDiffsBodySchema = z.object({
     environment: z.string().optional(),
 });
 
+const runAllBodySchema = z.object({
+    repo_id: z.number(),
+    url: z.url(),
+    webhook_url: z.url().optional(),
+    webhook_headers: z.record(z.string(), z.string()).optional(),
+    environment: z.string().optional(),
+});
+
 const triggerDiffsInternalBodySchema = z.object({
     organization_id: z.string().min(1),
     repo_id: z.number(),
@@ -70,6 +78,44 @@ const externalRouter = new Hono<{ Variables: UserAuthVariables }>()
                 githubRef: body.github_ref,
             });
             return ctx.json({ error: "Failed to trigger diffs analysis" }, 500);
+        }
+    })
+    // Run the FULL active suite against `url`, independent of any git diff. Diffs
+    // only run tests a code change touches, so an empty-diff deploy runs nothing;
+    // this is the on-demand "run everything" trigger for Static-Web-URL apps.
+    .post("/run-all", async (ctx) => {
+        const logger = rootLogger.child({ name: "diffsHttpRouter.runAll" });
+        logger.info("Received run-all request");
+
+        const { organizationId } = ctx.var.user;
+
+        const parsed = runAllBodySchema.safeParse(await ctx.req.json());
+        if (!parsed.success) {
+            return ctx.json({ error: "Invalid request body", details: z.treeifyError(parsed.error) }, 400);
+        }
+        const body = parsed.data;
+
+        try {
+            const result = await service.runAll({
+                organizationId,
+                repoId: body.repo_id,
+                url: body.url,
+                webhookUrl: body.webhook_url,
+                webhookHeaders: body.webhook_headers,
+                environment: body.environment,
+            });
+
+            return ctx.json({ ok: true, ...result });
+        } catch (error) {
+            if (error instanceof BadRequestError) {
+                return ctx.json({ error: error.message }, 400);
+            }
+            if (error instanceof NotFoundError) {
+                return ctx.json({ error: error.message }, 404);
+            }
+
+            logger.fatal("Failed to trigger run-all", error, { repoId: body.repo_id });
+            return ctx.json({ error: "Failed to trigger run-all" }, 500);
         }
     });
 
