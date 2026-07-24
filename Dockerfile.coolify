@@ -10,8 +10,16 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     HUSKY=0
 
 RUN corepack enable
+
+# Fetch the dependency store from the lockfile ALONE. A source-only change
+# leaves pnpm-lock.yaml untouched, so this layer stays cached and the deploy
+# relinks from the store instead of re-downloading every dep from scratch -
+# what used to peak ~25GB and ENOSPC hostbun on each code deploy.
+COPY pnpm-lock.yaml ./
+RUN pnpm fetch
+
 COPY . .
-RUN pnpm install --frozen-lockfile && pnpm db:generate
+RUN pnpm install --frozen-lockfile --prefer-offline && pnpm db:generate
 
 # NOTE: deliberately no EXPOSE. The ui container must expose exactly ONE port
 # (3000, via compose `expose`) so traefik auto-selects it for the domain router.

@@ -8,6 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep ca-
 RUN corepack enable
 
 WORKDIR /app
+
+# Fetch the dependency store from the lockfile alone so a source-only change
+# keeps this cached layer instead of re-downloading every dep (see the deploy
+# ENOSPC note in Dockerfile.coolify).
+COPY pnpm-lock.yaml ./
+RUN pnpm fetch
+
 COPY . .
 
 # Codebase clones land in dynamically-seeded dirs under /tmp/codebase/<seed>
@@ -16,7 +23,7 @@ COPY . .
 # root directly on these clones and reads this global config via HOME.
 RUN git config --global --add safe.directory '*'
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prefer-offline
 RUN pnpm --filter @autonoma/worker-diffs run build
 
 ENV NODE_ENV=production

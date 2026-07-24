@@ -8,9 +8,16 @@ FROM mcr.microsoft.com/playwright:v1.56.1-noble
 RUN corepack enable
 
 WORKDIR /app
+
+# Fetch the dependency store from the lockfile alone so a source-only change
+# keeps this cached layer instead of re-downloading every dep (see the deploy
+# ENOSPC note in Dockerfile.coolify).
+COPY pnpm-lock.yaml ./
+RUN pnpm fetch
+
 COPY . .
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prefer-offline
 RUN pnpm --filter @autonoma/worker-web run build
 
 ENV NODE_ENV=production
